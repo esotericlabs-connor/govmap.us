@@ -13,7 +13,13 @@ type Member = {
 };
 
 async function getMembers(): Promise<Member[]> {
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+  // This runs server-side (in the frontend container), so prefer the internal
+  // service URL and reach the backend directly over the compose network rather
+  // than hairpinning out through the public api.govmap.us hostname.
+  const apiUrl =
+    process.env.API_INTERNAL_URL ??
+    process.env.NEXT_PUBLIC_API_URL ??
+    "http://localhost:8000";
   const res = await fetch(`${apiUrl}/api/members?limit=535`, {
     cache: "no-store",
   });

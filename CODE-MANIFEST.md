@@ -4,6 +4,9 @@ What's been built, in what order, and what's next. This is a living log — add 
 
 ## Build log
 
+**2026-07-21 — Containerized deploy layer**
+Added `backend/Dockerfile` (migrations-on-start + uvicorn, non-root) and a multi-stage `frontend/Dockerfile` (Next.js `standalone` output, non-root runner). Extended `docker-compose.yml` from Postgres-only to the full stack: `postgres` + `backend` (`127.0.0.1:8000`) + `frontend` (`127.0.0.1:3000`), all loopback-bound so `cloudflared` reaches them over localhost and nothing is publicly exposed. Server-side rendering in the frontend now reaches the backend over the internal compose network (`API_INTERNAL_URL=http://backend:8000`); `NEXT_PUBLIC_*` prod URLs are baked at build time via compose build args. First real production deploy target: the home Ubuntu VM behind the `govmap` cloudflared tunnel (govmap.us / app.govmap.us / api.govmap.us).
+
 **2026-07-20 — Brand assets + marketing/platform split**
 Received the first brand assets: `logo-dark.png` / `logo-light.png` (full lockups, opaque backgrounds baked in — not transparent, so they're placed as full-bleed treatments, not floated over arbitrary backgrounds). Sampled exact colors from the artwork rather than eyeballing hex values: navy `#070B1A`, red `#DD1922`, blue `#58A9E6`, now in `frontend/tailwind.config.ts` as `govnavy`/`govred`/`govblue`. Cropped a square Capitol-only mark from the dark logo (no source icon-only asset existed) for `frontend/app/icon.png`.
 
@@ -69,6 +72,7 @@ Note: `bills.json`, `executive_actions.json`, `opinions.json`, and `state_bills.
 ```
 govmap.us/
 ├── backend/            # FastAPI app: pipelines, normalization, API
+│   ├── Dockerfile      # migrations-on-start + uvicorn, non-root
 │   ├── app/
 │   │   ├── pipelines/  # one script per source, Layer 1
 │   │   ├── normalize/  # one module per entity, Layer 2
@@ -81,6 +85,7 @@ govmap.us/
 │   ├── migrations/     # Alembic
 │   └── data/staging/   # raw pipeline output, gitignored
 ├── frontend/           # Next.js app -- two zones, one deployment
+│   ├── Dockerfile      # multi-stage, Next standalone output, non-root
 │   ├── middleware.ts   # hostname routing: govmap.us vs app.govmap.us
 │   ├── lib/
 │   │   └── site-config.ts  # cross-zone URLs, GitHub, social/support links
@@ -92,7 +97,7 @@ govmap.us/
 │           ├── layout.tsx
 │           ├── page.tsx
 │           └── members/page.tsx
-├── docker-compose.yml  # local Postgres
+├── docker-compose.yml  # full stack: postgres + backend + frontend, loopback-bound
 └── .github/workflows/  # CI (lint now, deploy once the runner exists)
 ```
 

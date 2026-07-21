@@ -105,6 +105,24 @@ npm run dev                                    # marketing: http://localhost:300
 
 `*.localhost` resolves to loopback with no hosts-file editing needed, so `app.localhost:3000` exercises the exact same middleware-based host routing as `app.govmap.us` will in production. Visit `http://app.localhost:3000/members` — it should list all current members of Congress, pulled live from the `unitedstates/congress-legislators` GitHub repo, normalized, and served through the API.
 
+## Production deployment
+
+Production runs the whole stack in Docker on the home Ubuntu VM, reached only through a `cloudflared` tunnel (no public inbound ports). On the server, in the repo directory:
+
+```bash
+# One-time: production secrets for docker-compose (gitignored)
+printf 'POSTGRES_PASSWORD=%s\n' "$(openssl rand -base64 32)" > .env
+chmod 600 .env
+
+docker compose up -d --build          # postgres + backend + frontend
+
+# One-time: load the pilot data set
+docker compose exec backend python -m app.pipelines.congress_legislators
+docker compose exec backend python -m app.normalize.members
+```
+
+The three services bind to `127.0.0.1` only (`:3000` frontend, `:8000` backend, `:5432` Postgres). `cloudflared`'s ingress maps `govmap.us`/`app.govmap.us` → `localhost:3000` and `api.govmap.us` → `localhost:8000`. Full server hardening (UFW, Tailscale, fail2ban, backups) is documented separately; the deploy-on-push automation (self-hosted Actions runner over Tailscale) is still stubbed — see [CODE-MANIFEST.md](CODE-MANIFEST.md).
+
 This loop hasn't been run end-to-end in this environment yet — no Python, Node, or Docker toolchain was available when the scaffold was built. See [CODE-MANIFEST.md](CODE-MANIFEST.md) for verification status.
 
 ## Documentation

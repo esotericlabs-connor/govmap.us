@@ -1,0 +1,10 @@
+.venv
+venv
+__pycache__
+*.pyc
+.env
+.env.*
+data/staging/*
+data/pipeline_status.json
+.pytest_cache
+.ruff_cache
