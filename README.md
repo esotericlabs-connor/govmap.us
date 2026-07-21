@@ -7,7 +7,6 @@
 
 A mobile-first web app that makes the entire US federal government easy to understand for everyday Americans. GovMap presents real, verified, public data — who represents you, how they vote, who runs the agencies that govern you, where the money goes, and how a bill moves from introduction through signing through judicial challenge — in a clean, digestible format, extended to the full process of American government.
 
-> 
 
 > From City Council to Congress.
 
