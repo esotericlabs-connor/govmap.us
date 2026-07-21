@@ -5,10 +5,23 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: govmap
-      POSTGRES_PASSWORD: govmap
+      # Dev default only. In production set POSTGRES_PASSWORD (and a matching
+      # DATABASE_URL) in an .env file next to this compose file — never ship
+      # the "govmap" default to a reachable host.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-govmap}
       POSTGRES_DB: govmap
     ports:
-      - "5432:5432"
+      # Bound to loopback only. Docker publishes ports by writing iptables
+      # rules that BYPASS ufw, so a plain "5432:5432" would expose Postgres
+      # to every interface regardless of firewall rules. The app reaches
+      # Postgres over the compose network by service name, not this port;
+      # this mapping is only for host-side tools (psql, alembic).
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U govmap"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     volumes:
       - postgres-data:/var/lib/postgresql/data
 
