@@ -218,6 +218,10 @@ __marimo__/
 .streamlit/secrets.toml
 
 # --- GovMap: Node / Next.js frontend ---
+# The Python-oriented `lib/` rule higher up in this file also matches
+# frontend/lib/ (shared TypeScript source). Re-include it — it's application
+# code, not a Python build artifact. Must come after that rule to override it.
+!frontend/lib/
 node_modules/
 .next/
 out/
