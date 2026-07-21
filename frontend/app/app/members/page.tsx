@@ -1,3 +1,9 @@
+// Always rendered on demand, never pre-rendered at build time. The backend
+// isn't reachable during the Docker image build, so pre-rendering would try
+// to fetch from a dead host and fail the build; this opts the route out of
+// static generation entirely.
+export const dynamic = "force-dynamic";
+
 type Member = {
   bioguide_id: string;
   first_name: string;
@@ -30,7 +36,24 @@ async function getMembers(): Promise<Member[]> {
 }
 
 export default async function MembersPage() {
-  const members = await getMembers();
+  let members: Member[] = [];
+  let loadError = false;
+  try {
+    members = await getMembers();
+  } catch {
+    loadError = true;
+  }
+
+  if (loadError) {
+    return (
+      <main className="mx-auto max-w-4xl px-6 py-12">
+        <h1 className="mb-2 text-2xl font-bold">Members of Congress</h1>
+        <p className="text-slate-500">
+          Couldn&apos;t load members right now. Please try again shortly.
+        </p>
+      </main>
+    );
+  }
 
   return (
     <main className="mx-auto max-w-4xl px-6 py-12">
