@@ -1,0 +1,15 @@
+name: Deploy
+
+# Manual trigger only -- this is a stub. Automatic deploy-on-push to main
+# will be enabled once a self-hosted GitHub Actions runner is installed on
+# the home VM and reachable over Tailscale. See CODE-MANIFEST.md -> Known
+# open items.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    steps:
+      - run: echo "Deploy pipeline not yet configured -- see CODE-MANIFEST.md"
