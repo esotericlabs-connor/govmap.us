@@ -1,15 +1,31 @@
 name: Deploy
 
-# Manual trigger only -- this is a stub. Automatic deploy-on-push to main
-# will be enabled once a self-hosted GitHub Actions runner is installed on
-# the home VM and reachable over Tailscale. See CODE-MANIFEST.md -> Known
-# open items.
-
+# Auto-deploy on push to main, executed by a self-hosted GitHub Actions runner
+# installed on the govmap VM (reachable over Tailscale). The runner operates on
+# the checked-out repo at /opt/govmap directly — no SSH, no exposed ports.
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
+
+# Never let two deploys run at once.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
 
 jobs:
   deploy:
     runs-on: self-hosted
     steps:
-      - run: echo "Deploy pipeline not yet configured -- see CODE-MANIFEST.md"
+      - name: Pull latest and redeploy
+        run: |
+          set -euo pipefail
+          cd /opt/govmap
+          git fetch origin main
+          git reset --hard origin/main
+          # Rebuild and restart changed services. The backend applies Alembic
+          # migrations on start (see backend/Dockerfile), so no separate
+          # migrate step is needed.
+          docker compose up -d --build
+          # Reclaim space from superseded image layers.
+          docker image prune -f

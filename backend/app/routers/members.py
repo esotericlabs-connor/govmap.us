@@ -17,7 +17,11 @@ async def list_members(
     chamber: Literal["house", "senate"] | None = None,
     state: str | None = Query(default=None, min_length=2, max_length=2),
     party: str | None = None,
-    limit: int = Query(default=100, le=535),
+    # Cap comfortably above the ~535 voting members + non-voting delegates so
+    # the full roster is returnable in one request without silently dropping
+    # records (the House delegates + PR resident commissioner push the real
+    # count past 535).
+    limit: int = Query(default=100, le=600),
     offset: int = 0,
 ) -> list[Member]:
     stmt = select(Member).order_by(Member.state, Member.last_name)

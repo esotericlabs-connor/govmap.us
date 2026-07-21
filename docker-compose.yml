@@ -35,6 +35,10 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://govmap:${POSTGRES_PASSWORD:-govmap}@postgres:5432/govmap
       CORS_ORIGINS: ${CORS_ORIGINS:-https://govmap.us,https://app.govmap.us}
+      # Optional: set these in the .env next to this file to unlock the
+      # /internal/* ops endpoints. Left unset = those endpoints stay locked.
+      INTERNAL_USER: ${INTERNAL_USER:-}
+      INTERNAL_PASSWORD: ${INTERNAL_PASSWORD:-}
     ports:
       # Loopback only — cloudflared reaches it at http://localhost:8000.
       - "127.0.0.1:8000:8000"

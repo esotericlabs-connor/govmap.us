@@ -27,7 +27,7 @@ async function getMembers(): Promise<Member[]> {
     process.env.API_INTERNAL_URL ??
     process.env.NEXT_PUBLIC_API_URL ??
     "http://localhost:8000";
-  const res = await fetch(`${apiUrl}/api/members?limit=535`, {
+  const res = await fetch(`${apiUrl}/api/members?limit=600`, {
     cache: "no-store",
   });
   if (!res.ok) {
