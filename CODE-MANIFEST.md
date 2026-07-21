@@ -4,6 +4,11 @@ What's been built, in what order, and what's next. This is a living log — add 
 
 ## Build log
 
+**2026-07-21 — Flattened frontend routing (fixed blank-page bug)**
+The first deploy rendered blank: every page served HTML with no `<!DOCTYPE html>`/`<html>`/`<body>` (Quirks Mode + React #418/#423 hydration failure → React tore the tree down). Ruled out Cloudflare (Bot Fight Mode / JS Detections injection was a real but secondary red herring) and the middleware (removing it didn't help). Root cause: **the platform routes lived under `app/app/` — a route segment literally named `app` inside the App Router's own `app/` directory — which corrupted route resolution so Next.js used `app/app/layout.tsx` (a bare `<div>`, no `<html>`) as the root and skipped the real `app/layout.tsx` entirely.**
+
+Fix: collapsed to a standard flat structure — marketing at `app/page.tsx` (`/`), members at `app/members/page.tsx` (`/members`), no nested `app/app/`, no middleware. **Deferred: the govmap.us / app.govmap.us subdomain split.** It required host-based rewriting (middleware or `app/app/` nesting) and was the source of this whole class of pain; re-introduce it only once the flat app is proven stable, using a tested approach (config-level `rewrites` or separate concerns). `cloudflared` still routes `app.govmap.us` → `localhost:3000`, which now just serves the same content as `govmap.us` — harmless; drop that ingress line when convenient. `middleware.ts` and `site-config`'s subdomain URLs were removed.
+
 **2026-07-21 — Containerized deploy layer**
 Added `backend/Dockerfile` (migrations-on-start + uvicorn, non-root) and a multi-stage `frontend/Dockerfile` (Next.js `standalone` output, non-root runner). Extended `docker-compose.yml` from Postgres-only to the full stack: `postgres` + `backend` (`127.0.0.1:8000`) + `frontend` (`127.0.0.1:3000`), all loopback-bound so `cloudflared` reaches them over localhost and nothing is publicly exposed. Server-side rendering in the frontend now reaches the backend over the internal compose network (`API_INTERNAL_URL=http://backend:8000`); `NEXT_PUBLIC_*` prod URLs are baked at build time via compose build args. First real production deploy target: the home Ubuntu VM behind the `govmap` cloudflared tunnel (govmap.us / app.govmap.us / api.govmap.us).
 

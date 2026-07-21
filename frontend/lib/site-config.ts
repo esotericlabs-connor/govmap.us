@@ -10,12 +10,12 @@ export const siteConfig = {
   name: "GovMap.us",
   tagline: "From City Council to Congress.",
 
-  // Where the marketing site's "Enter GovMap" button sends people, and
-  // where the platform links back to. Same-zone links inside each app
-  // should stay relative ("/", "/members") -- only cross-zone links need
-  // an absolute URL, since govmap.us and app.govmap.us are different hosts.
-  appUrl: process.env.NEXT_PUBLIC_APP_URL || "http://app.localhost:3000",
-  marketingUrl: process.env.NEXT_PUBLIC_MARKETING_URL || "http://localhost:3000",
+  // Marketing and platform now live on one host (govmap.us): marketing at /,
+  // the platform at /members etc. These are plain relative paths. The
+  // app.govmap.us subdomain split is deferred until the base app is stable —
+  // see CODE-MANIFEST.md.
+  appUrl: "/members",
+  marketingUrl: "/",
 
   githubUrl: "https://github.com/esotericlabs-connor/govmap.us",
 

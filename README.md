@@ -7,7 +7,7 @@
 
 A mobile-first web app that makes the entire US federal government easy to understand for everyday Americans. GovMap presents real, verified, public data — who represents you, how they vote, who runs the agencies that govern you, where the money goes, and how a bill moves from introduction through signing through judicial challenge — in a clean, digestible format, extended to the full process of American government.
 
-> Apathy is largely a UX problem.
+> 
 
 > From City Council to Congress.
 
@@ -15,7 +15,7 @@ A mobile-first web app that makes the entire US federal government easy to under
 
 ## Mission
 
-To create a nonpartisan, transparent civic tool that gives every American a clear, real-time view of their entire federal government — who represents them, how they vote, who runs the agencies that govern them, where the money goes, and how laws move through all three branches.
+Apathy is largely a UX problem. - Govmap.us aims to be a modern, nonpartisan, transparent civic tool that gives every American a clear, real-time view of their entire federal government — who represents them, how they vote, who runs the agencies that govern them, where the money goes, and how laws move through all three branches.
 
 ## Critical design principles
 
