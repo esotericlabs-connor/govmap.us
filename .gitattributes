@@ -1,0 +1,14 @@
+# Keep scripts, workflow YAML, and Dockerfiles as LF regardless of the OS they
+# were committed from — the deploy runs them on the Linux host, where CRLF
+# would break shebangs and the deploy.yml run-block. (These are already LF in
+# the repo, so this pins the behavior without a renormalization diff.)
+*.sh    text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+Dockerfile text eol=lf
+
+# Never touch binary assets.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.ico  binary

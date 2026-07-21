@@ -1,6 +1,8 @@
 import Image from "next/image";
 import Link from "next/link";
 
+import { MemberAvatar } from "@/components/MemberAvatar";
+
 // Rendered on demand, never prerendered — the backend isn't reachable during
 // the Docker image build, so prerendering would fetch a dead host and fail
 // the build.
@@ -36,13 +38,29 @@ async function getMembers(): Promise<Member[]> {
   return res.json();
 }
 
+function partyColor(party: string): string {
+  if (party.startsWith("Republican")) return "text-govred";
+  if (party.startsWith("Democrat")) return "text-govblue";
+  return "text-slate-500";
+}
+
+function seatLabel(member: Member): string {
+  const where =
+    member.district !== null ? `${member.state}-${member.district}` : member.state;
+  const chamber = member.chamber === "senate" ? "Senate" : "House";
+  return `${where} · ${chamber}`;
+}
+
 function Header() {
   return (
     <header className="flex items-center justify-between gap-4 bg-govnavy px-6 py-3">
       <Link href="/" className="shrink-0">
-        <Image src="/logo-dark.png" alt="GovMap.us" width={140} height={79} priority />
+        <Image src="/logo-dark.png" alt="GovMap.us" width={150} height={48} priority />
       </Link>
-      <Link href="/" className="text-sm font-medium text-white/70 transition-colors hover:text-white">
+      <Link
+        href="/"
+        className="text-sm font-medium text-white/70 transition-colors hover:text-white"
+      >
         ← Home
       </Link>
     </header>
@@ -72,20 +90,22 @@ export default async function MembersPage() {
         ) : (
           <>
             <h1 className="mb-6 text-2xl font-bold">
-              Members of Congress ({members.length})
+              Members of Congress{" "}
+              <span className="font-normal text-slate-400">({members.length})</span>
             </h1>
-            <ul className="divide-y divide-slate-200">
+            <ul className="divide-y divide-slate-100">
               {members.map((member) => (
-                <li
-                  key={member.bioguide_id}
-                  className="flex items-center justify-between py-3"
-                >
-                  <div>
-                    <p className="font-medium">{member.official_full_name}</p>
+                <li key={member.bioguide_id} className="flex items-center gap-4 py-3">
+                  <MemberAvatar src={member.photo_url} name={member.official_full_name} />
+                  <div className="min-w-0">
+                    <p className="truncate font-medium text-slate-900">
+                      {member.official_full_name}
+                    </p>
                     <p className="text-sm text-slate-500">
-                      {member.party} — {member.state}
-                      {member.district !== null ? `-${member.district}` : ""} (
-                      {member.chamber === "senate" ? "Senate" : "House"})
+                      <span className={`font-medium ${partyColor(member.party)}`}>
+                        {member.party}
+                      </span>{" "}
+                      · {seatLabel(member)}
                     </p>
                   </div>
                 </li>

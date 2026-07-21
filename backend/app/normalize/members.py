@@ -29,6 +29,14 @@ STAGING_PATH = Path(__file__).resolve().parents[2] / "data" / "staging" / "legis
 
 CHAMBER_MAP = {"rep": "house", "sen": "senate"}
 
+# unitedstates/images serves public-domain member portraits at a deterministic
+# URL keyed by Bioguide ID (verified 200 image/jpeg). Because the URL is fully
+# derivable, it's set here rather than via a separate pull pipeline; the
+# frontend falls back to initials for the rare member without a portrait. If we
+# ever need existence-verification or self-hosting, this becomes a real
+# Layer-1 pipeline (see AGENTS.md).
+PHOTO_URL_BASE = "https://unitedstates.github.io/images/congress/225x275"
+
 
 def current_term(legislator: LegislatorRaw) -> LegislatorTerm:
     # legislators-current.yaml lists each member's terms chronologically;
@@ -50,6 +58,7 @@ def to_member_row(legislator: LegislatorRaw) -> dict:
         "party": term.party,
         "term_start": term.start,
         "fec_candidate_ids": legislator.id.fec,
+        "photo_url": f"{PHOTO_URL_BASE}/{legislator.id.bioguide}.jpg",
     }
 
 
@@ -64,9 +73,6 @@ async def normalize_and_load() -> int:
 
     async with async_session_factory() as session:
         stmt = pg_insert(Member).values(rows)
-        # photo_url is intentionally excluded: it's populated by a separate,
-        # event-triggered pipeline (unitedstates/images) and must not be
-        # clobbered back to NULL every time this normalizer re-runs.
         update_cols = {
             "first_name": stmt.excluded.first_name,
             "last_name": stmt.excluded.last_name,
@@ -77,6 +83,7 @@ async def normalize_and_load() -> int:
             "party": stmt.excluded.party,
             "term_start": stmt.excluded.term_start,
             "fec_candidate_ids": stmt.excluded.fec_candidate_ids,
+            "photo_url": stmt.excluded.photo_url,
             "updated_at": func.now(),
         }
         stmt = stmt.on_conflict_do_update(index_elements=[Member.bioguide_id], set_=update_cols)
