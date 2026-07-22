@@ -90,9 +90,17 @@ git --no-pager log --oneline -1
 
 log "Ensuring .env exists"
 if [ ! -f .env ]; then
-  echo "POSTGRES_PASSWORD=$(openssl rand -base64 32)" > .env
+  {
+    echo "# GovMap production secrets. Back this file up — restoring it makes a"
+    echo "# rebuild instant. See .env.example for the full reference."
+    echo "POSTGRES_PASSWORD=$(openssl rand -base64 32)"
+    echo "# Cloudflare Tunnel token — required for the public site to come up."
+    echo "# Fetch from the CF dashboard (govmap tunnel -> connector -> --token)."
+    echo "CLOUDFLARE_TUNNEL_TOKEN="
+  } > .env
   chmod 600 .env
-  echo "created .env with a generated POSTGRES_PASSWORD"
+  echo "created a fresh .env with a generated POSTGRES_PASSWORD"
+  echo "ACTION NEEDED: set CLOUDFLARE_TUNNEL_TOKEN in .env to bring the public site up"
 else
   echo ".env already present — leaving it untouched"
 fi

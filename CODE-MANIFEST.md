@@ -4,6 +4,9 @@ What's been built, in what order, and what's next. This is a living log — add 
 
 ## Build log
 
+**2026-07-22 — Redeploy hardening + full stack live in production**
+Site live end-to-end at govmap.us through the dashboard-managed tunnel (marketing, `/members` with real portraits + party colors, 537 members). Made redeploy fully reproducible: root `.env.example` documents the two required secrets (`POSTGRES_PASSWORD`, `CLOUDFLARE_TUNNEL_TOKEN`); `deploy.sh` now writes a self-documenting `.env` on a fresh box and flags the missing tunnel token; README gained a "Rebuilding on a fresh box" runbook. **Key operational fact: the tunnel is dashboard-managed, so its routes live in Cloudflare and survive any rebuild — the only per-box state is `.env`.** Reconnecting a rebuilt box = restore `.env` (or re-fetch the token from the CF dashboard) + `bash scripts/deploy.sh`. Tunnel ID `ebdeb681-961d-4321-8beb-2f14b35c6143`.
+
 **2026-07-22 — Cloudflare Tunnel as a stack service**
 Moved the tunnel from a per-box systemd unit (fragile: interactive `tunnel login`, on-disk credentials that can't live in the repo, and the source of a rebuild's Error 1033) into the compose stack. New `cloudflared` service runs a **dashboard-managed** tunnel via a token from `.env` (`CLOUDFLARE_TUNNEL_TOKEN`), under a `tunnel` compose profile that `scripts/deploy.sh` enables automatically when the token is present. So `docker compose up` now brings the public site up too, and rebuilding a box is just "restore the token to `.env`." Ingress (public hostnames → `http://frontend:3000` / `http://backend:8000`) is configured once in the Cloudflare Zero Trust dashboard; cloudflared shares the compose network so those service names resolve. The old CLI/systemd tunnel should be uninstalled (`sudo cloudflared service uninstall`) and its dashboard tunnel deleted.
 

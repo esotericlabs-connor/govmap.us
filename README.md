@@ -111,23 +111,41 @@ npm run dev                                    # marketing: http://localhost:300
 
 ## Production deployment
 
-Production runs the whole stack in Docker on the home Ubuntu VM, reached only through a `cloudflared` tunnel (no public inbound ports). On the server, in the repo directory:
+Production runs the whole stack in Docker on the Ubuntu VM — `postgres`, `backend`, `frontend`, and `cloudflared` — reached only through a Cloudflare Tunnel (no public inbound ports). Everything is driven by one script:
 
 ```bash
-# One-time: production secrets for docker-compose (gitignored)
-printf 'POSTGRES_PASSWORD=%s\n' "$(openssl rand -base64 32)" > .env
-chmod 600 .env
-
-docker compose up -d --build          # postgres + backend + frontend
-
-# One-time: load the pilot data set
-docker compose exec backend python -m app.pipelines.congress_legislators
-docker compose exec backend python -m app.normalize.members
+cd /opt/govmap && bash scripts/deploy.sh
 ```
 
-The three services bind to `127.0.0.1` only (`:3000` frontend, `:8000` backend, `:5432` Postgres). `cloudflared`'s ingress maps `govmap.us`/`app.govmap.us` → `localhost:3000` and `api.govmap.us` → `localhost:8000`. Full server hardening (UFW, Tailscale, fail2ban, backups) is documented separately; the deploy-on-push automation (self-hosted Actions runner over Tailscale) is still stubbed — see [CODE-MANIFEST.md](CODE-MANIFEST.md).
+`scripts/deploy.sh` is the single deploy path (used by hand and by the GitHub Actions runner): it prereq-checks the box, syncs to `origin/main`, builds, brings up all four containers, runs migrations, refreshes data, and prints a health check. `--no-data` skips the data refresh for code-only changes.
 
-This loop hasn't been run end-to-end in this environment yet — no Python, Node, or Docker toolchain was available when the scaffold was built. See [CODE-MANIFEST.md](CODE-MANIFEST.md) for verification status.
+### The one piece of per-box state: `.env`
+
+Everything else lives in the repo or in Cloudflare. The server's `/opt/govmap/.env` (gitignored) holds just:
+
+- `POSTGRES_PASSWORD` — the DB password. `deploy.sh` generates one if `.env` is absent.
+- `CLOUDFLARE_TUNNEL_TOKEN` — connects the `cloudflared` container to the tunnel. Without it the stack runs but the public site stays down.
+- `INTERNAL_USER` / `INTERNAL_PASSWORD` — optional, unlock the `/internal/*` ops endpoints.
+
+See [.env.example](.env.example) for the template. **Back this file up somewhere safe (a password manager)** — restoring it is what makes a rebuild instant.
+
+### Rebuilding on a fresh box
+
+Because the tunnel is **dashboard-managed**, its routes (`govmap.us` → `frontend:3000`, `api.govmap.us` → `backend:8000`, `app.govmap.us` → `frontend:3000`) live in Cloudflare and survive any rebuild. Reconnecting is just restoring the token:
+
+```bash
+sudo mkdir -p /opt/govmap && sudo chown "$USER":"$USER" /opt/govmap
+git clone https://github.com/esotericlabs-connor/govmap.us.git /opt/govmap   # no sudo — user must own it
+cd /opt/govmap
+cp .env.example .env && chmod 600 .env          # then fill in POSTGRES_PASSWORD + CLOUDFLARE_TUNNEL_TOKEN
+bash scripts/deploy.sh
+```
+
+That's it — the connector attaches to the **same** tunnel, the routes are already there, and govmap.us is live. Nothing to reconfigure in Cloudflare.
+
+**If you ever lose the token:** get a fresh one from the Cloudflare dashboard → the `govmap` tunnel → connector install command (the `eyJ…` after `--token`), or **Rotate token**. The tunnel itself (ID `ebdeb681-961d-4321-8beb-2f14b35c6143`) and its routes stay put; only the token changes. Update `.env` and redeploy.
+
+Server hardening (UFW, Tailscale, fail2ban, nightly `pg_dump` backups) is separate host setup — see [CODE-MANIFEST.md](CODE-MANIFEST.md).
 
 ## Documentation
 
