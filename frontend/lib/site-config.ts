@@ -19,8 +19,18 @@ export const siteConfig = {
 
   githubUrl: "https://github.com/esotericlabs-connor/govmap.us",
 
+  // Active donation/support platforms. `icon` maps to a glyph in
+  // components/BrandIcon.tsx.
+  supportLinks: [
+    { label: "Patreon", href: "https://www.patreon.com/govmapus", icon: "patreon" },
+    { label: "Ko-fi", href: "https://ko-fi.com/govmapus", icon: "kofi" },
+    { label: "Buy Me a Coffee", href: "https://buymeacoffee.com/govmapus", icon: "buymeacoffee" },
+    { label: "Liberapay", href: "https://liberapay.com/govmapus", icon: "liberapay" },
+    { label: "Open Collective", href: "https://opencollective.com/connorremsen", icon: "opencollective" },
+    { label: "thanks.dev", href: "https://thanks.dev/gh/esotericlabs-connor", icon: "thanksdev" },
+  ] as { label: string; href: string; icon: string }[],
+
   // TODO: fill in once accounts exist -- do not add placeholder/fake links.
   socialLinks: [] as { label: string; href: string }[],
-  supportUrl: null as string | null,
   contactEmail: null as string | null,
 };

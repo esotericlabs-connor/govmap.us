@@ -79,7 +79,7 @@ The "Enter GovMap" button on the marketing site crosses from one host to the oth
 
 Brand assets live in `frontend/public/` (`logo-dark.png`, `logo-light.png` — full lockups with an opaque background baked in, meant for full-bleed placement, not floating over an arbitrary background color). The favicon (`frontend/app/icon.png`) is a square crop of just the Capitol mark from the dark logo, generated because no standalone icon-only asset existed yet — a proper source mark would give a cleaner result and is a fine thing to swap in later.
 
-**Open:** `siteConfig.socialLinks` and `siteConfig.supportUrl` are intentionally empty — nothing fake is linked from the footer until real accounts/links exist.
+**Open:** `siteConfig.socialLinks` and `contactEmail` are intentionally empty — nothing fake is linked until real accounts exist. `supportLinks` holds the six live donation platforms shown on the landing page; the landing page also carries a "seeking a fiscal sponsor" note.
 
 ## Local development
 

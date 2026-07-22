@@ -55,7 +55,7 @@ function Header() {
   return (
     <header className="flex items-center justify-between gap-4 bg-govnavy px-6 py-3">
       <Link href="/" className="shrink-0">
-        <Image src="/logo-dark.png" alt="GovMap.us" width={210} height={67} priority />
+        <Image src="/logo-dark-transparent.png" alt="GovMap.us" width={210} height={67} priority />
       </Link>
       <Link
         href="/"

@@ -4,6 +4,9 @@ What's been built, in what order, and what's next. This is a living log — add 
 
 ## Build log
 
+**2026-07-22 — Landing page: Capitol hero, transparent logo, support links**
+Redesigned the marketing hero with a US Capitol sunset photo (`public/capitol-hero.jpg`) behind a navy gradient for legibility. Fixed the "off-color box" logo: the logo PNG's baked background is `#0A0E1E` but the page navy is `#070B1A`, so it read as a rectangle — generated `logo-dark-transparent.png` (alpha-keyed the dark background out, verified clean) and use it as the home-button logo everywhere on dark surfaces; the opaque `logo-dark.png`/`logo-light.png` are kept as the primary brand assets. Added a Support section with six active donation platforms (Patreon, Ko-fi, Buy Me a Coffee, Liberapay, Open Collective, thanks.dev) rendered with Simple Icons brand glyphs (`components/BrandIcon.tsx`, inlined — no icon dependency), plus a **"seeking a fiscal sponsor"** callout. `site-config` gained `supportLinks[]`; the unused `supportUrl` was removed.
+
 **2026-07-22 — Redeploy hardening + full stack live in production**
 Site live end-to-end at govmap.us through the dashboard-managed tunnel (marketing, `/members` with real portraits + party colors, 537 members). Made redeploy fully reproducible: root `.env.example` documents the two required secrets (`POSTGRES_PASSWORD`, `CLOUDFLARE_TUNNEL_TOKEN`); `deploy.sh` now writes a self-documenting `.env` on a fresh box and flags the missing tunnel token; README gained a "Rebuilding on a fresh box" runbook. **Key operational fact: the tunnel is dashboard-managed, so its routes live in Cloudflare and survive any rebuild — the only per-box state is `.env`.** Reconnecting a rebuilt box = restore `.env` (or re-fetch the token from the CF dashboard) + `bash scripts/deploy.sh`. Tunnel ID `ebdeb681-961d-4321-8beb-2f14b35c6143`.
 
