@@ -1,7 +1,10 @@
 import type { Config } from "tailwindcss";
 
 const config: Config = {
-  content: ["./app/**/*.{ts,tsx}"],
+  // Must include components/ — Tailwind only generates classes it finds in
+  // these globs, so anything outside them (e.g. MemberAvatar) would render
+  // completely unstyled.
+  content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}"],
   theme: {
     extend: {
       colors: {

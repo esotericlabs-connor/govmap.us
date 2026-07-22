@@ -54,7 +54,7 @@ export default function MarketingHomePage() {
       {/* Hero */}
       <section className="bg-govnavy">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-6">
-          <Image src="/logo-dark.png" alt="GovMap.us" width={160} height={51} priority />
+          <Image src="/logo-dark.png" alt="GovMap.us" width={210} height={67} priority />
           <nav className="hidden items-center gap-8 text-sm font-medium text-white/70 sm:flex">
             <a href="#about" className="transition-colors hover:text-white">
               About
@@ -189,7 +189,7 @@ export default function MarketingHomePage() {
       {/* Footer */}
       <footer className="bg-govnavy">
         <div className="mx-auto max-w-6xl px-6 py-14">
-          <Image src="/logo-dark.png" alt="GovMap.us" width={150} height={48} />
+          <Image src="/logo-dark.png" alt="GovMap.us" width={175} height={56} />
           <p className="mt-3 text-sm text-white/50">{siteConfig.tagline}</p>
 
           <div className="mt-8 flex flex-wrap gap-6 text-sm text-white/70">
