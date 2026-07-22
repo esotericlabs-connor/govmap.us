@@ -30,7 +30,13 @@ export const siteConfig = {
     { label: "thanks.dev", href: "https://thanks.dev/gh/esotericlabs-connor", icon: "thanksdev" },
   ] as { label: string; href: string; icon: string }[],
 
-  // TODO: fill in once accounts exist -- do not add placeholder/fake links.
-  socialLinks: [] as { label: string; href: string }[],
+  // Placeholder handles (@govmapus) — accounts to be claimed; links resolve
+  // once they are. `icon` maps to a glyph in components/BrandIcon.tsx.
+  socialLinks: [
+    { label: "X", href: "https://x.com/govmapus", icon: "x" },
+    { label: "Bluesky", href: "https://bsky.app/profile/govmapus.bsky.social", icon: "bluesky" },
+    { label: "Instagram", href: "https://instagram.com/govmapus", icon: "instagram" },
+  ] as { label: string; href: string; icon: string }[],
+
   contactEmail: null as string | null,
 };

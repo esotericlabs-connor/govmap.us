@@ -1,3 +1,67 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  /* iOS renders the root background-color in the overscroll "rubber band", so
+     matching it to the dark hero/footer keeps the top/bottom of the page from
+     flashing a white bar. */
+  html {
+    background-color: #070b1a;
+  }
+
+  :focus-visible {
+    outline: 2px solid #58a9e6;
+    outline-offset: 2px;
+    border-radius: 3px;
+  }
+}
+
+/* Scroll-reveal primitive — toggled by components/Reveal.tsx via
+   IntersectionObserver. Content is always in the DOM (SSR/SEO-safe); only its
+   opacity/offset animate. */
+.reveal {
+  opacity: 0;
+  transform: translateY(16px);
+  transition:
+    opacity 0.7s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.reveal.is-visible {
+  opacity: 1;
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-delay: 0ms !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+  .reveal {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Prose styling for legal/long-form pages (avoids a typography plugin). */
+@layer components {
+  .legal-prose h2 {
+    @apply mt-10 font-display text-xl font-semibold text-govnavy;
+  }
+  .legal-prose h3 {
+    @apply mt-6 font-semibold text-govnavy;
+  }
+  .legal-prose p {
+    @apply mt-3 leading-relaxed text-slate-600;
+  }
+  .legal-prose ul {
+    @apply mt-3 list-disc space-y-2 pl-5 text-slate-600;
+  }
+  .legal-prose a {
+    @apply text-govblue underline underline-offset-2 hover:text-govnavy;
+  }
+}

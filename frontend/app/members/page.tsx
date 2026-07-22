@@ -1,12 +1,15 @@
-import Image from "next/image";
-import Link from "next/link";
-
 import { MemberAvatar } from "@/components/MemberAvatar";
+import { SiteFooter } from "@/components/SiteFooter";
+import { SiteHeader } from "@/components/SiteHeader";
 
 // Rendered on demand, never prerendered — the backend isn't reachable during
 // the Docker image build, so prerendering would fetch a dead host and fail
 // the build.
 export const dynamic = "force-dynamic";
+
+export const metadata = {
+  title: "Members of Congress",
+};
 
 type Member = {
   bioguide_id: string;
@@ -51,22 +54,6 @@ function seatLabel(member: Member): string {
   return `${where} · ${chamber}`;
 }
 
-function Header() {
-  return (
-    <header className="flex items-center justify-between gap-4 bg-govnavy px-6 py-3">
-      <Link href="/" className="shrink-0">
-        <Image src="/logo-dark-transparent.png" alt="GovMap.us" width={210} height={67} priority />
-      </Link>
-      <Link
-        href="/"
-        className="text-sm font-medium text-white/70 transition-colors hover:text-white"
-      >
-        ← Home
-      </Link>
-    </header>
-  );
-}
-
 export default async function MembersPage() {
   let members: Member[] = [];
   let loadError = false;
@@ -77,43 +64,48 @@ export default async function MembersPage() {
   }
 
   return (
-    <div className="min-h-screen bg-white">
-      <Header />
-      <main className="mx-auto max-w-4xl px-6 py-12">
-        {loadError ? (
-          <>
-            <h1 className="mb-2 text-2xl font-bold">Members of Congress</h1>
-            <p className="text-slate-500">
-              Couldn&apos;t load members right now. Please try again shortly.
-            </p>
-          </>
-        ) : (
-          <>
-            <h1 className="mb-6 text-2xl font-bold">
-              Members of Congress{" "}
-              <span className="font-normal text-slate-400">({members.length})</span>
-            </h1>
-            <ul className="divide-y divide-slate-100">
-              {members.map((member) => (
-                <li key={member.bioguide_id} className="flex items-center gap-4 py-3">
-                  <MemberAvatar src={member.photo_url} name={member.official_full_name} />
-                  <div className="min-w-0">
-                    <p className="truncate font-medium text-slate-900">
-                      {member.official_full_name}
-                    </p>
-                    <p className="text-sm text-slate-500">
-                      <span className={`font-medium ${partyColor(member.party)}`}>
-                        {member.party}
-                      </span>{" "}
-                      · {seatLabel(member)}
-                    </p>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </>
-        )}
+    <>
+      <SiteHeader variant="app" />
+      <main className="min-h-screen bg-white pb-16 pt-24">
+        <div className="mx-auto max-w-4xl px-6 py-10">
+          {loadError ? (
+            <>
+              <h1 className="mb-2 font-display text-3xl font-bold text-govnavy">
+                Members of Congress
+              </h1>
+              <p className="text-slate-500">
+                Couldn&apos;t load members right now. Please try again shortly.
+              </p>
+            </>
+          ) : (
+            <>
+              <h1 className="mb-6 font-display text-3xl font-bold text-govnavy">
+                Members of Congress{" "}
+                <span className="font-normal text-slate-400">({members.length})</span>
+              </h1>
+              <ul className="divide-y divide-slate-100">
+                {members.map((member) => (
+                  <li key={member.bioguide_id} className="flex items-center gap-4 py-3">
+                    <MemberAvatar src={member.photo_url} name={member.official_full_name} />
+                    <div className="min-w-0">
+                      <p className="truncate font-medium text-slate-900">
+                        {member.official_full_name}
+                      </p>
+                      <p className="text-sm text-slate-500">
+                        <span className={`font-medium ${partyColor(member.party)}`}>
+                          {member.party}
+                        </span>{" "}
+                        · {seatLabel(member)}
+                      </p>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </div>
       </main>
-    </div>
+      <SiteFooter />
+    </>
   );
 }
