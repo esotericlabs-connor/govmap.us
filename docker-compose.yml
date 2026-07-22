@@ -40,7 +40,8 @@ services:
       INTERNAL_USER: ${INTERNAL_USER:-}
       INTERNAL_PASSWORD: ${INTERNAL_PASSWORD:-}
     ports:
-      # Loopback only — cloudflared reaches it at http://localhost:8000.
+      # Loopback only — for host-side tooling and the deploy health check.
+      # The tunnel reaches this over the compose network at http://backend:8000.
       - "127.0.0.1:8000:8000"
 
   frontend:
@@ -60,8 +61,28 @@ services:
       # network instead of hairpinning through the public API hostname.
       API_INTERNAL_URL: http://backend:8000
     ports:
-      # Loopback only — cloudflared reaches it at http://localhost:3000.
+      # Loopback only — for host-side tooling. The tunnel reaches this over the
+      # compose network at http://frontend:3000.
       - "127.0.0.1:3000:3000"
+
+  # Cloudflare Tunnel connector, run as part of the stack so `docker compose up`
+  # brings the public site up too — no systemd unit or on-disk credentials.
+  # Runs ONLY when CLOUDFLARE_TUNNEL_TOKEN is set (the `tunnel` profile, which
+  # scripts/deploy.sh enables automatically when the token is present in .env).
+  # This is a DASHBOARD-managed tunnel: create the tunnel and its Public
+  # Hostnames in the Cloudflare Zero Trust dashboard, pointing them at the
+  # in-network services — govmap.us & app.govmap.us -> http://frontend:3000,
+  # api.govmap.us -> http://backend:8000. cloudflared shares the compose
+  # network, so those service names resolve.
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: govmap-cloudflared
+    restart: unless-stopped
+    profiles: ["tunnel"]
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    depends_on:
+      - frontend
+      - backend
 
 volumes:
   postgres-data:

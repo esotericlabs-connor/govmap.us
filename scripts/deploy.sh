@@ -27,6 +27,60 @@ done
 
 log() { printf '\n\033[1;34m==> %s\033[0m\n' "$*"; }
 
+check_prereqs() {
+  log "Checking prerequisites"
+  local missing=0
+
+  for cmd in git curl openssl docker; do
+    if command -v "$cmd" >/dev/null 2>&1; then
+      echo "  ✔ $cmd"
+    else
+      echo "  ✗ $cmd — MISSING"
+      missing=1
+    fi
+  done
+
+  # docker compose is a plugin subcommand, not its own binary.
+  if docker compose version >/dev/null 2>&1; then
+    echo "  ✔ docker compose"
+  else
+    echo "  ✗ docker compose — MISSING (need the Compose v2 plugin)"
+    missing=1
+  fi
+
+  # Catches a running-but-unreachable daemon, usually "not in the docker group".
+  if command -v docker >/dev/null 2>&1 && ! docker info >/dev/null 2>&1; then
+    echo "  ✗ docker daemon not reachable as $(whoami) — daemon down, or you're not in the 'docker' group"
+    missing=1
+  fi
+
+  if [ "$missing" -ne 0 ]; then
+    cat >&2 <<'EOF'
+
+  ── Missing prerequisites. On Ubuntu, install them, then re-run this script ──
+
+  # base tools
+  sudo apt-get update && sudo apt-get install -y ca-certificates curl git openssl
+
+  # Docker Engine + Compose plugin (official repo)
+  sudo install -m 0755 -d /etc/apt/keyrings
+  sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+  sudo chmod a+r /etc/apt/keyrings/docker.asc
+  echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | sudo tee /etc/apt/sources.list.d/docker.list >/dev/null
+  sudo apt-get update && sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+  # run docker without sudo, then LOG OUT AND BACK IN for it to take effect
+  sudo usermod -aG docker "$USER"
+
+  Then: bash scripts/deploy.sh
+EOF
+    exit 1
+  fi
+  echo "  all prerequisites present"
+}
+
+check_prereqs
+
 cd "$REPO_DIR"
 
 log "Syncing code to origin/$BRANCH"
@@ -44,6 +98,14 @@ else
 fi
 
 log "Building and starting containers"
+# Enable the cloudflared tunnel service only when a token is configured, so the
+# same compose file works for local dev (no tunnel) and production (tunnel up).
+if grep -Eq '^CLOUDFLARE_TUNNEL_TOKEN=.+' .env 2>/dev/null; then
+  export COMPOSE_PROFILES=tunnel
+  echo "cloudflared tunnel: ENABLED (token found in .env)"
+else
+  echo "cloudflared tunnel: disabled (set CLOUDFLARE_TUNNEL_TOKEN in .env to enable)"
+fi
 docker compose up -d --build
 
 log "Waiting for the backend to become healthy"

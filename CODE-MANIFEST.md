@@ -4,6 +4,9 @@ What's been built, in what order, and what's next. This is a living log — add 
 
 ## Build log
 
+**2026-07-22 — Cloudflare Tunnel as a stack service**
+Moved the tunnel from a per-box systemd unit (fragile: interactive `tunnel login`, on-disk credentials that can't live in the repo, and the source of a rebuild's Error 1033) into the compose stack. New `cloudflared` service runs a **dashboard-managed** tunnel via a token from `.env` (`CLOUDFLARE_TUNNEL_TOKEN`), under a `tunnel` compose profile that `scripts/deploy.sh` enables automatically when the token is present. So `docker compose up` now brings the public site up too, and rebuilding a box is just "restore the token to `.env`." Ingress (public hostnames → `http://frontend:3000` / `http://backend:8000`) is configured once in the Cloudflare Zero Trust dashboard; cloudflared shares the compose network so those service names resolve. The old CLI/systemd tunnel should be uninstalled (`sudo cloudflared service uninstall`) and its dashboard tunnel deleted.
+
 **2026-07-21 — Single-source deploy script**
 Added `scripts/deploy.sh` as the one deploy path: `git reset --hard origin/main` → ensure `.env` (generates `POSTGRES_PASSWORD` if missing) → `docker compose up -d --build` → poll `/health` (backend migrates on start) → refresh data (pipeline + normalize, non-fatal so a source outage can't fail the deploy) → prune → verify `photo_url` is populated. Idempotent, re-runnable, never touches `.env` or the Postgres volume. Takes `--no-data` for code-only changes. The GitHub Actions runner now just calls `bash /opt/govmap/scripts/deploy.sh`, so manual and automated deploys are literally the same script — no more copy-pasted command sequences, and a reliable manual deploy exists whenever the runner is down.
 
