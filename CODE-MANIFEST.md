@@ -4,6 +4,9 @@ What's been built, in what order, and what's next. This is a living log — add 
 
 ## Build log
 
+**2026-07-21 — Single-source deploy script**
+Added `scripts/deploy.sh` as the one deploy path: `git reset --hard origin/main` → ensure `.env` (generates `POSTGRES_PASSWORD` if missing) → `docker compose up -d --build` → poll `/health` (backend migrates on start) → refresh data (pipeline + normalize, non-fatal so a source outage can't fail the deploy) → prune → verify `photo_url` is populated. Idempotent, re-runnable, never touches `.env` or the Postgres volume. Takes `--no-data` for code-only changes. The GitHub Actions runner now just calls `bash /opt/govmap/scripts/deploy.sh`, so manual and automated deploys are literally the same script — no more copy-pasted command sequences, and a reliable manual deploy exists whenever the runner is down.
+
 **2026-07-21 — Member photos + roster polish + branding**
 Swapped `logo-dark.png`/`logo-light.png` for tight cropped lockups (the originals had large baked-in margins that made the wordmark render tiny) and resized every logo `<Image>` to the new ~3.13:1 aspect. Added **member portraits**: `normalize/members.py` now sets `photo_url` to the deterministic unitedstates/images URL (`https://unitedstates.github.io/images/congress/225x275/{bioguide}.jpg`, verified 200 image/jpeg) — no separate pull pipeline since the URL is fully derivable from the Bioguide ID. The roster renders them via a small `MemberAvatar` client component that falls back to initials on 404/missing, plus party-colored labels (govred/govblue). Added a targeted `.gitattributes` (LF for `*.sh`/`*.yml`/`Dockerfile`, binary for images) to end the CRLF churn and guarantee the deploy script stays LF on the Linux host.
 

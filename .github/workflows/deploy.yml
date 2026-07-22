@@ -1,8 +1,9 @@
 name: Deploy
 
 # Auto-deploy on push to main, executed by a self-hosted GitHub Actions runner
-# installed on the govmap VM (reachable over Tailscale). The runner operates on
-# the checked-out repo at /opt/govmap directly — no SSH, no exposed ports.
+# installed on the govmap VM. The runner just invokes the repo's deploy script
+# — the same one you'd run by hand — so there's a single deploy path. No SSH,
+# no exposed ports.
 on:
   push:
     branches: [main]
@@ -17,15 +18,5 @@ jobs:
   deploy:
     runs-on: self-hosted
     steps:
-      - name: Pull latest and redeploy
-        run: |
-          set -euo pipefail
-          cd /opt/govmap
-          git fetch origin main
-          git reset --hard origin/main
-          # Rebuild and restart changed services. The backend applies Alembic
-          # migrations on start (see backend/Dockerfile), so no separate
-          # migrate step is needed.
-          docker compose up -d --build
-          # Reclaim space from superseded image layers.
-          docker image prune -f
+      - name: Run deploy script
+        run: bash /opt/govmap/scripts/deploy.sh
