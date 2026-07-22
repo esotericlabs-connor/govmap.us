@@ -97,6 +97,12 @@ export function SiteHeader({
             </a>
           ))}
           <a
+            href="/account"
+            className="text-sm font-medium text-white/75 transition-colors hover:text-white"
+          >
+            Sign in
+          </a>
+          <a
             href={siteConfig.appUrl}
             className="rounded-full bg-white px-5 py-2 text-sm font-semibold text-govnavy transition hover:bg-white/90"
           >
@@ -129,6 +135,13 @@ export function SiteHeader({
                 {item.label}
               </a>
             ))}
+            <a
+              href="/account"
+              onClick={() => setOpen(false)}
+              className="rounded-md px-2 py-3 text-base font-medium text-white/80 transition-colors hover:bg-white/5 hover:text-white"
+            >
+              Sign in
+            </a>
             <a
               href={siteConfig.appUrl}
               onClick={() => setOpen(false)}

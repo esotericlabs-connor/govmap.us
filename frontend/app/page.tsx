@@ -63,22 +63,22 @@ export default function MarketingHomePage() {
             sizes="100vw"
             className="-z-10 object-cover object-center"
           />
-          <div className="absolute inset-0 -z-10 bg-gradient-to-r from-govnavy via-govnavy/80 to-transparent" />
+          <div className="absolute inset-0 -z-10 bg-gradient-to-r from-govnavy via-govnavy/85 to-transparent" />
           <div className="absolute inset-0 -z-10 bg-gradient-to-t from-govnavy via-govnavy/40 to-transparent" />
 
           <div className="mx-auto w-full max-w-6xl px-6 pb-24 pt-32 sm:pb-32 sm:pt-44">
-            <h1 className="max-w-3xl animate-fade-up font-display text-4xl font-bold leading-[1.05] tracking-tight text-white drop-shadow-xl sm:text-6xl lg:text-7xl">
-              See your government.{" "}
-              <span className="text-govblue">Clearly.</span>
+            <h1 className="max-w-3xl animate-fade-up font-display text-4xl font-bold leading-[1.05] tracking-tight text-white [text-shadow:0_2px_20px_rgba(0,0,0,0.6)] sm:text-6xl lg:text-7xl">
+              See your <span className="text-govred">government.</span>{" "}
+              <span className="text-[#5cb3ff]">Clearly.</span>
             </h1>
             <p
-              className="mt-6 max-w-xl animate-fade-up text-lg leading-relaxed text-white/85 drop-shadow-md sm:text-xl"
+              className="mt-6 max-w-xl animate-fade-up text-lg font-medium leading-relaxed text-white [text-shadow:0_1px_14px_rgba(0,0,0,0.6)] sm:text-xl"
               style={{ animationDelay: "120ms" }}
             >
-              GovMap is a nonpartisan, plain-English view of the entire US
-              federal government — who represents you, how they vote, who runs
+              GovMap is a nonpartisan, end-to-end live-synced view of the entire
+              US federal government — who represents you, how they vote, who runs
               the agencies that govern you, where the money goes, and how a bill
-              becomes law. Real data, always sourced. No spin.
+              becomes law. Real data, always sourced. No press. No spin.
             </p>
             <div
               className="mt-9 flex flex-wrap items-center gap-4 animate-fade-up"
