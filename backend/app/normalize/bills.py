@@ -62,13 +62,29 @@ def to_bill_row(bill: BillDetailRaw) -> dict:
     }
 
 
+def _action_chamber(source_name: str | None) -> str | None:
+    """Normalize Congress.gov's sourceSystem.name (e.g. 'House committee actions',
+    'House floor actions', 'Senate', 'Library of Congress') to a clean chamber.
+    The floor-vs-committee distinction is preserved in action_type, so chamber
+    stays a plain House/Senate; Library-of-Congress-coded actions have no
+    chamber. (The raw name also overflows the String(20) column — 'House
+    committee actions' is 23 chars.)"""
+    if not source_name:
+        return None
+    if source_name.startswith("House"):
+        return "House"
+    if source_name.startswith("Senate"):
+        return "Senate"
+    return None
+
+
 def action_rows(bill_id: str, actions: list[BillActionRaw]) -> list[dict]:
     return [
         {
             "bill_id": bill_id,
             "seq": seq,
             "action_date": a.actionDate,
-            "chamber": a.sourceSystem.name if a.sourceSystem else None,
+            "chamber": _action_chamber(a.sourceSystem.name if a.sourceSystem else None),
             "text": a.text,
             "action_type": a.type,
         }
