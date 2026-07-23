@@ -17,7 +17,13 @@ from app.normalize.bills import normalize_and_load as normalize_bills
 from app.normalize.committees import load_committees
 from app.normalize.crosswalk import load_crosswalk
 from app.normalize.members import normalize_and_load
-from app.pipelines import congress_gov_bills, congress_legislators
+from app.normalize.votes import normalize_and_load as normalize_votes
+from app.pipelines import (
+    congress_gov_bills,
+    congress_legislators,
+    house_clerk_votes,
+    senate_lis_votes,
+)
 from app.pipelines.status import record_run
 
 logger = logging.getLogger(__name__)
@@ -60,10 +66,39 @@ async def refresh_bills() -> None:
         raise
 
 
+async def refresh_votes() -> None:
+    """Roll-call votes from two chambers/sources (House Clerk XML + Senate LIS
+    XML), normalized together. The two pulls are independent — one chamber's
+    source being down still loads the other (recorded as 'partial'); only both
+    failing raises (so the retry/visibility framework kicks in). Senate positions
+    resolve LIS->Bioguide via id_crosswalk in the normalizer."""
+    source = "votes"
+    failed: list[str] = []
+    try:
+        for name, fn in (("house", house_clerk_votes.run), ("senate", senate_lis_votes.run)):
+            try:
+                await asyncio.to_thread(fn)
+            except Exception as exc:
+                failed.append(name)
+                logger.warning("votes: %s pull failed: %s", name, exc)
+        if len(failed) == 2:
+            raise RuntimeError("both House and Senate vote pulls failed")
+        count = await normalize_votes()
+        status = "ok" if not failed else "partial"
+        detail = None if not failed else f"chamber(s) failed: {', '.join(failed)}"
+        await record_run(source, count, status, detail)
+        logger.info("refresh votes: %s (%d votes; failed: %s)", status, count, failed or "none")
+    except Exception as exc:
+        await record_run(source, 0, "error", str(exc))
+        logger.exception("refresh %s failed", source)
+        raise
+
+
 # source key -> refresh coroutine. Extended as each source lands.
 REFRESHERS: dict[str, callable] = {
     "members": refresh_members,
     "bills": refresh_bills,
+    "votes": refresh_votes,
 }
 
 

@@ -16,7 +16,7 @@ from collections.abc import Awaitable, Callable
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-from app.pipelines.refresh import refresh_bills, refresh_members
+from app.pipelines.refresh import refresh_bills, refresh_members, refresh_votes
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +36,13 @@ JOBS: list[tuple[str, Callable[[], Awaitable[None]], dict]] = [
     (
         "refresh_bills",
         refresh_bills,
+        {"trigger": "interval", "minutes": 30},
+    ),
+    # Roll-call votes post throughout session days — 30-min interval catches
+    # them promptly; upserts are idempotent when nothing new landed.
+    (
+        "refresh_votes",
+        refresh_votes,
         {"trigger": "interval", "minutes": 30},
     ),
 ]

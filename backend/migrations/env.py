@@ -16,6 +16,7 @@ from app.models import (  # noqa: F401
     crosswalk,
     member,
     pipeline_status,
+    vote,
 )
 
 config = context.config

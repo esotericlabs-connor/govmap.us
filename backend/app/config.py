@@ -24,6 +24,11 @@ class Settings(BaseSettings):
     # each refresh well under the 5,000 req/hr key limit; raise to widen
     # coverage toward the full corpus.
     congress_gov_bill_limit: int = 250
+    # Which session of the Congress (1 = first year, 2 = second) — builds the
+    # House Clerk / Senate LIS roll-call URLs. 119th: 1=2025, 2=2026.
+    congress_session: int = 2
+    # Per-chamber cap on how many most-recent roll-call votes to pull.
+    votes_limit: int = 100
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 

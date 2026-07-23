@@ -9,6 +9,7 @@ from app.models.bill import Bill
 from app.models.committee import Committee, CommitteeMembership
 from app.models.crosswalk import IdCrosswalk
 from app.models.member import Member
+from app.models.vote import Vote, VotePosition
 from app.schemas.member import MemberOut
 
 router = APIRouter(prefix="/api/members", tags=["members"])
@@ -85,6 +86,21 @@ async def member_detail(bioguide_id: str, db: AsyncSession = Depends(get_db)) ->
         )
     ).all()
 
+    # Recent votes this member cast (most-recent first). Only loaded votes
+    # appear — coverage grows as the vote pipelines walk the session.
+    voting = (
+        await db.execute(
+            select(
+                Vote.vote_id, Vote.chamber, Vote.date, Vote.question,
+                Vote.result, Vote.bill_id, VotePosition.position,
+            )
+            .join(VotePosition, VotePosition.vote_id == Vote.vote_id)
+            .where(VotePosition.bioguide_id == bioguide_id)
+            .order_by(nullslast(Vote.date.desc()), Vote.roll_number.desc())
+            .limit(20)
+        )
+    ).all()
+
     return {
         "bioguide_id": member.bioguide_id,
         "first_name": member.first_name,
@@ -127,5 +143,17 @@ async def member_detail(bioguide_id: str, db: AsyncSession = Depends(get_db)) ->
                 "latest_action": b.latest_action,
             }
             for b in sponsored
+        ],
+        "voting_record": [
+            {
+                "vote_id": v.vote_id,
+                "chamber": v.chamber,
+                "date": v.date.isoformat() if v.date else None,
+                "question": v.question,
+                "result": v.result,
+                "bill_id": v.bill_id,
+                "position": v.position,
+            }
+            for v in voting
         ],
     }
