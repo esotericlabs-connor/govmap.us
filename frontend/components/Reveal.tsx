@@ -32,7 +32,12 @@ export function Reveal({
           }
         }
       },
-      { threshold: 0.15, rootMargin: "0px 0px -10% 0px" },
+      // threshold 0 = reveal as soon as the top edge enters. A percentage
+      // threshold can NEVER be met by an element taller than the viewport
+      // (e.g. the full members roster or a House roll call), which would leave
+      // it stuck at opacity 0. The bottom rootMargin still delays short
+      // below-the-fold sections until they're meaningfully in view.
+      { threshold: 0, rootMargin: "0px 0px -10% 0px" },
     );
     observer.observe(el);
     return () => observer.disconnect();
