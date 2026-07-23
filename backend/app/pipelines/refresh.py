@@ -13,10 +13,11 @@ from __future__ import annotations
 import asyncio
 import logging
 
+from app.normalize.bills import normalize_and_load as normalize_bills
 from app.normalize.committees import load_committees
 from app.normalize.crosswalk import load_crosswalk
 from app.normalize.members import normalize_and_load
-from app.pipelines import congress_legislators
+from app.pipelines import congress_gov_bills, congress_legislators
 from app.pipelines.status import record_run
 
 logger = logging.getLogger(__name__)
@@ -42,9 +43,27 @@ async def refresh_members() -> None:
         raise
 
 
+async def refresh_bills() -> None:
+    """Congress.gov bills: pull the most-recently-updated current-Congress bills
+    (detail + actions + cosponsors) and normalize into bills/bill_actions/
+    cosponsors. Independent of refresh_members — no shared FKs (sponsor/
+    cosponsor bioguide columns are unenforced), so it can run in any order."""
+    source = "congress_gov_bills"
+    try:
+        await asyncio.to_thread(congress_gov_bills.run)
+        count = await normalize_bills()
+        await record_run(source, count, "ok")
+        logger.info("refresh %s: ok (%d bills + actions + cosponsors)", source, count)
+    except Exception as exc:
+        await record_run(source, 0, "error", str(exc))
+        logger.exception("refresh %s failed", source)
+        raise
+
+
 # source key -> refresh coroutine. Extended as each source lands.
 REFRESHERS: dict[str, callable] = {
     "members": refresh_members,
+    "bills": refresh_bills,
 }
 
 

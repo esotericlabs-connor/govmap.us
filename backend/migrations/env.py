@@ -11,6 +11,7 @@ from app.db import Base
 # Import every model module so all tables register on Base.metadata (needed for
 # autogenerate and for a complete target_metadata). Add new model modules here.
 from app.models import (  # noqa: F401
+    bill,
     committee,
     crosswalk,
     member,

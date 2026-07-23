@@ -17,6 +17,13 @@ class Settings(BaseSettings):
 
     # Congress.gov API key — required for the bills/votes pipelines (Increment 3).
     congress_gov_api_key: str = ""
+    # The Congress being tracked. Bump to 120 in Jan 2027 (env-overridable so a
+    # redeploy, not a code change, rolls the number over).
+    congress_number: int = 119
+    # Per-run cap on how many most-recently-updated bills to pull+enrich. Keeps
+    # each refresh well under the 5,000 req/hr key limit; raise to widen
+    # coverage toward the full corpus.
+    congress_gov_bill_limit: int = 250
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 

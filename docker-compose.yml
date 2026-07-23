@@ -42,6 +42,11 @@ services:
       # Optional pipeline-failure webhook + the Congress.gov API key (bills/votes).
       ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
       CONGRESS_GOV_API_KEY: ${CONGRESS_GOV_API_KEY:-}
+      # Which Congress to track, and how many recently-updated bills to enrich
+      # per refresh. Defaults are fine; override in .env to roll to the 120th in
+      # Jan 2027 or to widen bill coverage.
+      CONGRESS_NUMBER: ${CONGRESS_NUMBER:-119}
+      CONGRESS_GOV_BILL_LIMIT: ${CONGRESS_GOV_BILL_LIMIT:-250}
     ports:
       # Loopback only — for host-side tooling and the deploy health check.
       # The tunnel reaches this over the compose network at http://backend:8000.

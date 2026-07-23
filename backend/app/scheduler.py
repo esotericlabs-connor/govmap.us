@@ -16,7 +16,7 @@ from collections.abc import Awaitable, Callable
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-from app.pipelines.refresh import refresh_members
+from app.pipelines.refresh import refresh_bills, refresh_members
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +30,13 @@ JOBS: list[tuple[str, Callable[[], Awaitable[None]], dict]] = [
         "refresh_members",
         refresh_members,
         {"trigger": "cron", "day_of_week": "sun", "hour": 7},
+    ),
+    # Bills move constantly while Congress is in session. Every 30 min keeps the
+    # "what's moving" view fresh; upserts are idempotent when nothing changed.
+    (
+        "refresh_bills",
+        refresh_bills,
+        {"trigger": "interval", "minutes": 30},
     ),
 ]
 

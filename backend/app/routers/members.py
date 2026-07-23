@@ -1,10 +1,11 @@
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select
+from sqlalchemy import nullslast, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
+from app.models.bill import Bill
 from app.models.committee import Committee, CommitteeMembership
 from app.models.crosswalk import IdCrosswalk
 from app.models.member import Member
@@ -69,6 +70,21 @@ async def member_detail(bioguide_id: str, db: AsyncSession = Depends(get_db)) ->
         )
     ).all()
 
+    # Recent bills this member sponsored (most-recently-updated first). Only the
+    # bills currently loaded appear — coverage grows as the bills pipeline walks
+    # the corpus.
+    sponsored = (
+        await db.execute(
+            select(
+                Bill.bill_id, Bill.bill_type, Bill.number, Bill.title,
+                Bill.introduced_date, Bill.latest_action,
+            )
+            .where(Bill.sponsor_bioguide_id == bioguide_id)
+            .order_by(nullslast(Bill.update_date.desc()))
+            .limit(20)
+        )
+    ).all()
+
     return {
         "bioguide_id": member.bioguide_id,
         "first_name": member.first_name,
@@ -100,5 +116,16 @@ async def member_detail(bioguide_id: str, db: AsyncSession = Depends(get_db)) ->
                 "side": c.side,
             }
             for c in committees
+        ],
+        "sponsored_bills": [
+            {
+                "bill_id": b.bill_id,
+                "bill_type": b.bill_type,
+                "number": b.number,
+                "title": b.title,
+                "introduced_date": b.introduced_date.isoformat() if b.introduced_date else None,
+                "latest_action": b.latest_action,
+            }
+            for b in sponsored
         ],
     }
