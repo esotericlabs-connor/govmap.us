@@ -48,16 +48,43 @@ REFRESHERS: dict[str, callable] = {
 }
 
 
-async def refresh_all() -> None:
-    """Run every registered source. One source failing doesn't stop the rest —
-    each records its own status."""
-    for name, fn in REFRESHERS.items():
+async def _run_with_retry(name: str, fn, retries: int = 2, delay: float = 5.0) -> bool:
+    """Run one source, retrying transient failures (a DB/connection blip right
+    after a migration is the likely culprit behind a partial deploy load).
+    Returns True on success."""
+    for attempt in range(1, retries + 2):
         try:
             await fn()
+            return True
         except Exception:
-            logger.exception("refresh '%s' errored (continuing with others)", name)
+            if attempt <= retries:
+                logger.warning("refresh '%s' failed (attempt %d) — retrying in %ss", name, attempt, delay)
+                await asyncio.sleep(delay)
+            else:
+                logger.exception("refresh '%s' failed after %d attempts", name, attempt)
+    return False
+
+
+async def refresh_all() -> list[str]:
+    """Run every registered source. One source failing doesn't stop the rest —
+    each records its own status. Returns the list of sources that failed so the
+    CLI can exit non-zero (a partial load must never pass silently)."""
+    failed: list[str] = []
+    for name, fn in REFRESHERS.items():
+        if not await _run_with_retry(name, fn):
+            failed.append(name)
+    if failed:
+        logger.error("refresh finished WITH FAILURES: %s", ", ".join(failed))
+    else:
+        logger.info("refresh: all %d source(s) ok", len(REFRESHERS))
+    return failed
 
 
 if __name__ == "__main__":
+    import sys
+
     logging.basicConfig(level=logging.INFO)
-    asyncio.run(refresh_all())
+    # Non-zero exit on any failure so scripts/deploy.sh surfaces the WARNING
+    # (still non-fatal for the deploy — a transient source outage shouldn't
+    # block a ship — but never green-and-silent again).
+    sys.exit(1 if asyncio.run(refresh_all()) else 0)
