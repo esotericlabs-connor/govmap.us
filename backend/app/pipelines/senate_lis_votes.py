@@ -1,13 +1,20 @@
 """Layer 1 pipeline: Senate roll-call votes from the LIS XML.
 
-Source: https://www.senate.gov/legislative/LIS/roll_call_votes/vote{c}{s}/vote_{c}_{s}_{NNNNN}.xml
-(root <roll_call_vote>). Senate votes key each member by `lis_member_id` (e.g.
-"S429"), NOT Bioguide — positions are staged with the LIS id and the normalizer
-resolves them to Bioguide via id_crosswalk.lis.
+Sources:
+- menu:  https://www.senate.gov/legislative/LIS/roll_call_lists/vote_menu_{c}_{s}.xml
+         (root <vote_summary> -> <votes> -> <vote> -> <vote_number>) — the
+         authoritative list of vote numbers for the session.
+- vote:  https://www.senate.gov/legislative/LIS/roll_call_votes/vote{c}{s}/vote_{c}_{s}_{NNNNN}.xml
+         (root <roll_call_vote>) — per-member positions.
 
-Vote numbers are sequential within a session, so (like House) we binary-search
-the current max and pull the most-recent VOTES_LIMIT newest-first. This depends
-only on the individual vote-file shape (verified), not the menu index.
+We enumerate from the menu (NOT by probing vote numbers): senate.gov returns a
+soft-404 — HTTP 200 with an HTML error page — for non-existent vote files, so a
+status-based probe runs away to nonsense. The menu lists exactly the real votes;
+we pull the most-recent VOTES_LIMIT of them for positions.
+
+Senate votes key each member by `lis_member_id` (e.g. "S429"), NOT Bioguide, so
+positions are staged with the LIS id and the normalizer resolves them to
+Bioguide via id_crosswalk.lis.
 
 Run directly: `python -m app.pipelines.senate_lis_votes`.
 """
@@ -28,6 +35,7 @@ from app.pipelines.house_clerk_votes import bill_id_from_legis
 logger = logging.getLogger(__name__)
 
 SENATE_VOTES = "https://www.senate.gov/legislative/LIS/roll_call_votes"
+SENATE_MENU = "https://www.senate.gov/legislative/LIS/roll_call_lists"
 SOURCE_NAME = "senate_lis_votes"
 
 STAGING_DIR = Path(__file__).resolve().parents[2] / "data" / "staging"
@@ -35,6 +43,10 @@ STAGING = STAGING_DIR / "senate_votes_raw.json"
 
 _HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; GovMap.us/1.0; +https://govmap.us)"}
 _session = requests.Session()
+
+
+def _menu_url(congress: int, session: int) -> str:
+    return f"{SENATE_MENU}/vote_menu_{congress}_{session}.xml"
 
 
 def _vote_url(congress: int, session: int, n: int) -> str:
@@ -48,35 +60,24 @@ def _int(v) -> int | None:
         return None
 
 
-def _exists(congress: int, session: int, n: int) -> bool:
+def _menu_numbers(congress: int, session: int) -> list[int]:
+    """Vote numbers from the session menu. A menu that won't parse as XML is a
+    soft-404 / bad response — raise so it surfaces (vs. looking like 'no votes')."""
+    resp = _session.get(_menu_url(congress, session), headers=_HEADERS, timeout=30)
     try:
-        resp = _session.get(_vote_url(congress, session, n), headers=_HEADERS, timeout=20, stream=True)
-        ok = resp.status_code == 200
-        resp.close()
-        return ok
-    except requests.RequestException:
-        return False
-
-
-def _max_vote(congress: int, session: int) -> int:
-    if not _exists(congress, session, 1):
-        return 0
-    lo, hi = 1, 2
-    while hi < 4096 and _exists(congress, session, hi):
-        lo, hi = hi, hi * 2
-    while lo + 1 < hi:  # lo exists, hi does not
-        mid = (lo + hi) // 2
-        if _exists(congress, session, mid):
-            lo = mid
-        else:
-            hi = mid
-    return lo
+        menu = ET.fromstring(resp.content)
+    except ET.ParseError as exc:
+        raise RuntimeError(
+            f"senate vote menu not parseable (HTTP {resp.status_code}, {congress}_{session}): {exc}"
+        ) from exc
+    numbers = [_int(v.findtext("vote_number")) for v in menu.findall("votes/vote")]
+    return [n for n in numbers if n is not None]
 
 
 def _parse_date(raw: str | None) -> str | None:
     if not raw:
         return None
-    for fmt in ("%B %d, %Y, %I:%M %p", "%B %d, %Y", "%B %d"):
+    for fmt in ("%B %d, %Y, %I:%M %p", "%B %d, %Y %I:%M %p", "%B %d, %Y"):
         try:
             return datetime.strptime(raw.strip(), fmt).date().isoformat()
         except ValueError:
@@ -137,24 +138,17 @@ def run() -> int:
     congress = settings.congress_number
     session = settings.congress_session
 
-    # Authoritative reachability probe on vote 1: 404 = no votes yet (fine);
-    # any other non-200 (e.g. a WAF 403) is raised so it surfaces as a failure.
-    first = _session.get(_vote_url(congress, session, 1), headers=_HEADERS, timeout=30)
-    if first.status_code == 404:
+    numbers = _menu_numbers(congress, session)
+    if not numbers:
         _stage([])
-        logger.info("senate_lis_votes: no roll calls yet (congress %d session %d)", congress, session)
+        logger.info("senate_lis_votes: no votes in menu yet (congress %d session %d)", congress, session)
         return 0
-    if first.status_code != 200:
-        raise RuntimeError(f"senate returned HTTP {first.status_code} (vote 1)")
 
-    top = _max_vote(congress, session)
-    lo = max(1, top - settings.votes_limit + 1)
+    numbers = sorted(set(numbers), reverse=True)[: settings.votes_limit]  # newest first
     staged: list[dict] = []
-    for n in range(top, lo - 1, -1):  # newest first
+    for n in numbers:
         try:
             resp = _session.get(_vote_url(congress, session, n), headers=_HEADERS, timeout=30)
-            if resp.status_code != 200:
-                continue
             vote = _parse(ET.fromstring(resp.content), congress, session, n)
             if vote:
                 staged.append(vote)
@@ -162,10 +156,10 @@ def run() -> int:
             logger.warning("skipping senate vote %d: %s", n, exc)
 
     if not staged:
-        raise ValueError(f"no senate votes parsed (top vote {top})")
+        raise ValueError(f"no senate votes parsed ({len(numbers)} in menu)")
 
     _stage(staged)
-    logger.info("senate_lis_votes: staged %d votes (votes %d..%d)", len(staged), lo, top)
+    logger.info("senate_lis_votes: staged %d votes", len(staged))
     return len(staged)
 
 
