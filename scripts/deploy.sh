@@ -138,9 +138,9 @@ if [ "$LOAD_DATA" -eq 1 ]; then
   log "Refreshing data (pipeline -> normalize)"
   # Non-fatal on purpose: a transient source outage (e.g. GitHub) shouldn't
   # fail the whole deploy — the app keeps serving whatever is already in the
-  # DB. The weekly scheduler will retry regardless.
-  if docker compose exec -T backend python -m app.pipelines.congress_legislators \
-     && docker compose exec -T backend python -m app.normalize.members; then
+  # DB. The scheduler retries regardless. `refresh` pulls + normalizes every
+  # registered source and records each outcome to the pipeline_status table.
+  if docker compose exec -T backend python -m app.pipelines.refresh; then
     echo "data refresh complete"
   else
     echo "WARNING: data refresh failed — app is up on existing data; investigate" >&2

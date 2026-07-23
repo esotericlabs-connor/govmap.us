@@ -1,6 +1,7 @@
 from datetime import date, datetime
 
-from sqlalchemy import ARRAY, Date, DateTime, String, func
+from sqlalchemy import ARRAY, Boolean, Date, DateTime, String, func
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -22,6 +23,16 @@ class Member(Base):
     term_start: Mapped[date] = mapped_column(Date)
     fec_candidate_ids: Mapped[list[str]] = mapped_column(ARRAY(String), default=list)
     photo_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    # Enrichment from legislators-current.yaml (bio block + latest term contact).
+    # social is JSONB and stays null until the social-media pipeline lands.
+    birthday: Mapped[date | None] = mapped_column(Date, nullable=True)
+    gender: Mapped[str | None] = mapped_column(String(1), nullable=True)
+    contact: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    social: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    in_office: Mapped[bool] = mapped_column(Boolean, server_default="true")
+    leadership_role: Mapped[str | None] = mapped_column(String(60), nullable=True)
+
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )

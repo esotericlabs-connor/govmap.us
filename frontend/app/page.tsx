@@ -72,7 +72,7 @@ export default function MarketingHomePage() {
               <span className="text-[#5cb3ff]">Clearly.</span>
             </h1>
             <p
-              className="mt-6 max-w-xl animate-fade-up text-lg font-medium leading-relaxed text-white [text-shadow:0_1px_14px_rgba(0,0,0,0.6)] sm:text-xl"
+              className="mt-6 max-w-xl animate-fade-up rounded-xl bg-white/85 px-5 py-4 text-lg font-medium leading-relaxed text-slate-900 shadow-lg backdrop-blur-sm sm:text-xl"
               style={{ animationDelay: "120ms" }}
             >
               GovMap is a nonpartisan, end-to-end live-synced view of the entire

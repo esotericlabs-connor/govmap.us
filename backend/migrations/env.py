@@ -7,7 +7,15 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from app.config import settings
 from app.db import Base
-from app.models import member  # noqa: F401 -- registers Member on Base.metadata
+
+# Import every model module so all tables register on Base.metadata (needed for
+# autogenerate and for a complete target_metadata). Add new model modules here.
+from app.models import (  # noqa: F401
+    committee,
+    crosswalk,
+    member,
+    pipeline_status,
+)
 
 config = context.config
 if config.config_file_name is not None:

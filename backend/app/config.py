@@ -11,6 +11,13 @@ class Settings(BaseSettings):
     internal_user: str = ""
     internal_password: str = ""
 
+    # Optional: POST target for pipeline-failure alerts (e.g. an ntfy.sh or
+    # Slack incoming webhook). Unset = failures are logged only.
+    alert_webhook_url: str = ""
+
+    # Congress.gov API key — required for the bills/votes pipelines (Increment 3).
+    congress_gov_api_key: str = ""
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
     @property

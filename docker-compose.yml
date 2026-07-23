@@ -39,6 +39,9 @@ services:
       # /internal/* ops endpoints. Left unset = those endpoints stay locked.
       INTERNAL_USER: ${INTERNAL_USER:-}
       INTERNAL_PASSWORD: ${INTERNAL_PASSWORD:-}
+      # Optional pipeline-failure webhook + the Congress.gov API key (bills/votes).
+      ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
+      CONGRESS_GOV_API_KEY: ${CONGRESS_GOV_API_KEY:-}
     ports:
       # Loopback only — for host-side tooling and the deploy health check.
       # The tunnel reaches this over the compose network at http://backend:8000.

@@ -1,10 +1,12 @@
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
+from app.models.committee import Committee, CommitteeMembership
+from app.models.crosswalk import IdCrosswalk
 from app.models.member import Member
 from app.schemas.member import MemberOut
 
@@ -35,3 +37,68 @@ async def list_members(
 
     result = await db.execute(stmt)
     return list(result.scalars().all())
+
+
+@router.get("/{bioguide_id}")
+async def member_detail(bioguide_id: str, db: AsyncSession = Depends(get_db)) -> dict:
+    """Full member profile: core fields + cross-source IDs + committee seats.
+    The backing endpoint for the member detail page (Increment 5); bills/votes/
+    finance/disclosures get folded in as those tables land."""
+    member = (
+        await db.execute(select(Member).where(Member.bioguide_id == bioguide_id))
+    ).scalar_one_or_none()
+    if member is None:
+        raise HTTPException(status_code=404, detail="member not found")
+
+    ids = (
+        await db.execute(select(IdCrosswalk).where(IdCrosswalk.bioguide_id == bioguide_id))
+    ).scalar_one_or_none()
+
+    committees = (
+        await db.execute(
+            select(
+                Committee.committee_id,
+                Committee.name,
+                Committee.parent_committee_id,
+                CommitteeMembership.role,
+                CommitteeMembership.side,
+            )
+            .join(CommitteeMembership, CommitteeMembership.committee_id == Committee.committee_id)
+            .where(CommitteeMembership.bioguide_id == bioguide_id)
+            .order_by(Committee.name)
+        )
+    ).all()
+
+    return {
+        "bioguide_id": member.bioguide_id,
+        "first_name": member.first_name,
+        "last_name": member.last_name,
+        "official_full_name": member.official_full_name,
+        "chamber": member.chamber,
+        "state": member.state,
+        "district": member.district,
+        "party": member.party,
+        "term_start": member.term_start.isoformat() if member.term_start else None,
+        "photo_url": member.photo_url,
+        "birthday": member.birthday.isoformat() if member.birthday else None,
+        "gender": member.gender,
+        "contact": member.contact,
+        "leadership_role": member.leadership_role,
+        "ids": {
+            "fec": ids.fec_ids if ids else [],
+            "govtrack": ids.govtrack if ids else None,
+            "opensecrets": ids.opensecrets if ids else None,
+            "thomas": ids.thomas if ids else None,
+            "lis": ids.lis if ids else None,
+        },
+        "committees": [
+            {
+                "committee_id": c.committee_id,
+                "name": c.name,
+                "parent_committee_id": c.parent_committee_id,
+                "role": c.role,
+                "side": c.side,
+            }
+            for c in committees
+        ],
+    }

@@ -12,6 +12,13 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 class LegislatorId(BaseModel):
     bioguide: str
     fec: list[str] = Field(default_factory=list)
+    # Cross-source identifiers → id_crosswalk (the join backbone, AGENTS.md).
+    govtrack: int | None = None
+    opensecrets: str | None = None
+    thomas: str | None = None
+    lis: str | None = None
+    votesmart: int | None = None
+    wikidata: str | None = None
 
     model_config = ConfigDict(extra="ignore")
 
@@ -24,6 +31,13 @@ class LegislatorName(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
+class LegislatorBio(BaseModel):
+    birthday: date | None = None
+    gender: str | None = None
+
+    model_config = ConfigDict(extra="ignore")
+
+
 class LegislatorTerm(BaseModel):
     type: Literal["rep", "sen"]
     start: date
@@ -31,6 +45,11 @@ class LegislatorTerm(BaseModel):
     state: str
     district: int | None = None
     party: str
+    # Contact lives on the latest term in legislators-current.yaml.
+    office: str | None = None
+    phone: str | None = None
+    url: str | None = None
+    address: str | None = None
 
     model_config = ConfigDict(extra="ignore")
 
@@ -38,6 +57,7 @@ class LegislatorTerm(BaseModel):
 class LegislatorRaw(BaseModel):
     id: LegislatorId
     name: LegislatorName
+    bio: LegislatorBio | None = None
     terms: list[LegislatorTerm]
 
     model_config = ConfigDict(extra="ignore")

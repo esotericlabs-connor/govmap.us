@@ -44,6 +44,12 @@ def current_term(legislator: LegislatorRaw) -> LegislatorTerm:
     return legislator.terms[-1]
 
 
+def _contact(term: LegislatorTerm) -> dict | None:
+    fields = {"office": term.office, "phone": term.phone, "url": term.url, "address": term.address}
+    fields = {k: v for k, v in fields.items() if v}
+    return fields or None
+
+
 def to_member_row(legislator: LegislatorRaw) -> dict:
     term = current_term(legislator)
     full_name = legislator.name.official_full or f"{legislator.name.first} {legislator.name.last}"
@@ -59,6 +65,9 @@ def to_member_row(legislator: LegislatorRaw) -> dict:
         "term_start": term.start,
         "fec_candidate_ids": legislator.id.fec,
         "photo_url": f"{PHOTO_URL_BASE}/{legislator.id.bioguide}.jpg",
+        "birthday": legislator.bio.birthday if legislator.bio else None,
+        "gender": legislator.bio.gender if legislator.bio else None,
+        "contact": _contact(term),
     }
 
 
@@ -84,6 +93,9 @@ async def normalize_and_load() -> int:
             "term_start": stmt.excluded.term_start,
             "fec_candidate_ids": stmt.excluded.fec_candidate_ids,
             "photo_url": stmt.excluded.photo_url,
+            "birthday": stmt.excluded.birthday,
+            "gender": stmt.excluded.gender,
+            "contact": stmt.excluded.contact,
             "updated_at": func.now(),
         }
         stmt = stmt.on_conflict_do_update(index_elements=[Member.bioguide_id], set_=update_cols)

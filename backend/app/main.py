@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.routers import members, pipeline_status
+from app.routers import committees, members, pipeline_status
 from app.scheduler import start_scheduler, stop_scheduler
 
 
@@ -28,6 +28,7 @@ app.add_middleware(
 )
 
 app.include_router(members.router)
+app.include_router(committees.router)
 app.include_router(pipeline_status.router)
 
 

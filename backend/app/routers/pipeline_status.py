@@ -1,4 +1,4 @@
-"""Internal pipeline health endpoint.
+"""Internal pipeline health endpoint, backed by the pipeline_status table.
 
 Access-controlled with HTTP Basic Auth. Credentials come from INTERNAL_USER /
 INTERNAL_PASSWORD (see app/config.py); if either is unset the endpoint denies
@@ -7,20 +7,19 @@ tunnel exposes this backend at api.govmap.us, so an open /internal/* would be
 reachable from the internet.
 """
 
-import json
 import secrets
-from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.db import get_db
+from app.models.pipeline_status import PipelineStatusRow
 
 router = APIRouter(prefix="/internal", tags=["internal"])
 security = HTTPBasic()
-
-# backend/app/routers/pipeline_status.py -> parents[2] == backend/
-STATUS_PATH = Path(__file__).resolve().parents[2] / "data" / "pipeline_status.json"
 
 
 def require_internal_auth(
@@ -42,7 +41,18 @@ def require_internal_auth(
 
 
 @router.get("/pipeline-status", dependencies=[Depends(require_internal_auth)])
-async def pipeline_status() -> dict:
-    if not STATUS_PATH.exists():
-        raise HTTPException(status_code=404, detail="no pipeline runs recorded yet")
-    return json.loads(STATUS_PATH.read_text())
+async def pipeline_status(db: AsyncSession = Depends(get_db)) -> list[dict]:
+    result = await db.execute(
+        select(PipelineStatusRow).order_by(PipelineStatusRow.source)
+    )
+    return [
+        {
+            "source": row.source,
+            "last_run": row.last_run.isoformat() if row.last_run else None,
+            "last_success": row.last_success.isoformat() if row.last_success else None,
+            "record_count": row.record_count,
+            "status": row.status,
+            "detail": row.detail,
+        }
+        for row in result.scalars().all()
+    ]
