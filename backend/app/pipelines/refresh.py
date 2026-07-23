@@ -152,17 +152,29 @@ async def refresh_zip_districts() -> None:
         raise
 
 
-# source key -> refresh coroutine. Extended as each source lands. Order matters
-# where a source reads another's staging: member_sponsored reads the legislators
-# staging that members writes, so it follows members.
-REFRESHERS: dict[str, callable] = {
+# Fast / essential sources refreshed on EVERY deploy (the CLI default). Each is
+# a modest, well-behaved pull, so the deploy stays quick.
+CORE_REFRESHERS: dict[str, callable] = {
     "members": refresh_members,
     "bills": refresh_bills,
-    "sponsored_bills": refresh_sponsored_bills,
     "votes": refresh_votes,
+}
+
+# Heavier / slow-cadence / rate-limited sources kept OFF the deploy hot path:
+# each makes hundreds of third-party calls (and FEC is throttled to ~1000/hr),
+# so running them on every redeploy exhausts API budgets and drags the deploy
+# out. They run on their own scheduler cadence (see app/scheduler.py) and on
+# demand, e.g.:  docker compose exec backend python -m app.pipelines.refresh finance
+# (member_sponsored reads the legislators staging that refresh_members writes, so
+# a members refresh must have run first — it does, on every deploy.)
+EXTRA_REFRESHERS: dict[str, callable] = {
+    "sponsored_bills": refresh_sponsored_bills,
     "finance": refresh_finance,
     "zip_districts": refresh_zip_districts,
 }
+
+# Full registry (deploy core + extras) — the target for a manual `refresh all`.
+REFRESHERS: dict[str, callable] = {**CORE_REFRESHERS, **EXTRA_REFRESHERS}
 
 
 async def _run_with_retry(name: str, fn, retries: int = 2, delay: float = 5.0) -> bool:
@@ -182,26 +194,51 @@ async def _run_with_retry(name: str, fn, retries: int = 2, delay: float = 5.0) -
     return False
 
 
-async def refresh_all() -> list[str]:
-    """Run every registered source. One source failing doesn't stop the rest —
-    each records its own status. Returns the list of sources that failed so the
-    CLI can exit non-zero (a partial load must never pass silently)."""
+async def run_refreshers(targets: dict[str, callable]) -> list[str]:
+    """Run the given sources. One failing doesn't stop the rest — each records
+    its own status. Returns the failed source names so the CLI can exit non-zero
+    (a partial load must never pass silently)."""
     failed: list[str] = []
-    for name, fn in REFRESHERS.items():
+    for name, fn in targets.items():
         if not await _run_with_retry(name, fn):
             failed.append(name)
     if failed:
         logger.error("refresh finished WITH FAILURES: %s", ", ".join(failed))
     else:
-        logger.info("refresh: all %d source(s) ok", len(REFRESHERS))
+        logger.info("refresh: all %d source(s) ok", len(targets))
     return failed
+
+
+async def refresh_all() -> list[str]:
+    """Every registered source (core + extras). Used by a manual `refresh all`;
+    the scheduler runs each source on its own cadence instead."""
+    return await run_refreshers(REFRESHERS)
 
 
 if __name__ == "__main__":
     import sys
 
     logging.basicConfig(level=logging.INFO)
+
+    # Usage:
+    #   python -m app.pipelines.refresh            # deploy default: CORE only
+    #   python -m app.pipelines.refresh all        # every source (core + extras)
+    #   python -m app.pipelines.refresh finance …  # named source(s), on demand
+    args = sys.argv[1:]
+    if not args:
+        targets = CORE_REFRESHERS
+    elif args == ["all"]:
+        targets = REFRESHERS
+    else:
+        unknown = [a for a in args if a not in REFRESHERS]
+        if unknown:
+            sys.exit(
+                f"unknown refresher(s): {', '.join(unknown)} — "
+                f"choose from {', '.join(REFRESHERS)}, or 'all'"
+            )
+        targets = {a: REFRESHERS[a] for a in args}
+
     # Non-zero exit on any failure so scripts/deploy.sh surfaces the WARNING
     # (still non-fatal for the deploy — a transient source outage shouldn't
     # block a ship — but never green-and-silent again).
-    sys.exit(1 if asyncio.run(refresh_all()) else 0)
+    sys.exit(1 if asyncio.run(run_refreshers(targets)) else 0)

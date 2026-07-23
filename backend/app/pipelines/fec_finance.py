@@ -38,6 +38,12 @@ STAGING_DIR = Path(__file__).resolve().parents[2] / "data" / "staging"
 STAGING_PATH = STAGING_DIR / "member_finance_raw.json"
 
 _MAX_RETRIES = 4
+_TIMEOUT = 45  # OpenFEC's /totals is occasionally slow; 30s wasn't enough.
+# Polite pacing between candidates. api.data.gov allows ~1000 req/hr per key;
+# spacing calls keeps a full run (~537 members) under the burst throttle so it
+# doesn't 429 itself. At ~2/sec a full run is ~4-5 min — which is exactly why
+# this pipeline runs off the deploy hot path (scheduler / on-demand only).
+_PACE_SECONDS = 0.5
 # Chamber (legislators-current term type) -> the FEC candidate-id office prefix.
 _CHAMBER_PREFIX = {"sen": "S", "rep": "H"}
 
@@ -53,7 +59,7 @@ def _fec_get(path: str, **params: Any) -> dict:
     headers = {"X-Api-Key": settings.fec_api_key}
     last_status = 0
     for attempt in range(1, _MAX_RETRIES + 1):
-        resp = _session.get(url, params=params, headers=headers, timeout=30)
+        resp = _session.get(url, params=params, headers=headers, timeout=_TIMEOUT)
         last_status = resp.status_code
         if resp.status_code == 429 or resp.status_code >= 500:
             wait = min(2**attempt, 30)
@@ -143,6 +149,7 @@ def run() -> int:
         except Exception as exc:
             failures += 1
             logger.warning("finance pull failed for %s (%s): %s", bioguide, candidate_id, exc)
+        time.sleep(_PACE_SECONDS)  # stay under the api.data.gov burst throttle
 
     # Total wipe-out (bad key / source down) must surface; a few misses don't.
     if not rows and failures:
