@@ -10,14 +10,22 @@ import { useState } from "react";
  * these are external, unoptimized thumbnails, so next/image would add config
  * and a domain allowlist for no benefit.
  */
+const SIZES = {
+  md: "h-12 w-12 text-sm",
+  xl: "h-24 w-24 text-2xl",
+} as const;
+
 export function MemberAvatar({
   src,
   name,
+  size = "md",
 }: {
   src: string | null;
   name: string;
+  size?: keyof typeof SIZES;
 }) {
   const [failed, setFailed] = useState(false);
+  const dim = SIZES[size];
 
   const initials = name
     .split(/\s+/)
@@ -29,7 +37,9 @@ export function MemberAvatar({
 
   if (!src || failed) {
     return (
-      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-slate-200 text-sm font-semibold text-slate-500">
+      <div
+        className={`flex shrink-0 items-center justify-center rounded-full bg-slate-200 font-semibold text-slate-500 ${dim}`}
+      >
         {initials}
       </div>
     );
@@ -42,7 +52,7 @@ export function MemberAvatar({
       alt={name}
       loading="lazy"
       onError={() => setFailed(true)}
-      className="h-12 w-12 shrink-0 rounded-full object-cover"
+      className={`shrink-0 rounded-full object-cover ${dim}`}
     />
   );
 }

@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import { MemberAvatar } from "@/components/MemberAvatar";
 import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
@@ -85,19 +87,24 @@ export default async function MembersPage() {
               </h1>
               <ul className="divide-y divide-slate-100">
                 {members.map((member) => (
-                  <li key={member.bioguide_id} className="flex items-center gap-4 py-3">
-                    <MemberAvatar src={member.photo_url} name={member.official_full_name} />
-                    <div className="min-w-0">
-                      <p className="truncate font-medium text-slate-900">
-                        {member.official_full_name}
-                      </p>
-                      <p className="text-sm text-slate-500">
-                        <span className={`font-medium ${partyColor(member.party)}`}>
-                          {member.party}
-                        </span>{" "}
-                        · {seatLabel(member)}
-                      </p>
-                    </div>
+                  <li key={member.bioguide_id}>
+                    <Link
+                      href={`/members/${member.bioguide_id}`}
+                      className="-mx-3 flex items-center gap-4 rounded-lg px-3 py-3 transition-colors hover:bg-slate-50"
+                    >
+                      <MemberAvatar src={member.photo_url} name={member.official_full_name} />
+                      <div className="min-w-0">
+                        <p className="truncate font-medium text-slate-900">
+                          {member.official_full_name}
+                        </p>
+                        <p className="text-sm text-slate-500">
+                          <span className={`font-medium ${partyColor(member.party)}`}>
+                            {member.party}
+                          </span>{" "}
+                          · {seatLabel(member)}
+                        </p>
+                      </div>
+                    </Link>
                   </li>
                 ))}
               </ul>

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { siteConfig } from "@/lib/site-config";
+import { UniversalSearch } from "@/components/UniversalSearch";
 
 type NavItem = { label: string; href: string; external?: boolean };
 
@@ -85,6 +86,15 @@ export function SiteHeader({
           />
         </Link>
 
+        {/* Universal search — centered on the platform (app) pages. Kept out of
+            the marketing hero, and out of the mobile top bar so the fixed
+            header height stays constant (it appears in the mobile menu). */}
+        {variant === "app" && (
+          <div className="hidden flex-1 justify-center px-4 md:flex">
+            <UniversalSearch className="w-full max-w-md" />
+          </div>
+        )}
+
         <nav className="hidden items-center gap-8 md:flex" aria-label="Primary">
           {nav.map((item) => (
             <a
@@ -124,6 +134,11 @@ export function SiteHeader({
       {open && (
         <div className="border-t border-white/10 bg-govnavy/95 backdrop-blur-md md:hidden">
           <nav className="mx-auto flex max-w-6xl flex-col gap-1 px-6 py-4" aria-label="Mobile">
+            {variant === "app" && (
+              <div className="mb-2">
+                <UniversalSearch onNavigate={() => setOpen(false)} />
+              </div>
+            )}
             {nav.map((item) => (
               <a
                 key={item.label}
