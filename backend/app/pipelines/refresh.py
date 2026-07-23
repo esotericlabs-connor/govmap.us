@@ -18,11 +18,13 @@ from app.normalize.committees import load_committees
 from app.normalize.crosswalk import load_crosswalk
 from app.normalize.members import normalize_and_load
 from app.normalize.votes import normalize_and_load as normalize_votes
+from app.normalize.zip_districts import load_zip_districts
 from app.pipelines import (
     congress_gov_bills,
     congress_legislators,
     house_clerk_votes,
     senate_lis_votes,
+    zip_crosswalk,
 )
 from app.pipelines.status import record_run
 
@@ -94,11 +96,29 @@ async def refresh_votes() -> None:
         raise
 
 
+async def refresh_zip_districts() -> None:
+    """ZIP→congressional-district crosswalk from the Census ZCTA↔CD relationship
+    file. Rare-change data (moves only on redistricting), but cheap to reload;
+    a full replace keeps stale mappings from lingering. Independent of the other
+    sources — no shared FKs."""
+    source = "zip_districts"
+    try:
+        await asyncio.to_thread(zip_crosswalk.run)
+        count = await load_zip_districts()
+        await record_run(source, count, "ok")
+        logger.info("refresh %s: ok (%d ZIP→district rows)", source, count)
+    except Exception as exc:
+        await record_run(source, 0, "error", str(exc))
+        logger.exception("refresh %s failed", source)
+        raise
+
+
 # source key -> refresh coroutine. Extended as each source lands.
 REFRESHERS: dict[str, callable] = {
     "members": refresh_members,
     "bills": refresh_bills,
     "votes": refresh_votes,
+    "zip_districts": refresh_zip_districts,
 }
 
 

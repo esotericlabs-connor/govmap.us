@@ -4,6 +4,9 @@ What's been built, in what order, and what's next. This is a living log — add 
 
 ## Build log
 
+**2026-07-23 — Congress dashboard + self-contained seat map + ZIP→reps lookup; front-page polish**
+Turned the platform entry into a visual view of Congress. **Backend (all additive):** `zip_districts` table (0005; composite PK `(zip, state, district)`) + `zip_crosswalk.py` pipeline (public **Census ZCTA↔CD relationship file** — no auth, fetch-at-refresh like every other source; resolves the ZCTA/CD columns *by name prefix* and tries `cd119`→`cd118` so a redistricting-year publish gap can't break the pull; drops water-only slivers) + `normalize/zip_districts.py` (full delete+reload, chunked under the 32767-param cap), registered in `refresh.py` + a monthly scheduler job. New `routers/congress.py`: `/api/map` (party/link index keyed `STATE-DISTRICT` for the House, by state for the Senate — derived **entirely from `members`, zero new data dependency**), `/api/summary` (per-chamber D/R/I balance), `/api/lookup?zip=` (5-digit-validated → your senators by state + representative(s) by state+district; a boundary-straddling ZIP returns every match). **Frontend:** `/congress` (`force-dynamic`) is now the platform entry — `siteConfig.appUrl`, both "Enter GovMap" CTAs, and a new "Congress" nav item point here. `CongressCartogram` is a **self-contained computed hemicycle**: every seat is one member, party-colored from `/api/map`, hover-to-identify, click→profile, House/Senate toggle — no map tiles, no geometry files, no third-party requests (chosen over a geographic polygon map because district geometry can't be produced on the static build box — the geographic upgrade is deferred, see open items). `ZipLookup` + `CongressExplorer` tie the ZIP box to the chart (your reps get ringed); `ChamberSplit` shows the two chambers with party-balance bars; `/members` gains `[All|House|Senate]` tabs (`?chamber=`). **Front-page polish:** hero → "See your **government** clearly." (white-on-blue highlight box + red *clearly.*); the "Enter GovMap"/"How it works" CTAs are solid-but-glassy; the header bar is full-width (logo pinned far-left, nav far-right).
+
 **2026-07-23 — UX visual polish (Gemini) + Claude finalize pass**
 First real run of the Claude-builds / Gemini-polishes loop ([[gemini-division-of-labor]]): Gemini restyled the detail pages, `DetailKit`, roster, and search into a cohesive light "civic dashboard" (member profile header + stat strip, a proportional yea/nay tally bar and by-position grouping on votes, a vertical action timeline on bills, chair/ranking-hoisted committee rosters, member cards with avatars, a polished dark search dropdown) — no new dependencies, server/client boundaries intact. Claude's finalize pass then reconciled where Gemini's design outran the API contract: added `photo_url` to the bill-sponsor and committee-member query+response (so their avatars have a source) and to the matching `lib/api` types; added a `CommitteeMember` type alias; corrected the votes `totals` annotation to `Record<string, number | null>`; fixed the search empty-state check (it was counting the `query` string) and an invisible party dot; dropped unused imports. Lesson for future Gemini hand-offs: it will reach for fields/types that "should" exist — the finalize pass owns reconciling the data contract.
 
@@ -83,7 +86,7 @@ The original planning docs disagreed with each other in a few places. Resolved a
 - **Hosting**: self-hosted home VM behind `cloudflared` (no exposed ports), Tailscale-only SSH, GitHub Actions deploy — not the earlier draft's Hetzner VPS + Coolify. This is a deliberate cheap-and-temporary choice; see README's Tech stack section.
 - **OpenSecrets bulk data license** ("free, non-commercial") confirmed compatible with GovMap's nonprofit, non-advertising model.
 
-## Canonical source list (25)
+## Canonical source list (26)
 
 Status: `pilot` = actively being built against right now, `planned` = designed for, not yet started, `on hold` = deferred by product decision (not blocked technically).
 
@@ -114,6 +117,7 @@ Status: `pilot` = actively being built against right now, `planned` = designed f
 | 23 | NCSC Court Statistics Project | State judicial | planned |
 | 24 | Senate LDA Lobbying API (lda.gov) | Federal legislative | planned — API access confirmed in hand |
 | 25 | Congressional Financial Disclosures | Legislative/Judicial | planned |
+| 26 | Census ZCTA↔CD relationship file | Geographic | **pilot** (ZIP→district lookup) |
 
 ## Canonical JSON outputs (24)
 
@@ -185,3 +189,5 @@ Adapted from the original end-to-end plan, reordered to prove the pipeline contr
 - **Marketing site has no real social handles or support/donation link.** `frontend/lib/site-config.ts` ships with `socialLinks: []` and `supportUrl: null` on purpose rather than placeholder/fake links — fill them in as real accounts and a donation link exist.
 - **Favicon is a stopgap crop**, not a designed icon mark — see README → *Sites & branding*. Fine for now, worth revisiting once there's a proper icon-only asset.
 - **DNS not yet configured** for the `app.` subdomain split. `frontend/middleware.ts` assumes `app.govmap.us` resolves to the same deployment as `govmap.us` — that DNS record (and matching `cloudflared` routing) needs to exist before the split works in production.
+- **The `/congress` map is a computed seat-chart, not geographic.** `CongressCartogram` draws one dot per member (a hemicycle) because congressional-district geometry can't be generated or downloaded on the static build box. The geographic upgrade — real district polygons — is deferred; when built it must stay self-contained (serve simplified geometry from our own API or a committed asset, **never** per-visitor third-party map tiles/tracking).
+- **ZIP crosswalk source is unverified end-to-end.** `zip_crosswalk.py` targets the Census `rel2020` ZCTA↔CD file (`tab20_zcta520_cd119/118_natl.txt`); the exact path/column names can only be confirmed on the VM (no runtime on the build box). It **fails soft** (logs + records an error, deploy stays green) if the source differs — confirm from the first deploy's `refresh` logs and adjust the URL/parse if needed. ZCTA≈ZIP is a deliberate lookup approximation (avoids the auth-gated HUD crosswalk).

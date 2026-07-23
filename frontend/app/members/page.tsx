@@ -28,14 +28,17 @@ type Member = {
   photo_url: string | null;
 };
 
-async function getMembers(): Promise<Member[]> {
+type Chamber = "house" | "senate";
+
+async function getMembers(chamber: Chamber | null): Promise<Member[]> {
   // Runs server-side in the frontend container; reach the backend directly
   // over the compose network rather than through the public API hostname.
   const apiUrl =
     process.env.API_INTERNAL_URL ??
     process.env.NEXT_PUBLIC_API_URL ??
     "http://localhost:8000";
-  const res = await fetch(`${apiUrl}/api/members?limit=600`, {
+  const query = chamber ? `&chamber=${chamber}` : "";
+  const res = await fetch(`${apiUrl}/api/members?limit=600${query}`, {
     cache: "no-store",
   });
   if (!res.ok) {
@@ -43,6 +46,12 @@ async function getMembers(): Promise<Member[]> {
   }
   return res.json();
 }
+
+const TABS: { label: string; chamber: Chamber | null }[] = [
+  { label: "All", chamber: null },
+  { label: "House", chamber: "house" },
+  { label: "Senate", chamber: "senate" },
+];
 
 function partyColor(party: string): string {
   if (party.startsWith("Republican")) return "text-govred";
@@ -57,15 +66,27 @@ function seatLabel(member: Member): string {
   return `${where} · ${chamber}`;
 }
 
-export default async function MembersPage() {
+export default async function MembersPage({
+  searchParams,
+}: {
+  searchParams: { chamber?: string };
+}) {
+  const chamber: Chamber | null =
+    searchParams.chamber === "house" || searchParams.chamber === "senate"
+      ? searchParams.chamber
+      : null;
+
   let members: Member[] = [];
   let loadError = false;
   try {
-    members = await getMembers();
+    members = await getMembers(chamber);
   } catch (err) {
     console.error(err);
     loadError = true;
   }
+
+  const scopeLabel =
+    chamber === "house" ? "the U.S. House" : chamber === "senate" ? "the U.S. Senate" : "the U.S. House and Senate";
 
   return (
     <>
@@ -79,8 +100,26 @@ export default async function MembersPage() {
               </h1>
               <p className="mt-1 text-slate-500">
                 Browse all {members.length > 0 ? members.length : ""}{" "}
-                currently-serving members of the U.S. House and Senate.
+                currently-serving members of {scopeLabel}.
               </p>
+              <div className="mt-5 inline-flex rounded-full border border-slate-200 bg-slate-50 p-1">
+                {TABS.map((tab) => {
+                  const active = tab.chamber === chamber;
+                  return (
+                    <Link
+                      key={tab.label}
+                      href={tab.chamber ? `/members?chamber=${tab.chamber}` : "/members"}
+                      className={`rounded-full px-4 py-1.5 text-sm font-semibold transition ${
+                        active
+                          ? "bg-govnavy text-white shadow-sm"
+                          : "text-slate-600 hover:text-govnavy"
+                      }`}
+                    >
+                      {tab.label}
+                    </Link>
+                  );
+                })}
+              </div>
             </div>
 
             {loadError ? (

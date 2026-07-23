@@ -5,7 +5,15 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.routers import bills, committees, members, pipeline_status, search, votes
+from app.routers import (
+    bills,
+    committees,
+    congress,
+    members,
+    pipeline_status,
+    search,
+    votes,
+)
 from app.scheduler import start_scheduler, stop_scheduler
 
 
@@ -32,6 +40,7 @@ app.include_router(committees.router)
 app.include_router(bills.router)
 app.include_router(votes.router)
 app.include_router(search.router)
+app.include_router(congress.router)
 app.include_router(pipeline_status.router)
 
 

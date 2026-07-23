@@ -16,7 +16,12 @@ from collections.abc import Awaitable, Callable
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-from app.pipelines.refresh import refresh_bills, refresh_members, refresh_votes
+from app.pipelines.refresh import (
+    refresh_bills,
+    refresh_members,
+    refresh_votes,
+    refresh_zip_districts,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +49,13 @@ JOBS: list[tuple[str, Callable[[], Awaitable[None]], dict]] = [
         "refresh_votes",
         refresh_votes,
         {"trigger": "interval", "minutes": 30},
+    ),
+    # ZIP→district crosswalk only changes on redistricting — monthly (1st,
+    # 06:00 UTC) is generous. The deploy-time refresh_all keeps it warm too.
+    (
+        "refresh_zip_districts",
+        refresh_zip_districts,
+        {"trigger": "cron", "day": 1, "hour": 6},
     ),
 ]
 

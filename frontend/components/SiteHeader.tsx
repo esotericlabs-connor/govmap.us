@@ -17,6 +17,7 @@ const MARKETING_NAV: NavItem[] = [
 
 const APP_NAV: NavItem[] = [
   { label: "Home", href: "/" },
+  { label: "Congress", href: "/congress" },
   { label: "Members", href: "/members" },
 ];
 
@@ -70,7 +71,7 @@ export function SiteHeader({
           : "border-b border-transparent bg-transparent"
       }`}
     >
-      <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-6 py-3">
+      <div className="flex w-full items-center justify-between gap-4 px-6 py-3 sm:px-8">
         <Link
           href="/"
           className="shrink-0"
@@ -114,7 +115,7 @@ export function SiteHeader({
           </a>
           <a
             href={siteConfig.appUrl}
-            className="rounded-full bg-white px-5 py-2 text-sm font-semibold text-govnavy transition hover:bg-white/90"
+            className="rounded-full bg-govblue/90 px-5 py-2 text-sm font-semibold text-govnavy shadow-lg shadow-govblue/30 backdrop-blur-sm transition hover:-translate-y-0.5 hover:bg-govblue"
           >
             Enter GovMap
           </a>
@@ -160,7 +161,7 @@ export function SiteHeader({
             <a
               href={siteConfig.appUrl}
               onClick={() => setOpen(false)}
-              className="mt-2 rounded-full bg-white px-5 py-3 text-center text-base font-semibold text-govnavy"
+              className="mt-2 rounded-full bg-govblue/90 px-5 py-3 text-center text-base font-semibold text-govnavy shadow-lg shadow-govblue/30 backdrop-blur-sm transition hover:bg-govblue"
             >
               Enter GovMap
             </a>

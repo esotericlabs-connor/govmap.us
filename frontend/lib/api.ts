@@ -193,3 +193,49 @@ export interface SearchResults {
   votes: { vote_id: string; chamber: string; date: string | null; question: string | null; result: string | null }[];
   committees: { committee_id: string; name: string; chamber: string }[];
 }
+
+// --- Congress dashboard / map (/congress) ---
+
+/** Fuller member shape returned by /api/lookup and reused for reps cards. */
+export interface LookupMember {
+  bioguide_id: string;
+  official_full_name: string;
+  last_name: string;
+  party: string;
+  state: string;
+  district: number | null;
+  chamber: "house" | "senate";
+  photo_url: string | null;
+}
+
+export interface LookupResult {
+  zip: string;
+  districts: { state: string; district: number }[];
+  senators: LookupMember[];
+  representatives: LookupMember[];
+}
+
+export interface ChamberBalance {
+  D: number;
+  R: number;
+  I: number;
+  total: number;
+}
+
+export interface ChamberSummary {
+  house: ChamberBalance;
+  senate: ChamberBalance;
+}
+
+/** Party/link index from /api/map. House keyed `STATE-DISTRICT` (district 0 =
+ *  at-large); Senate keyed by state (its two seats). */
+export interface MapEntry {
+  bioguide: string;
+  last_name: string;
+  party: string;
+}
+
+export interface CongressMap {
+  house: Record<string, MapEntry>;
+  senate: Record<string, MapEntry[]>;
+}

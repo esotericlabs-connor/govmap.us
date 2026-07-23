@@ -67,9 +67,12 @@ export default function MarketingHomePage() {
           <div className="absolute inset-0 -z-10 bg-gradient-to-t from-govnavy via-govnavy/40 to-transparent" />
 
           <div className="mx-auto w-full max-w-6xl px-6 pb-24 pt-32 sm:pb-32 sm:pt-44">
-            <h1 className="max-w-3xl animate-fade-up font-display text-4xl font-bold leading-[1.05] tracking-tight text-white [text-shadow:0_2px_20px_rgba(0,0,0,0.6)] sm:text-6xl lg:text-7xl">
-              See your <span className="text-govred">government.</span>{" "}
-              <span className="text-[#5cb3ff]">Clearly.</span>
+            <h1 className="max-w-3xl animate-fade-up font-display text-4xl font-bold leading-[1.2] tracking-tight text-white [text-shadow:0_2px_20px_rgba(0,0,0,0.6)] sm:text-6xl lg:text-7xl">
+              See your{" "}
+              <span className="box-decoration-clone rounded-lg bg-blue-600 px-3 py-1 text-white shadow-[0_2px_16px_rgba(37,99,235,0.45)] [-webkit-box-decoration-break:clone]">
+                government
+              </span>{" "}
+              <span className="text-govred">clearly.</span>
             </h1>
             <p
               className="mt-6 max-w-xl animate-fade-up rounded-xl bg-white/85 px-5 py-4 text-lg font-medium leading-relaxed text-slate-900 shadow-lg backdrop-blur-sm sm:text-xl"
@@ -86,13 +89,13 @@ export default function MarketingHomePage() {
             >
               <a
                 href={siteConfig.appUrl}
-                className="rounded-full bg-govblue px-7 py-3.5 font-semibold text-govnavy shadow-lg shadow-govblue/20 transition hover:-translate-y-0.5 hover:bg-white"
+                className="rounded-full bg-govblue/90 px-7 py-3.5 font-semibold text-govnavy shadow-lg shadow-govblue/30 backdrop-blur-sm transition hover:-translate-y-0.5 hover:bg-govblue"
               >
                 Enter GovMap →
               </a>
               <a
                 href="#about"
-                className="rounded-full border border-white/30 px-7 py-3.5 font-semibold text-white/90 transition hover:border-white/70 hover:bg-white/5"
+                className="rounded-full border border-white/40 bg-white/15 px-7 py-3.5 font-semibold text-white shadow-lg shadow-black/10 backdrop-blur-sm transition hover:-translate-y-0.5 hover:bg-white/25"
               >
                 How it works
               </a>

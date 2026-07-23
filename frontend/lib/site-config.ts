@@ -11,10 +11,10 @@ export const siteConfig = {
   tagline: "From City Council to Congress.",
 
   // Marketing and platform now live on one host (govmap.us): marketing at /,
-  // the platform at /members etc. These are plain relative paths. The
-  // app.govmap.us subdomain split is deferred until the base app is stable —
-  // see CODE-MANIFEST.md.
-  appUrl: "/members",
+  // the platform at /congress (the dashboard entry), /members etc. These are
+  // plain relative paths. The app.govmap.us subdomain split is deferred until
+  // the base app is stable — see CODE-MANIFEST.md.
+  appUrl: "/congress",
   marketingUrl: "/",
 
   githubUrl: "https://github.com/esotericlabs-connor/govmap.us",
