@@ -13,6 +13,7 @@ import { useState } from "react";
 const SIZES = {
   md: "h-12 w-12 text-sm",
   xl: "h-24 w-24 text-2xl",
+  "2xl": "h-32 w-32 text-3xl",
 } as const;
 
 export function MemberAvatar({

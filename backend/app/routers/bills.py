@@ -52,8 +52,13 @@ async def bill_detail(bill_id: str, db: AsyncSession = Depends(get_db)) -> dict:
     if bill.sponsor_bioguide_id:
         sponsor_member = (
             await db.execute(
-                select(Member.bioguide_id, Member.official_full_name, Member.party, Member.state)
-                .where(Member.bioguide_id == bill.sponsor_bioguide_id)
+                select(
+                    Member.bioguide_id,
+                    Member.official_full_name,
+                    Member.party,
+                    Member.state,
+                    Member.photo_url,
+                ).where(Member.bioguide_id == bill.sponsor_bioguide_id)
             )
         ).first()
         sponsor = {
@@ -61,6 +66,7 @@ async def bill_detail(bill_id: str, db: AsyncSession = Depends(get_db)) -> dict:
             "official_full_name": sponsor_member.official_full_name if sponsor_member else None,
             "party": sponsor_member.party if sponsor_member else None,
             "state": sponsor_member.state if sponsor_member else None,
+            "photo_url": sponsor_member.photo_url if sponsor_member else None,
         }
 
     actions = (

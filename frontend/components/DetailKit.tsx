@@ -53,50 +53,57 @@ export function Section({
   children: ReactNode;
 }) {
   return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-card">
-      <h2 className="mb-4 flex items-baseline gap-2 font-display text-lg font-semibold text-govnavy">
-        {title}
-        {count !== undefined && (
-          <span className="text-sm font-normal text-slate-400">{count}</span>
+    <section className="rounded-xl border border-slate-200/80 bg-white shadow-card">
+      <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+        <h2 className="font-display text-lg font-semibold text-govnavy">{title}</h2>
+        {count !== undefined && count > 0 && (
+          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500">
+            {count}
+          </span>
         )}
-      </h2>
-      {children}
+      </div>
+      <div className="p-6">{children}</div>
     </section>
   );
 }
 
 export function EmptyState({ children }: { children: ReactNode }) {
-  return <p className="text-sm text-slate-400">{children}</p>;
+  return <p className="py-8 text-center text-sm text-slate-400">{children}</p>;
 }
 
 /** A small labelled fact (e.g. "Born · Oct 11, 1950"). */
 export function Stat({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div>
-      <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">{label}</dt>
-      <dd className="mt-0.5 text-sm text-slate-800">{children}</dd>
+      <dt className="text-xs font-medium uppercase tracking-wider text-slate-500">{label}</dt>
+      <dd className="mt-1 text-base text-govnavy">{children}</dd>
     </div>
   );
 }
 
 const POSITION_STYLES: Record<string, string> = {
-  yea: "bg-emerald-50 text-emerald-700 ring-emerald-600/20",
-  aye: "bg-emerald-50 text-emerald-700 ring-emerald-600/20",
-  nay: "bg-rose-50 text-rose-700 ring-rose-600/20",
-  no: "bg-rose-50 text-rose-700 ring-rose-600/20",
-  present: "bg-amber-50 text-amber-700 ring-amber-600/20",
+  // Yea/Aye: green
+  yea: "text-green-800 bg-green-100 ring-green-500/50",
+  aye: "text-green-800 bg-green-100 ring-green-500/50",
+  // Nay/No: red
+  nay: "text-red-800 bg-red-100 ring-red-500/50",
+  no: "text-red-800 bg-red-100 ring-red-500/50",
+  // Present: amber
+  present: "text-amber-800 bg-amber-100 ring-amber-500/50",
+  // Not Voting / everything else: neutral
+  "not voting": "text-slate-600 bg-slate-100 ring-slate-500/30",
 };
 
 /** A colored vote-position chip (Yea/Aye green, Nay/No red, Present amber,
  *  everything else neutral). */
 export function PositionPill({ position }: { position: string | null | undefined }) {
   const key = (position ?? "").trim().toLowerCase();
-  const style = POSITION_STYLES[key] ?? "bg-slate-100 text-slate-600 ring-slate-500/20";
+  const style = POSITION_STYLES[key] ?? POSITION_STYLES["not voting"];
   return (
     <span
-      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ring-1 ring-inset ${style}`}
+      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold ring-1 ring-inset ${style}`}
     >
-      {position || "—"}
+      {position || "Not Voting"}
     </span>
   );
 }
@@ -104,7 +111,7 @@ export function PositionPill({ position }: { position: string | null | undefined
 /** Small monospace pill for an identifier (bill_id, committee code, etc.). */
 export function CodePill({ children }: { children: ReactNode }) {
   return (
-    <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs text-slate-600">
+    <span className="rounded-md border border-slate-200 bg-slate-50 px-1.5 py-1 font-mono text-xs text-slate-600">
       {children}
     </span>
   );
@@ -115,10 +122,21 @@ export function BackLink({ href, children }: { href: string; children: ReactNode
   return (
     <Link
       href={href}
-      className="inline-flex items-center gap-1 text-sm font-medium text-slate-500 transition-colors hover:text-govnavy"
+      className="group inline-flex items-center gap-1.5 text-sm font-medium text-slate-500 transition-colors hover:text-govnavy"
     >
-      <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4" aria-hidden="true">
-        <path d="M15 18l-6-6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <svg
+        viewBox="0 0 16 16"
+        fill="none"
+        className="h-4 w-4 transition-transform group-hover:-translate-x-0.5"
+        aria-hidden="true"
+      >
+        <path
+          d="M10.75 3.5L5.75 8l5 4.5"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
       </svg>
       {children}
     </Link>

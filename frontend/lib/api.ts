@@ -133,6 +133,7 @@ export interface BillDetail {
     official_full_name: string | null;
     party: string | null;
     state: string | null;
+    photo_url: string | null;
   } | null;
   actions: BillAction[];
   cosponsors: BillCosponsor[];
@@ -166,10 +167,14 @@ export interface CommitteeMemberRow {
   official_full_name: string;
   party: string;
   state: string;
+  photo_url: string | null;
   role: string | null;
   side: string | null;
   rank: number | null;
 }
+
+// Alias used by the committee detail page.
+export type CommitteeMember = CommitteeMemberRow;
 
 export interface CommitteeDetail {
   committee_id: string;

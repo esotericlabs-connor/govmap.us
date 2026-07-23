@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { MemberAvatar } from "@/components/MemberAvatar";
+import { Reveal } from "@/components/Reveal";
 import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
 
@@ -61,55 +62,65 @@ export default async function MembersPage() {
   let loadError = false;
   try {
     members = await getMembers();
-  } catch {
+  } catch (err) {
+    console.error(err);
     loadError = true;
   }
 
   return (
     <>
       <SiteHeader variant="app" />
-      <main className="min-h-screen bg-white pb-16 pt-24">
-        <div className="mx-auto max-w-4xl px-6 py-10">
-          {loadError ? (
-            <>
-              <h1 className="mb-2 font-display text-3xl font-bold text-govnavy">
+      <main className="min-h-screen bg-slate-50 pb-20 pt-24">
+        <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
+          <Reveal>
+            <div className="rounded-xl border border-slate-200/80 bg-white p-6 shadow-card">
+              <h1 className="font-display text-3xl font-bold tracking-tight text-govnavy">
                 Members of Congress
               </h1>
-              <p className="text-slate-500">
-                Couldn&apos;t load members right now. Please try again shortly.
+              <p className="mt-1 text-slate-500">
+                Browse all {members.length > 0 ? members.length : ""}{" "}
+                currently-serving members of the U.S. House and Senate.
               </p>
-            </>
-          ) : (
-            <>
-              <h1 className="mb-6 font-display text-3xl font-bold text-govnavy">
-                Members of Congress{" "}
-                <span className="font-normal text-slate-400">({members.length})</span>
-              </h1>
-              <ul className="divide-y divide-slate-100">
+            </div>
+
+            {loadError ? (
+              <div className="mt-8 rounded-xl border border-red-200/80 bg-red-50/80 p-6 text-center">
+                <h2 className="font-semibold text-red-800">Could not load members</h2>
+                <p className="mt-1 text-sm text-red-700">
+                  There was an issue fetching data from the backend. Please try again in a moment.
+                </p>
+              </div>
+            ) : (
+              <div className="mt-8 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
                 {members.map((member) => (
-                  <li key={member.bioguide_id}>
-                    <Link
-                      href={`/members/${member.bioguide_id}`}
-                      className="-mx-3 flex items-center gap-4 rounded-lg px-3 py-3 transition-colors hover:bg-slate-50"
-                    >
-                      <MemberAvatar src={member.photo_url} name={member.official_full_name} />
+                  <Link
+                    key={member.bioguide_id}
+                    href={`/members/${member.bioguide_id}`}
+                    className="group block rounded-lg border border-slate-200/80 bg-white p-4 shadow-sm transition-all duration-150 ease-in-out hover:scale-[1.02] hover:border-slate-300 hover:shadow-md"
+                  >
+                    <div className="flex items-center gap-4">
+                      <MemberAvatar
+                        src={member.photo_url}
+                        name={member.official_full_name}
+                        size="md"
+                      />
                       <div className="min-w-0">
-                        <p className="truncate font-medium text-slate-900">
+                        <p className="truncate font-bold text-govnavy group-hover:text-govblue">
                           {member.official_full_name}
                         </p>
                         <p className="text-sm text-slate-500">
-                          <span className={`font-medium ${partyColor(member.party)}`}>
+                          <span className={`font-semibold ${partyColor(member.party)}`}>
                             {member.party}
                           </span>{" "}
                           · {seatLabel(member)}
                         </p>
                       </div>
-                    </Link>
-                  </li>
+                    </div>
+                  </Link>
                 ))}
-              </ul>
-            </>
-          )}
+              </div>
+            )}
+          </Reveal>
         </div>
       </main>
       <SiteFooter />

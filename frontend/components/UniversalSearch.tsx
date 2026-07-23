@@ -14,20 +14,49 @@ import { publicApiBase, type SearchResults } from "@/lib/api";
 
 function SearchIcon() {
   return (
-    <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4" aria-hidden="true">
-      <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="2" />
-      <path d="M20 20l-3.5-3.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    <svg viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5" aria-hidden="true">
+      <path
+        fillRule="evenodd"
+        d="M9 3.5a5.5 5.5 0 100 11 5.5 5.5 0 000-11zM2 9a7 7 0 1112.452 4.391l3.328 3.329a.75.75 0 11-1.06 1.06l-3.329-3.328A7 7 0 012 9z"
+        clipRule="evenodd"
+      />
+    </svg>
+  );
+}
+
+function Spinner() {
+  return (
+    <svg
+      className="h-6 w-6 animate-spin text-slate-400"
+      xmlns="http://www.w3.org/2000/svg"
+      fill="none"
+      viewBox="0 0 24 24"
+    >
+      <circle
+        className="opacity-25"
+        cx="12"
+        cy="12"
+        r="10"
+        stroke="currentColor"
+        strokeWidth="4"
+      ></circle>
+      <path
+        className="opacity-75"
+        fill="currentColor"
+        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+      ></path>
     </svg>
   );
 }
 
 function isEmpty(r: SearchResults | null): boolean {
+  if (!r) return true;
+  // Only the result arrays — not the `query` string field.
   return (
-    !r ||
-    (r.members.length === 0 &&
-      r.bills.length === 0 &&
-      r.votes.length === 0 &&
-      r.committees.length === 0)
+    r.members.length === 0 &&
+    r.bills.length === 0 &&
+    r.votes.length === 0 &&
+    r.committees.length === 0
   );
 }
 
@@ -56,10 +85,9 @@ export function UniversalSearch({
     const timer = setTimeout(async () => {
       setLoading(true);
       try {
-        const res = await fetch(
-          `${publicApiBase}/api/search?q=${encodeURIComponent(term)}`,
-          { signal: ctrl.signal },
-        );
+        const res = await fetch(`${publicApiBase}/api/search?q=${encodeURIComponent(term)}`, {
+          signal: ctrl.signal,
+        });
         if (res.ok) setResults((await res.json()) as SearchResults);
       } catch {
         // aborted or network hiccup — leave prior results, stay quiet
@@ -93,8 +121,8 @@ export function UniversalSearch({
 
   return (
     <div ref={containerRef} className={`relative ${className}`}>
-      <div className="flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-4 py-2 text-white/90 focus-within:border-white/40 focus-within:bg-white/15">
-        <span className="text-white/50">
+      <div className="group flex items-center gap-3 rounded-full border border-white/20 bg-white/10 px-4 py-2.5 text-white/90 transition-colors focus-within:border-white/50 focus-within:bg-white/20 hover:border-white/40">
+        <span className="text-white/60">
           <SearchIcon />
         </span>
         <input
@@ -113,16 +141,20 @@ export function UniversalSearch({
           }}
           placeholder="Search members, bills, votes, committees…"
           aria-label="Search the platform"
-          className="w-full bg-transparent text-sm text-white placeholder:text-white/45 focus:outline-none"
+          className="w-full bg-transparent text-white placeholder:text-white/50 focus:outline-none"
         />
       </div>
 
       {showPanel && (
-        <div className="absolute left-0 right-0 top-full z-50 mt-2 max-h-[70vh] overflow-y-auto rounded-xl border border-slate-200 bg-white text-slate-800 shadow-card">
+        <div className="absolute left-0 right-0 top-full z-50 mt-2 max-h-[70vh] overflow-y-auto rounded-xl border border-white/20 bg-govnavy-800/80 text-slate-200 shadow-2xl shadow-black/40 backdrop-blur-lg">
           {isEmpty(results) ? (
-            <p className="px-4 py-6 text-center text-sm text-slate-400">
-              {loading ? "Searching…" : `No matches for “${query.trim()}”.`}
-            </p>
+            <div className="flex flex-col items-center gap-2 px-4 py-16 text-center text-sm text-slate-400">
+              {loading ? (
+                <Spinner />
+              ) : (
+                <p>No results for “{query.trim()}”</p>
+              )}
+            </div>
           ) : (
             <div className="py-2">
               {results!.members.length > 0 && (
@@ -178,8 +210,8 @@ export function UniversalSearch({
 
 function Group({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="border-b border-slate-100 py-1 last:border-b-0">
-      <p className="px-4 py-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
+    <div className="border-b border-white/5 py-1.5 last:border-b-0">
+      <p className="px-4 py-1.5 text-xs font-semibold uppercase tracking-wider text-slate-400">
         {label}
       </p>
       {children}
@@ -200,7 +232,7 @@ function Row({
     <Link
       href={href}
       onClick={onClick}
-      className="flex items-center justify-between gap-3 px-4 py-2 text-sm hover:bg-slate-50"
+      className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm hover:bg-white/10"
     >
       {children}
     </Link>
