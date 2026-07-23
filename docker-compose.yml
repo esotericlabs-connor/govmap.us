@@ -42,6 +42,11 @@ services:
       # Optional pipeline-failure webhook + the Congress.gov API key (bills/votes).
       ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
       CONGRESS_GOV_API_KEY: ${CONGRESS_GOV_API_KEY:-}
+      # OpenFEC (api.data.gov) key for campaign finance. Like the key above, it
+      # MUST be listed here to reach the container — a value in .env alone is
+      # only used for ${...} substitution, not injected automatically.
+      FEC_API_KEY: ${FEC_API_KEY:-}
+      FEC_CYCLES_KEPT: ${FEC_CYCLES_KEPT:-4}
       # Which Congress/session to track, and per-refresh caps for bills and
       # votes. Defaults are fine; override in .env to roll to the 120th/session 1
       # in Jan 2027 or to widen coverage.
