@@ -30,6 +30,14 @@ class Settings(BaseSettings):
     # Per-chamber cap on how many most-recent roll-call votes to pull.
     votes_limit: int = 100
 
+    # OpenFEC (api.data.gov) key for campaign-finance totals (Increment 4).
+    # Free key from https://api.data.gov/signup/. Empty = the finance pipeline
+    # is skipped and records a non-fatal error, exactly like the bills pipeline
+    # without a Congress.gov key. Sent as the X-Api-Key header, never a URL param.
+    fec_api_key: str = ""
+    # How many most-recent election cycles of finance totals to keep per member.
+    fec_cycles_kept: int = 4
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
     @property

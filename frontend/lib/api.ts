@@ -72,6 +72,20 @@ export interface VotingRecordEntry {
   position: string | null;
 }
 
+export interface MemberFinance {
+  cycle: number;
+  fec_candidate_id: string;
+  receipts: number | null;
+  disbursements: number | null;
+  cash_on_hand: number | null;
+  debts: number | null;
+  individual_contributions: number | null;
+  pac_contributions: number | null;
+  party_contributions: number | null;
+  coverage_start: string | null;
+  coverage_end: string | null;
+}
+
 export interface MemberDetail {
   bioguide_id: string;
   first_name: string;
@@ -82,11 +96,13 @@ export interface MemberDetail {
   district: number | null;
   party: string;
   term_start: string | null;
+  served_since: string | null;
   photo_url: string | null;
   birthday: string | null;
   gender: string | null;
   contact: Record<string, string> | null;
   leadership_role: string | null;
+  finance: MemberFinance | null;
   ids: {
     fec: string[];
     govtrack: number | null;
@@ -95,6 +111,7 @@ export interface MemberDetail {
     lis: string | null;
   };
   committees: CommitteeSeat[];
+  sponsored_bills_total: number;
   sponsored_bills: SponsoredBill[];
   voting_record: VotingRecordEntry[];
 }

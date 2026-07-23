@@ -16,12 +16,16 @@ import logging
 from app.normalize.bills import normalize_and_load as normalize_bills
 from app.normalize.committees import load_committees
 from app.normalize.crosswalk import load_crosswalk
+from app.normalize.finance import load_finance
+from app.normalize.member_sponsored import load_member_sponsored
 from app.normalize.members import normalize_and_load
 from app.normalize.votes import normalize_and_load as normalize_votes
 from app.normalize.zip_districts import load_zip_districts
 from app.pipelines import (
     congress_gov_bills,
     congress_legislators,
+    congress_member_sponsored,
+    fec_finance,
     house_clerk_votes,
     senate_lis_votes,
     zip_crosswalk,
@@ -96,6 +100,41 @@ async def refresh_votes() -> None:
         raise
 
 
+async def refresh_sponsored_bills() -> None:
+    """Per-member sponsored legislation → complete sponsored-bill coverage for
+    the current Congress. Reads the legislators staging file (so refresh_members
+    should have run first) and upserts index rows into `bills`. Independent of
+    refresh_bills — the upsert is on bill_id and doesn't touch the enriched
+    actions/cosponsors."""
+    source = "member_sponsored"
+    try:
+        await asyncio.to_thread(congress_member_sponsored.run)
+        count = await load_member_sponsored()
+        await record_run(source, count, "ok")
+        logger.info("refresh %s: ok (%d sponsored bills)", source, count)
+    except Exception as exc:
+        await record_run(source, 0, "error", str(exc))
+        logger.exception("refresh %s failed", source)
+        raise
+
+
+async def refresh_finance() -> None:
+    """FEC campaign-finance totals per member. Reads the legislators staging file
+    for FEC candidate ids (so refresh_members should have run first) and upserts
+    into member_finance. Requires FEC_API_KEY — without it this records a
+    non-fatal error (like the bills pipeline without a Congress.gov key)."""
+    source = "fec_finance"
+    try:
+        await asyncio.to_thread(fec_finance.run)
+        count = await load_finance()
+        await record_run(source, count, "ok")
+        logger.info("refresh %s: ok (%d finance rows)", source, count)
+    except Exception as exc:
+        await record_run(source, 0, "error", str(exc))
+        logger.exception("refresh %s failed", source)
+        raise
+
+
 async def refresh_zip_districts() -> None:
     """ZIP→congressional-district crosswalk from the Census ZCTA↔CD relationship
     file. Rare-change data (moves only on redistricting), but cheap to reload;
@@ -113,11 +152,15 @@ async def refresh_zip_districts() -> None:
         raise
 
 
-# source key -> refresh coroutine. Extended as each source lands.
+# source key -> refresh coroutine. Extended as each source lands. Order matters
+# where a source reads another's staging: member_sponsored reads the legislators
+# staging that members writes, so it follows members.
 REFRESHERS: dict[str, callable] = {
     "members": refresh_members,
     "bills": refresh_bills,
+    "sponsored_bills": refresh_sponsored_bills,
     "votes": refresh_votes,
+    "finance": refresh_finance,
     "zip_districts": refresh_zip_districts,
 }
 

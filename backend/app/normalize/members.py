@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from datetime import date
 from pathlib import Path
 
 from sqlalchemy import func
@@ -44,6 +45,27 @@ def current_term(legislator: LegislatorRaw) -> LegislatorTerm:
     return legislator.terms[-1]
 
 
+def served_since(legislator: LegislatorRaw) -> date:
+    """The real "in office since": walk back from the current term through
+    *contiguous same-chamber* terms and return the earliest start. Consecutive
+    congressional terms are back-to-back (a term ends and the next begins on the
+    same ~Jan-3), so a multi-year gap means the member left and returned (not
+    continuous), and a chamber switch (House → Senate, like Cantwell) starts a
+    new tenure. Returns 2001 for Cantwell, 2003 for Rogers — not 2025."""
+    terms = legislator.terms
+    current = terms[-1]
+    chamber = current.type
+    since = current.start
+    for prev in reversed(terms[:-1]):
+        if prev.type != chamber:
+            break
+        # >~1yr between the prior term's end and the kept term's start = a gap.
+        if (since - prev.end).days > 400:
+            break
+        since = prev.start
+    return since
+
+
 def _contact(term: LegislatorTerm) -> dict | None:
     fields = {"office": term.office, "phone": term.phone, "url": term.url, "address": term.address}
     fields = {k: v for k, v in fields.items() if v}
@@ -63,6 +85,7 @@ def to_member_row(legislator: LegislatorRaw) -> dict:
         "district": term.district,
         "party": term.party,
         "term_start": term.start,
+        "served_since": served_since(legislator),
         "fec_candidate_ids": legislator.id.fec,
         "photo_url": f"{PHOTO_URL_BASE}/{legislator.id.bioguide}.jpg",
         "birthday": legislator.bio.birthday if legislator.bio else None,
@@ -91,6 +114,7 @@ async def normalize_and_load() -> int:
             "district": stmt.excluded.district,
             "party": stmt.excluded.party,
             "term_start": stmt.excluded.term_start,
+            "served_since": stmt.excluded.served_since,
             "fec_candidate_ids": stmt.excluded.fec_candidate_ids,
             "photo_url": stmt.excluded.photo_url,
             "birthday": stmt.excluded.birthday,

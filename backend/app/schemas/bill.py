@@ -85,6 +85,23 @@ class BillDetailRaw(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
+class SponsoredLegislationItemRaw(BaseModel):
+    """One entry from GET /member/{bioguideId}/sponsored-legislation. Enough to
+    upsert a bill "index" row (identity + title + latest action); the sponsor is
+    the member being queried. Amendments/items without a real bill number are
+    dropped by the normalizer."""
+
+    congress: int | None = None
+    type: str | None = None
+    number: int | None = None
+    title: str | None = None
+    introducedDate: FlexDate = None
+    policyArea: PolicyAreaRaw | None = None
+    latestAction: LatestActionRaw | None = None
+
+    model_config = ConfigDict(extra="ignore")
+
+
 class SourceSystemRaw(BaseModel):
     code: str | int | None = None
     name: str | None = None  # "House" | "Senate" | "Library of Congress"

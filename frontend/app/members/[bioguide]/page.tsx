@@ -13,6 +13,7 @@ import {
   Section,
   Stat,
 } from "@/components/DetailKit";
+import { FinanceCard } from "@/components/FinanceCard";
 import { MemberAvatar } from "@/components/MemberAvatar";
 import { Reveal } from "@/components/Reveal";
 import { SiteFooter } from "@/components/SiteFooter";
@@ -88,7 +89,11 @@ export default async function MemberDetailPage({
             {/* Stat grid */}
             <div className="mt-8">
               <dl className="grid grid-cols-2 gap-x-6 gap-y-8 md:grid-cols-5">
-                {member.term_start && <Stat label="In office since">{formatDate(member.term_start)}</Stat>}
+                {(member.served_since ?? member.term_start) && (
+                  <Stat label="In office since">
+                    {formatDate(member.served_since ?? member.term_start)}
+                  </Stat>
+                )}
                 {member.birthday && <Stat label="Born">{formatDate(member.birthday)}</Stat>}
                 {contact.office && <Stat label="Office">{contact.office}</Stat>}
                 {contact.phone && <Stat label="Phone">{contact.phone}</Stat>}
@@ -105,17 +110,14 @@ export default async function MemberDetailPage({
                   </Stat>
                 )}
               </dl>
-              <div className="mt-6 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-slate-200/80 pt-6">
-                <p className="text-xs font-medium text-slate-400">Source IDs</p>
-                {idBadges.map(([label, value]) => (
-                  <span key={label} className="text-xs text-slate-500">
-                    <CodePill>
-                      {label}: {value}
-                    </CodePill>
-                  </span>
-                ))}
-              </div>
             </div>
+
+            {/* Campaign finance (only once the FEC pipeline has data) */}
+            {member.finance && (
+              <div className="mt-8">
+                <FinanceCard finance={member.finance} />
+              </div>
+            )}
 
             {/* Data sections */}
             <div className="mt-8 grid grid-cols-1 gap-8 lg:grid-cols-2">
@@ -143,9 +145,9 @@ export default async function MemberDetailPage({
                 )}
               </Section>
 
-              <Section title="Sponsored Bills" count={member.sponsored_bills.length}>
+              <Section title="Sponsored Bills" count={member.sponsored_bills_total}>
                 {member.sponsored_bills.length === 0 ? (
-                  <EmptyState>No sponsored bills loaded yet.</EmptyState>
+                  <EmptyState>No bills sponsored in the current Congress.</EmptyState>
                 ) : (
                   <ul className="-my-3 divide-y divide-slate-100">
                     {member.sponsored_bills.map((b) => (
@@ -196,6 +198,18 @@ export default async function MemberDetailPage({
                   </ul>
                 )}
               </Section>
+            </div>
+
+            {/* Source IDs — provenance, kept at the bottom (not front-and-center). */}
+            <div className="mt-8 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-slate-200/80 pt-6">
+              <p className="text-xs font-medium text-slate-400">Source IDs</p>
+              {idBadges.map(([label, value]) => (
+                <span key={label} className="text-xs text-slate-500">
+                  <CodePill>
+                    {label}: {value}
+                  </CodePill>
+                </span>
+              ))}
             </div>
           </Reveal>
         </div>

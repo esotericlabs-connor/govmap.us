@@ -1,13 +1,14 @@
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import nullslast, select
+from sqlalchemy import func, nullslast, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
 from app.models.bill import Bill
 from app.models.committee import Committee, CommitteeMembership
 from app.models.crosswalk import IdCrosswalk
+from app.models.finance import MemberFinance
 from app.models.member import Member
 from app.models.vote import Vote, VotePosition
 from app.schemas.member import MemberOut
@@ -71,9 +72,10 @@ async def member_detail(bioguide_id: str, db: AsyncSession = Depends(get_db)) ->
         )
     ).all()
 
-    # Recent bills this member sponsored (most-recently-updated first). Only the
-    # bills currently loaded appear — coverage grows as the bills pipeline walks
-    # the corpus.
+    # Bills this member sponsored, most-recent first. The full sponsored set is
+    # loaded by the per-member sponsored-legislation pipeline (so the count is
+    # complete for the current Congress); we show the 20 most recent + the true
+    # total.
     sponsored = (
         await db.execute(
             select(
@@ -81,10 +83,28 @@ async def member_detail(bioguide_id: str, db: AsyncSession = Depends(get_db)) ->
                 Bill.introduced_date, Bill.latest_action,
             )
             .where(Bill.sponsor_bioguide_id == bioguide_id)
-            .order_by(nullslast(Bill.update_date.desc()))
+            .order_by(nullslast(Bill.introduced_date.desc()))
             .limit(20)
         )
     ).all()
+
+    sponsored_total = (
+        await db.execute(
+            select(func.count())
+            .select_from(Bill)
+            .where(Bill.sponsor_bioguide_id == bioguide_id)
+        )
+    ).scalar_one()
+
+    # Campaign-finance totals (Increment 4). Latest cycle shown; stays null until
+    # the FEC pipeline has run (needs FEC_API_KEY).
+    finance_row = (
+        await db.execute(
+            select(MemberFinance)
+            .where(MemberFinance.bioguide_id == bioguide_id)
+            .order_by(MemberFinance.cycle.desc())
+        )
+    ).scalars().first()
 
     # Recent votes this member cast (most-recent first). Only loaded votes
     # appear — coverage grows as the vote pipelines walk the session.
@@ -111,11 +131,27 @@ async def member_detail(bioguide_id: str, db: AsyncSession = Depends(get_db)) ->
         "district": member.district,
         "party": member.party,
         "term_start": member.term_start.isoformat() if member.term_start else None,
+        "served_since": member.served_since.isoformat() if member.served_since else None,
         "photo_url": member.photo_url,
         "birthday": member.birthday.isoformat() if member.birthday else None,
         "gender": member.gender,
         "contact": member.contact,
         "leadership_role": member.leadership_role,
+        "finance": {
+            "cycle": finance_row.cycle,
+            "fec_candidate_id": finance_row.fec_candidate_id,
+            "receipts": finance_row.receipts,
+            "disbursements": finance_row.disbursements,
+            "cash_on_hand": finance_row.cash_on_hand,
+            "debts": finance_row.debts,
+            "individual_contributions": finance_row.individual_contributions,
+            "pac_contributions": finance_row.pac_contributions,
+            "party_contributions": finance_row.party_contributions,
+            "coverage_start": finance_row.coverage_start.isoformat() if finance_row.coverage_start else None,
+            "coverage_end": finance_row.coverage_end.isoformat() if finance_row.coverage_end else None,
+        }
+        if finance_row
+        else None,
         "ids": {
             "fec": ids.fec_ids if ids else [],
             "govtrack": ids.govtrack if ids else None,
@@ -133,6 +169,7 @@ async def member_detail(bioguide_id: str, db: AsyncSession = Depends(get_db)) ->
             }
             for c in committees
         ],
+        "sponsored_bills_total": sponsored_total,
         "sponsored_bills": [
             {
                 "bill_id": b.bill_id,

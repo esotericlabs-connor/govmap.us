@@ -18,7 +18,9 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from app.pipelines.refresh import (
     refresh_bills,
+    refresh_finance,
     refresh_members,
+    refresh_sponsored_bills,
     refresh_votes,
     refresh_zip_districts,
 )
@@ -49,6 +51,20 @@ JOBS: list[tuple[str, Callable[[], Awaitable[None]], dict]] = [
         "refresh_votes",
         refresh_votes,
         {"trigger": "interval", "minutes": 30},
+    ),
+    # Per-member sponsored legislation is ~537 API calls; members introduce
+    # bills throughout the day but hourly is overkill — daily at 08:00 UTC.
+    (
+        "refresh_sponsored_bills",
+        refresh_sponsored_bills,
+        {"trigger": "cron", "hour": 8},
+    ),
+    # Campaign-finance filings post on FEC monthly/quarterly schedules — daily
+    # at 09:00 UTC is plenty and keeps the ~537 FEC calls off the hot path.
+    (
+        "refresh_finance",
+        refresh_finance,
+        {"trigger": "cron", "hour": 9},
     ),
     # ZIP→district crosswalk only changes on redistricting — monthly (1st,
     # 06:00 UTC) is generous. The deploy-time refresh_all keeps it warm too.

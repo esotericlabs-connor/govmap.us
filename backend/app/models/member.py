@@ -20,7 +20,14 @@ class Member(Base):
     state: Mapped[str] = mapped_column(String(2), index=True)
     district: Mapped[int | None] = mapped_column(nullable=True)
     party: Mapped[str] = mapped_column(String(30), index=True)
+    # Start of the member's CURRENT term only — the same Jan-of-an-odd-year for
+    # everyone re-elected (e.g. 2025-01-03 for the 119th), so NOT "in office
+    # since". Kept because "current term began" is still a real fact.
     term_start: Mapped[date] = mapped_column(Date)
+    # The real "in office since": start of the member's continuous service in
+    # their current chamber, computed in the normalizer by walking back through
+    # contiguous same-chamber terms (Cantwell → 2001, not 2025).
+    served_since: Mapped[date | None] = mapped_column(Date, nullable=True)
     fec_candidate_ids: Mapped[list[str]] = mapped_column(ARRAY(String), default=list)
     photo_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
