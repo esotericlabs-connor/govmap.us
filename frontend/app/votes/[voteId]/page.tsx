@@ -54,7 +54,7 @@ export default async function VoteDetailPage({ params }: { params: { voteId: str
 
   // --- Data processing ---
   const totals: Record<string, number | null> = vote.totals ?? {};
-  const totalVotes = Object.values(totals).reduce((sum, n) => sum + (n || 0), 0);
+  const totalVotes = Object.values(totals).reduce<number>((sum, n) => sum + (n ?? 0), 0);
   const tallies = Object.entries(totals)
     .map(([key, n]) => ({ key, n: n || 0 }))
     .filter((t) => t.n > 0)
