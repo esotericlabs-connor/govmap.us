@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import requests
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -42,7 +42,7 @@ async def record_run(
     """Upsert one pipeline_status row. last_run always advances; last_success
     only advances on an ok run, so a later failure doesn't erase when the
     source was last known good."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     values: dict = {
         "source": source,
         "last_run": now,
