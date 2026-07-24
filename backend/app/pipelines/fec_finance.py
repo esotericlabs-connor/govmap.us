@@ -49,6 +49,15 @@ _TIMEOUT = 45  # OpenFEC's totals endpoint is occasionally slow; 30s wasn't enou
 # Brief pause between per-candidate calls to stay polite under the throttle.
 # ~535 members × this delay is a few minutes and stays well under ~1000 req/hr.
 _PACE_SECONDS = 0.3
+# 429 handling: api.data.gov's hourly budget doesn't reset for up to an hour, so
+# a 429 storm means the budget is spent — don't grind through all ~535 members.
+_RATE_LIMIT_RETRIES = 2   # short retries for a per-second burst blip, then bail
+_RATE_LIMIT_ABORT = 8     # consecutive rate-limited members -> abort the whole run
+
+
+class _RateLimited(Exception):
+    """OpenFEC returned 429 after the short burst retries — the hourly budget is
+    (near) exhausted, so the caller should stop rather than keep hammering."""
 # How many 2-year cycles back to consider (newest with activity wins). Covers all
 # three Senate classes + the House regardless of which year each member last ran.
 _CYCLE_SPAN = 4
@@ -69,7 +78,15 @@ def _fec_get(path: str, **params: Any) -> dict:
     for attempt in range(1, _MAX_RETRIES + 1):
         resp = _session.get(url, params=params, headers=headers, timeout=_TIMEOUT)
         last_status = resp.status_code
-        if resp.status_code == 429 or resp.status_code >= 500:
+        if resp.status_code == 429:
+            # A couple of short retries cover a per-second burst; beyond that the
+            # hourly budget is spent (backing off 30s won't help within the hour),
+            # so raise and let run() abort fast instead of grinding every member.
+            if attempt <= _RATE_LIMIT_RETRIES:
+                time.sleep(attempt)
+                continue
+            raise _RateLimited(path)
+        if resp.status_code >= 500:
             wait = min(2**attempt, 30)
             logger.warning(
                 "openfec %s -> HTTP %d; backoff %ds (attempt %d/%d)",
@@ -174,16 +191,31 @@ def run() -> int:
 
     rows: list[dict] = []
     unmatched: list[str] = []
+    consecutive_rl = 0
     for bioguide, candidate_id in members:
         try:
             raw = _candidate_total(candidate_id, cycles)
+        except _RateLimited:
+            # Budget spent — abort once we've seen a run of consecutive 429s
+            # rather than burning minutes on the remaining members. Whatever was
+            # staged so far still loads; a re-run in a fresh hour continues.
+            consecutive_rl += 1
+            if consecutive_rl >= _RATE_LIMIT_ABORT:
+                logger.warning(
+                    "fec_finance: OpenFEC rate limit hit — aborting after %d consecutive 429s "
+                    "(staged %d of %d members). Re-run in a fresh hour (api.data.gov resets "
+                    "hourly) or request a higher rate limit for the key.",
+                    consecutive_rl, len(rows), len(members),
+                )
+                break
+            continue
         except Exception as exc:
-            # One member's committee 404/blip shouldn't sink the batch; a systemic
-            # failure (bad key) surfaces loudly on the first call via backoff+raise.
+            # One member's committee 404/blip shouldn't sink the batch.
             logger.warning("skipping finance for %s (%s): %s", bioguide, candidate_id, exc)
             unmatched.append(f"{bioguide}/{candidate_id}")
             time.sleep(_PACE_SECONDS)
             continue
+        consecutive_rl = 0
         if not raw:
             unmatched.append(f"{bioguide}/{candidate_id}")
             time.sleep(_PACE_SECONDS)
@@ -200,7 +232,9 @@ def run() -> int:
 
     if not rows:
         raise RuntimeError(
-            f"OpenFEC returned no totals for any of {len(members)} candidates, cycles {cycles}"
+            f"OpenFEC returned no totals — the api.data.gov key is rate-limited (429) from the "
+            f"first call, so its hourly budget is spent. Re-run in a fresh hour, or request a "
+            f"higher rate limit for the key (~{len(members)} calls are needed per full run)."
         )
 
     STAGING_DIR.mkdir(parents=True, exist_ok=True)
