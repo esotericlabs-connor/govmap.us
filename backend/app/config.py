@@ -24,11 +24,19 @@ class Settings(BaseSettings):
     # each refresh well under the 5,000 req/hr key limit; raise to widen
     # coverage toward the full corpus.
     congress_gov_bill_limit: int = 250
+    # Rolling backfill: how many not-yet-enriched "stub" bills to enrich per
+    # scheduled run (each bill ≈ 5 Congress.gov calls). Marches through the ~17k
+    # sponsored-legislation stubs over successive runs, well under the hourly cap.
+    bills_backfill_per_run: int = 200
     # Which session of the Congress (1 = first year, 2 = second) — builds the
     # House Clerk / Senate LIS roll-call URLs. 119th: 1=2025, 2=2026.
     congress_session: int = 2
     # Per-chamber cap on how many most-recent roll-call votes to pull.
     votes_limit: int = 100
+    # Per-chamber cap on how many most-recently-updated committee meetings to
+    # pull detail for (each meeting = 1 detail call). Covers recent + upcoming
+    # activity across all committees; well under the hourly key limit.
+    committee_meetings_limit: int = 300
 
     # OpenFEC (api.data.gov) key for campaign-finance totals (Increment 4).
     # Free key from https://api.data.gov/signup/. Empty = the finance pipeline

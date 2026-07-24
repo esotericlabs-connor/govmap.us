@@ -35,6 +35,15 @@ STAGING_PATH = STAGING_DIR / "zip_districts_raw.json"
 HUD_URL = "https://www.huduser.gov/hudapi/public/usps"
 _TYPE_ZIP_CD = 5  # HUD crosswalk type: ZIP → Congressional District
 
+# HUD paginates the crosswalk endpoint. The ZIP→CD set is ~44k rows, so a single
+# unpaginated call returns only the first page — low ZIPs (01xxx) resolve while
+# high ZIPs (98xxx) silently go missing. We walk every page. per_page is a hint
+# (HUD may cap it); the loop stops on an empty page regardless. _MAX_PAGES bounds
+# a pathological/looping response.
+_PER_PAGE = 5000
+_MAX_PAGES = 60
+_TIMEOUT = 180  # a full-page pull over the whole country is occasionally slow
+
 # 2-digit state/territory FIPS → USPS abbreviation. Anything not here (e.g. a
 # stray "00") is dropped as out-of-scope.
 FIPS_TO_USPS = {
@@ -52,27 +61,64 @@ FIPS_TO_USPS = {
 
 
 def _fetch() -> list[dict]:
+    """Every ZIP→CD row nationwide, walking HUD's pagination.
+
+    Self-diagnosing: on page 1 we log HUD's response metadata and the *keys of a
+    result row*, so a pagination or field-name mismatch (e.g. the CD isn't under
+    ``geoid``) is visible in the deploy logs without another round-trip. The
+    token is a Bearer header, so nothing secret is logged."""
     if not settings.hud_api_token:
         raise RuntimeError(
             "HUD_API_TOKEN is not set — required for the ZIP→district crosswalk "
             "(free token at https://www.huduser.gov/portal/dataset/uspszip-api.html)"
         )
-    resp = requests.get(
-        HUD_URL,
-        params={"type": _TYPE_ZIP_CD, "query": "All"},
-        headers={"Authorization": f"Bearer {settings.hud_api_token}"},
-        timeout=180,
-    )
-    resp.raise_for_status()
-    payload = resp.json()
-    data = payload.get("data") or {}
-    results = data.get("results") or []
-    if not results:
-        raise RuntimeError(
-            f"HUD returned no ZIP→CD results (payload keys: {list(payload.keys())}; "
-            f"data keys: {list(data.keys())})"
+    headers = {"Authorization": f"Bearer {settings.hud_api_token}"}
+    all_results: list[dict] = []
+    page1_signature: str | None = None
+    for page in range(1, _MAX_PAGES + 1):
+        resp = requests.get(
+            HUD_URL,
+            params={"type": _TYPE_ZIP_CD, "query": "All", "page": page, "per_page": _PER_PAGE},
+            headers=headers,
+            timeout=_TIMEOUT,
         )
-    return results
+        resp.raise_for_status()
+        payload = resp.json()
+        data = payload.get("data") or {}
+        results = data.get("results") or []
+
+        if page == 1:
+            meta = {k: v for k, v in data.items() if k != "results"}
+            row_keys = sorted(results[0].keys()) if results else None
+            logger.info(
+                "zip_crosswalk HUD page 1: data-meta=%s; row-keys=%s; rows=%d",
+                meta, row_keys, len(results),
+            )
+
+        if not results:
+            break
+
+        # If HUD ignores `page` and re-serves page 1, the first row repeats —
+        # treat it as a single-page (non-paginating) response and stop.
+        signature = f"{results[0].get('zip')}-{results[0].get('geoid')}-{len(results)}"
+        if page > 1 and signature == page1_signature:
+            logger.info("zip_crosswalk: page %d repeats page 1 — single-page response", page)
+            break
+        if page == 1:
+            page1_signature = signature
+
+        all_results.extend(results)
+
+    if not all_results:
+        raise RuntimeError(
+            "HUD returned no ZIP→CD results — check the token and that "
+            "type=5/query=All is still supported (see the page-1 log above)"
+        )
+    logger.info(
+        "zip_crosswalk: fetched %d HUD result rows across up to %d page(s)",
+        len(all_results), _MAX_PAGES,
+    )
+    return all_results
 
 
 def _parse(results: list[dict]) -> list[dict]:

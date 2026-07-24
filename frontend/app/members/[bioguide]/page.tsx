@@ -108,7 +108,9 @@ async function MemberDetailContent({ bioguide }: { bioguide: string }) {
         </Section>
 
         {/* Campaign finance (only once the FEC pipeline has data) */}
-        {member.finance && <FinanceCard finance={member.finance} />}
+        {member.finance && (
+          <FinanceCard finance={member.finance} bioguide={member.bioguide_id} />
+        )}
 
         {/* Data sections */}
         <div className="grid grid-cols-1 gap-10 lg:grid-cols-2">

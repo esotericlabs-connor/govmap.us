@@ -1,13 +1,18 @@
 """Layer 1 pipeline: FEC campaign-finance totals per member (Increment 4).
 
 Source: OpenFEC (api.open.fec.gov via the api.data.gov gateway) — free, keyed
-(FEC_API_KEY). To respect api.data.gov's ~1000 req/hr limit, this pulls the
-**bulk** aggregate endpoint `GET /candidates/totals` once per chamber for the
-configured cycle (a handful of paginated calls) instead of one call per member
-(~537, which exhausted the hourly budget and 429'd). It builds a
-`candidate_id -> totals` index, then maps each current member (bioguide +
-current-office FEC id, chosen by S/H prefix, read from the legislators staging
-file — DB-free) onto its row.
+(FEC_API_KEY). Pulls the **per-candidate** endpoint
+``GET /candidate/{candidate_id}/totals/`` — one call per current member. This is
+deliberately NOT the batched ``/candidates/totals/`` aggregate: that aggregate
+only reports itemized-individual + PAC money and omits unitemized (small-dollar)
+individuals, party money, and the combined individual total, which made every
+member read as "PACs 100%". The per-candidate endpoint carries the full Form 3
+line-item breakdown, so we accept ~one call per member (paced well under
+api.data.gov's ~1000 req/hr limit) in exchange for correct, rich data.
+
+For each member (bioguide + current-office FEC id, chosen by S/H prefix, read
+from the legislators staging file — DB-free) it fetches that candidate's totals
+for the recent cycles and keeps the newest cycle that actually has receipts.
 
 The API key is sent as the ``X-Api-Key`` header, never a URL query param, so it
 can't leak into exceptions/logs/pipeline_status.detail. Skipped (raises,
@@ -41,17 +46,11 @@ STAGING_PATH = STAGING_DIR / "member_finance_raw.json"
 
 _MAX_RETRIES = 4
 _TIMEOUT = 45  # OpenFEC's totals endpoint is occasionally slow; 30s wasn't enough.
-# Brief pause between the (few) bulk pages, to stay polite under the throttle.
-_PACE_SECONDS = 0.5
-# Safety cap on pages per chamber (100 candidates/page). A chamber-cycle is well
-# under this; the cap just bounds a pathological response.
-# We query the bulk endpoint filtered to OUR members' candidate ids (batched),
-# not the whole field of thousands of challengers — a few targeted calls that
-# also stay well under api.data.gov's ~1000 req/hr limit.
-_ID_BATCH = 50           # candidate_ids per request (repeatable filter; short URL)
-_BATCH_MAX_PAGES = 3     # 50 ids × _CYCLE_SPAN cycles fits in ~2 pages; cap for safety
-# How many 2-year cycles back to include (newest wins). Covers all three Senate
-# classes + the House regardless of which year each member last ran.
+# Brief pause between per-candidate calls to stay polite under the throttle.
+# ~535 members × this delay is a few minutes and stays well under ~1000 req/hr.
+_PACE_SECONDS = 0.3
+# How many 2-year cycles back to consider (newest with activity wins). Covers all
+# three Senate classes + the House regardless of which year each member last ran.
 _CYCLE_SPAN = 4
 # Chamber (legislators-current term type) -> the FEC candidate-id office prefix.
 _CHAMBER_PREFIX = {"sen": "S", "rep": "H"}
@@ -124,45 +123,43 @@ def _row(bioguide: str, candidate_id: str, t: CandidateTotalRaw) -> dict:
         "disbursements": t.disbursements,
         "cash_on_hand": t.cash_on_hand_end_period,
         "debts": t.debts_owed_by_committee,
+        "contributions": t.contributions,
         "individual_contributions": t.individual_contributions,
+        "individual_itemized": t.individual_itemized_contributions,
+        "individual_unitemized": t.individual_unitemized_contributions,
         "pac_contributions": t.other_political_committee_contributions,
         "party_contributions": t.political_party_committee_contributions,
+        "transfers": t.transfers_from_other_authorized_committee,
+        "candidate_contribution": t.candidate_contribution,
+        "other_receipts": t.other_receipts,
+        "loans": t.loans,
+        "operating_expenditures": t.operating_expenditures,
+        "refunded_individual": t.refunded_individual_contributions,
         "coverage_start": t.coverage_start_date.isoformat() if t.coverage_start_date else None,
         "coverage_end": t.coverage_end_date.isoformat() if t.coverage_end_date else None,
     }
 
 
-def _totals_index(candidate_ids: list[str], cycles: list[int]) -> dict[str, dict]:
-    """candidate_id -> most-recent totals row, fetched by filtering the bulk
-    endpoint on OUR members' candidate ids (batched) across `cycles`. Targeted
-    (no scanning thousands of challengers) and cheap: ~2 pages per 50-id batch.
-    The newest cycle per candidate is chosen client-side (no `sort` param —
-    OpenFEC 422s on sort fields it doesn't allow for this endpoint)."""
-    index: dict[str, dict] = {}
-    for start in range(0, len(candidate_ids), _ID_BATCH):
-        batch = candidate_ids[start : start + _ID_BATCH]
-        for page in range(1, _BATCH_MAX_PAGES + 1):
-            data = _fec_get(
-                "candidates/totals",
-                candidate_id=batch,   # repeatable filter — requests encodes the list
-                cycle=cycles,         # repeatable filter (OR across cycles)
-                election_full="false",
-                per_page=100,
-                page=page,
-            )
-            results = data.get("results") or []
-            for it in results:
-                cid = it.get("candidate_id")
-                if not cid:
-                    continue
-                prev = index.get(cid)
-                if prev is None or (it.get("cycle") or 0) > (prev.get("cycle") or 0):
-                    index[cid] = it  # keep the newest cycle per candidate
-            pages = (data.get("pagination") or {}).get("pages") or 1
-            if page >= pages or not results:
-                break
-            time.sleep(_PACE_SECONDS)
-    return index
+def _best_cycle(results: list[dict]) -> dict | None:
+    """Pick the newest cycle that actually has receipts (so a member who just
+    filed an empty statement for the current cycle still shows their last real
+    campaign); fall back to the newest cycle present."""
+    if not results:
+        return None
+    with_money = [r for r in results if (r.get("receipts") or 0) > 0]
+    pool = with_money or results
+    return max(pool, key=lambda r: r.get("cycle") or 0)
+
+
+def _candidate_total(candidate_id: str, cycles: list[int]) -> dict | None:
+    """The newest cycle-with-activity totals row for one candidate, or None."""
+    data = _fec_get(
+        f"candidate/{candidate_id}/totals",
+        cycle=cycles,          # repeatable filter (OR across cycles) — bounds to ≤4 rows
+        election_full="false",  # per 2-year cycle, not the full Senate election span
+        per_page=100,
+    )
+    return _best_cycle(data.get("results") or [])
 
 
 def run() -> int:
@@ -173,39 +170,49 @@ def run() -> int:
         )
     base = settings.fec_cycle
     cycles = [base - 2 * i for i in range(_CYCLE_SPAN)]  # e.g. 2026, 2024, 2022, 2020
-    by_candidate = {cid: bio for bio, cid in _members()}  # candidate_id -> bioguide
-    index = _totals_index(list(by_candidate), cycles)
-    if not index:
-        raise RuntimeError(
-            f"OpenFEC returned no totals for {len(by_candidate)} candidates, cycles {cycles}"
-        )
+    members = _members()
 
     rows: list[dict] = []
-    for candidate_id, raw in index.items():
-        bioguide = by_candidate.get(candidate_id)
-        if not bioguide:
+    unmatched: list[str] = []
+    for bioguide, candidate_id in members:
+        try:
+            raw = _candidate_total(candidate_id, cycles)
+        except Exception as exc:
+            # One member's committee 404/blip shouldn't sink the batch; a systemic
+            # failure (bad key) surfaces loudly on the first call via backoff+raise.
+            logger.warning("skipping finance for %s (%s): %s", bioguide, candidate_id, exc)
+            unmatched.append(f"{bioguide}/{candidate_id}")
+            time.sleep(_PACE_SECONDS)
+            continue
+        if not raw:
+            unmatched.append(f"{bioguide}/{candidate_id}")
+            time.sleep(_PACE_SECONDS)
             continue
         try:
             t = CandidateTotalRaw.model_validate(raw)
         except ValidationError as exc:
             logger.warning("skipping totals for %s (%s): %s", bioguide, candidate_id, exc)
+            time.sleep(_PACE_SECONDS)
             continue
-        if t.cycle is None:
-            continue
-        rows.append(_row(bioguide, candidate_id, t))
+        if t.cycle is not None:
+            rows.append(_row(bioguide, candidate_id, t))
+        time.sleep(_PACE_SECONDS)
+
+    if not rows:
+        raise RuntimeError(
+            f"OpenFEC returned no totals for any of {len(members)} candidates, cycles {cycles}"
+        )
 
     STAGING_DIR.mkdir(parents=True, exist_ok=True)
     STAGING_PATH.write_text(json.dumps(rows))
     logger.info(
         "fec_finance: staged %d finance rows (cycles %s; %d of %d members matched)",
-        len(rows), cycles, len(rows), len(by_candidate),
+        len(rows), cycles, len(rows), len(members),
     )
 
-    # Name any members with no FEC totals so a real gap (a wrong candidate id)
-    # is distinguishable from a legitimate one (a member who's never run a
-    # federal campaign / a dormant committee).
-    matched = {r["bioguide_id"] for r in rows}
-    unmatched = [f"{bio}/{cid}" for cid, bio in by_candidate.items() if bio not in matched]
+    # Name any members with no FEC totals so a real gap (a wrong candidate id) is
+    # distinguishable from a legitimate one (never ran a federal campaign / a
+    # dormant committee).
     if unmatched:
         logger.info(
             "fec_finance: %d member(s) had no FEC totals in %s: %s",

@@ -15,7 +15,14 @@ import { PageSkeleton } from "@/components/PageSkeleton";
 import { Reveal } from "@/components/Reveal";
 import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
-import { apiGet, HttpError, type CommitteeDetail, type CommitteeMember } from "@/lib/api";
+import {
+  apiGet,
+  HttpError,
+  type CommitteeDetail,
+  type CommitteeMeeting,
+  type CommitteeMember,
+  type CommitteeReferredBills,
+} from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
@@ -31,6 +38,133 @@ async function getCommittee(id: string): Promise<CommitteeDetail | null> {
 export async function generateMetadata({ params }: { params: { committeeId: string } }) {
   const committee = await getCommittee(params.committeeId).catch(() => null);
   return { title: committee?.name ?? "Committee" };
+}
+
+// Committee meetings run on Eastern time; format the UTC datetime in ET so the
+// date/time read as scheduled.
+const MEETING_FMT = new Intl.DateTimeFormat("en-US", {
+  month: "short",
+  day: "numeric",
+  year: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+  timeZone: "America/New_York",
+  timeZoneName: "short",
+});
+
+function meetingWhen(iso: string | null): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? null : MEETING_FMT.format(d);
+}
+
+function billLabel(billId: string): string {
+  const m = billId.match(/^([a-z]+)(\d+)-/i);
+  return m ? `${m[1].toUpperCase()} ${m[2]}` : billId;
+}
+
+function MeetingCard({ meeting, upcoming = false }: { meeting: CommitteeMeeting; upcoming?: boolean }) {
+  const when = meetingWhen(meeting.datetime);
+  const off = meeting.status ? /cancel|postpon/i.test(meeting.status) : false;
+  return (
+    <div className="rounded-lg border border-slate-warm-200 bg-white p-4 shadow-sm">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+        {meeting.meeting_type && (
+          <span className="rounded-full bg-slate-warm-100 px-2.5 py-0.5 text-xs font-semibold text-slate-warm-600">
+            {meeting.meeting_type}
+          </span>
+        )}
+        {when && (
+          <span
+            className={`text-sm font-semibold ${upcoming ? "text-govblue-600" : "text-slate-warm-500"}`}
+          >
+            {when}
+          </span>
+        )}
+        {off && (
+          <span className="rounded-full bg-red-100/80 px-2 py-0.5 text-xs font-semibold text-red-700">
+            {meeting.status}
+          </span>
+        )}
+      </div>
+      {meeting.title && <p className="mt-2 font-medium text-slate-800">{meeting.title}</p>}
+      {meeting.location && <p className="mt-1 text-sm text-slate-warm-500">{meeting.location}</p>}
+      {meeting.bill_ids.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {meeting.bill_ids.map((bid) => (
+            <Link
+              key={bid}
+              href={`/bills/${bid}`}
+              className="rounded-md bg-slate-warm-100 px-2 py-1 font-mono text-xs font-medium text-govblue transition-colors hover:text-govblue-600"
+            >
+              {billLabel(bid)}
+            </Link>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+async function getReferredBills(committeeId: string): Promise<CommitteeReferredBills | null> {
+  // Fail-soft: on any error the section is simply omitted.
+  try {
+    return await apiGet<CommitteeReferredBills>(
+      `/api/committees/${encodeURIComponent(committeeId)}/bills`,
+    );
+  } catch {
+    return null;
+  }
+}
+
+function ReferredBillsSkeleton() {
+  return (
+    <Section title="Recent bills before this committee">
+      <div className="space-y-3">
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="h-16 w-full animate-pulse rounded-lg bg-slate-warm-100" />
+        ))}
+      </div>
+    </Section>
+  );
+}
+
+// Streamed in its own Suspense boundary — the first request fetches referrals
+// from Congress.gov, so the rest of the committee page never waits on it.
+async function ReferredBills({ committeeId }: { committeeId: string }) {
+  const data = await getReferredBills(committeeId);
+  if (!data || data.bills.length === 0) return null;
+  return (
+    <Section title="Recent bills before this committee" count={data.bills.length}>
+      <ul className="space-y-3">
+        {data.bills.map((b) => (
+          <li key={b.bill_id}>
+            <Link
+              href={`/bills/${b.bill_id}`}
+              className="group block rounded-lg border border-slate-warm-200 bg-white p-4 shadow-sm transition-colors hover:border-govblue-400"
+            >
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-xs font-semibold text-govblue">
+                  {billLabel(b.bill_id)}
+                </span>
+                {b.relationship && (
+                  <span className="text-xs text-slate-warm-400">· {b.relationship}</span>
+                )}
+              </div>
+              {b.title && (
+                <p className="mt-1 font-medium text-slate-800 transition-colors group-hover:text-govblue-600">
+                  {b.title}
+                </p>
+              )}
+              {b.latest_action && (
+                <p className="mt-1 line-clamp-1 text-sm text-slate-warm-500">{b.latest_action}</p>
+              )}
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </Section>
+  );
 }
 
 function MemberCard({ member }: { member: CommitteeMember }) {
@@ -127,6 +261,18 @@ async function CommitteeDetailContent({ committeeId }: { committeeId: string }) 
         </div>
       </header>
 
+      {committee.upcoming_meetings.length > 0 && (
+        <div className="mt-12">
+          <Section title="Upcoming meetings" count={committee.upcoming_meetings.length}>
+            <div className="space-y-4">
+              {committee.upcoming_meetings.map((m) => (
+                <MeetingCard key={m.event_id} meeting={m} upcoming />
+              ))}
+            </div>
+          </Section>
+        </div>
+      )}
+
       <div className="mt-12">
         {committee.members.length === 0 ? (
           <Section title="Members">
@@ -166,6 +312,42 @@ async function CommitteeDetailContent({ committeeId }: { committeeId: string }) 
           </div>
         )}
       </div>
+
+      {committee.subcommittees.length > 0 && (
+        <div className="mt-12">
+          <Section title="Subcommittees" count={committee.subcommittees.length}>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              {committee.subcommittees.map((s) => (
+                <Link
+                  key={s.committee_id}
+                  href={`/committees/${s.committee_id}`}
+                  className="rounded-lg border border-slate-warm-200 bg-white p-3 text-sm font-medium text-slate-800 shadow-sm transition-colors hover:border-govblue-400 hover:text-govblue-600"
+                >
+                  {s.name}
+                </Link>
+              ))}
+            </div>
+          </Section>
+        </div>
+      )}
+
+      <div className="mt-12">
+        <Suspense fallback={<ReferredBillsSkeleton />}>
+          <ReferredBills committeeId={committeeId} />
+        </Suspense>
+      </div>
+
+      {committee.recent_meetings.length > 0 && (
+        <div className="mt-12">
+          <Section title="Recent meetings" count={committee.recent_meetings.length}>
+            <div className="space-y-3">
+              {committee.recent_meetings.map((m) => (
+                <MeetingCard key={m.event_id} meeting={m} />
+              ))}
+            </div>
+          </Section>
+        </div>
+      )}
     </Reveal>
   );
 }

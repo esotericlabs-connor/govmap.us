@@ -17,7 +17,9 @@ from collections.abc import Awaitable, Callable
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from app.pipelines.refresh import (
+    refresh_backfill_bills,
     refresh_bills,
+    refresh_committee_meetings,
     refresh_finance,
     refresh_members,
     refresh_sponsored_bills,
@@ -72,6 +74,22 @@ JOBS: list[tuple[str, Callable[[], Awaitable[None]], dict]] = [
         "refresh_zip_districts",
         refresh_zip_districts,
         {"trigger": "cron", "day": 1, "hour": 6},
+    ),
+    # Committee meetings post a few days out and change (postpone/cancel) — twice
+    # daily (06:30 / 18:30 UTC) keeps "upcoming meetings" fresh without a heavy
+    # per-run detail burst competing with the bills jobs on the hour.
+    (
+        "refresh_committee_meetings",
+        refresh_committee_meetings,
+        {"trigger": "cron", "hour": "6,18", "minute": 30},
+    ),
+    # Rolling enrichment of the ~17k sponsored-legislation stub bills — a bounded
+    # batch each run, at :15/:45 so it interleaves with refresh_bills (:00/:30)
+    # and the two never collide on the Congress.gov hourly budget.
+    (
+        "refresh_backfill_bills",
+        refresh_backfill_bills,
+        {"trigger": "cron", "minute": "15,45"},
     ),
 ]
 

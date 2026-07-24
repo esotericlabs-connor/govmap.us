@@ -79,11 +79,44 @@ export interface MemberFinance {
   disbursements: number | null;
   cash_on_hand: number | null;
   debts: number | null;
+  contributions: number | null;
   individual_contributions: number | null;
+  individual_itemized: number | null;
+  individual_unitemized: number | null;
   pac_contributions: number | null;
   party_contributions: number | null;
+  transfers: number | null;
+  candidate_contribution: number | null;
+  other_receipts: number | null;
+  loans: number | null;
+  operating_expenditures: number | null;
+  refunded_individual: number | null;
   coverage_start: string | null;
   coverage_end: string | null;
+}
+
+export interface Contribution {
+  sub_id: string;
+  contributor_name: string | null;
+  employer: string | null;
+  occupation: string | null;
+  city: string | null;
+  state: string | null;
+  amount: number | null;
+  date: string | null;
+  aggregate_ytd: number | null;
+}
+
+export interface DonationsResponse {
+  bioguide_id: string;
+  cycle: number;
+  committee_id: string | null;
+  total: number | null;
+  cached: number;
+  complete: boolean;
+  offset: number;
+  limit: number;
+  items: Contribution[];
 }
 
 export interface MemberDetail {
@@ -160,6 +193,18 @@ export interface BillDetail {
   cosponsors: BillCosponsor[];
 }
 
+/** Full legislative text (plain, indentation preserved) from /api/bills/{id}/text.
+ *  Fetched on demand from GPO/govinfo; `truncated` marks a very long bill cut to
+ *  the storage cap. */
+export interface BillText {
+  bill_id: string;
+  text_version: string | null;
+  source_url: string | null;
+  plain: string | null;
+  truncated: boolean;
+  fetched_at: string | null;
+}
+
 export interface VotePosition {
   bioguide_id: string;
   official_full_name: string | null;
@@ -197,6 +242,21 @@ export interface CommitteeMemberRow {
 // Alias used by the committee detail page.
 export type CommitteeMember = CommitteeMemberRow;
 
+export interface CommitteeMeeting {
+  event_id: string;
+  title: string | null;
+  meeting_type: string | null;
+  status: string | null;
+  datetime: string | null;
+  location: string | null;
+  bill_ids: string[];
+}
+
+export interface Subcommittee {
+  committee_id: string;
+  name: string;
+}
+
 export interface CommitteeDetail {
   committee_id: string;
   name: string;
@@ -205,6 +265,25 @@ export interface CommitteeDetail {
   parent_committee_id: string | null;
   url: string | null;
   members: CommitteeMemberRow[];
+  subcommittees: Subcommittee[];
+  upcoming_meetings: CommitteeMeeting[];
+  recent_meetings: CommitteeMeeting[];
+}
+
+/** One bill referred to a committee, from /api/committees/{id}/bills (fetched on
+ *  demand; title/latest_action filled from our corpus where we hold the bill). */
+export interface CommitteeReferredBill {
+  bill_id: string;
+  bill_type: string;
+  number: number | string | null;
+  relationship: string | null;
+  title: string | null;
+  latest_action: string | null;
+}
+
+export interface CommitteeReferredBills {
+  committee_id: string;
+  bills: CommitteeReferredBill[];
 }
 
 export interface SearchResults {

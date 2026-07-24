@@ -17,7 +17,7 @@ import { PageSkeleton } from "@/components/PageSkeleton";
 import { Reveal } from "@/components/Reveal";
 import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
-import { apiGet, HttpError, type BillDetail } from "@/lib/api";
+import { apiGet, HttpError, type BillDetail, type BillText } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
@@ -28,6 +28,68 @@ async function getBill(billId: string): Promise<BillDetail | null> {
     if (err instanceof HttpError && err.status === 404) return null;
     throw err;
   }
+}
+
+async function getBillText(billId: string): Promise<BillText | null> {
+  // Fail-soft: 404 = no readable text version yet; any other error just omits
+  // this non-critical section rather than erroring the whole bill page.
+  try {
+    return await apiGet<BillText>(`/api/bills/${encodeURIComponent(billId)}/text`);
+  } catch {
+    return null;
+  }
+}
+
+function BillTextSkeleton() {
+  return (
+    <Section title="Full text">
+      <div className="space-y-3">
+        <div className="h-4 w-1/3 animate-pulse rounded bg-slate-warm-200" />
+        <div className="h-72 w-full animate-pulse rounded-lg bg-slate-warm-100" />
+      </div>
+    </Section>
+  );
+}
+
+// Streamed in its own Suspense boundary — the first request fetches the text
+// from GPO/govinfo (a few seconds), so the rest of the page never waits on it.
+async function BillFullText({ billId }: { billId: string }) {
+  const text = await getBillText(billId);
+  if (!text?.plain) return null;
+
+  return (
+    <Section title="Full text">
+      <div className="space-y-4">
+        <p className="text-xs text-slate-warm-400">
+          {text.text_version ? `${text.text_version} · ` : ""}Official text via GPO
+          {text.source_url && (
+            <>
+              {" · "}
+              <a
+                href={text.source_url}
+                target="_blank"
+                rel="noreferrer"
+                className="font-medium text-govblue transition-colors hover:text-govblue-600"
+              >
+                view source ↗
+              </a>
+            </>
+          )}
+        </p>
+        <div className="max-h-[640px] overflow-auto rounded-lg border border-slate-warm-200 bg-slate-warm-50/70 p-5">
+          <pre className="whitespace-pre-wrap break-words font-mono text-[13px] leading-relaxed text-slate-warm-700">
+            {text.plain}
+          </pre>
+        </div>
+        {text.truncated && (
+          <p className="text-xs text-slate-warm-400">
+            This is a very long bill — the text is truncated here; use “view source” for the
+            complete document.
+          </p>
+        )}
+      </div>
+    </Section>
+  );
 }
 
 export async function generateMetadata({ params }: { params: { billId: string } }) {
@@ -140,6 +202,10 @@ async function BillDetailContent({ billId }: { billId: string }) {
                 </ol>
               )}
             </Section>
+
+            <Suspense fallback={<BillTextSkeleton />}>
+              <BillFullText billId={billId} />
+            </Suspense>
           </div>
         </div>
 

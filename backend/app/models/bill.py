@@ -46,8 +46,38 @@ class Bill(Base):
     text_version: Mapped[str | None] = mapped_column(String(80), nullable=True)
     update_date: Mapped[date | None] = mapped_column(Date, index=True, nullable=True)
 
+    # NULL until the bill carries its full detail (actions + cosponsors + CRS
+    # summary + text link). Set by the congress_gov_bills pull and by the
+    # on-demand enrichment on first view; the ~17k "index" rows from the
+    # sponsored-legislation pipeline stay NULL until enriched. Indexed so the
+    # rolling backfill can cheaply find the next unenriched bills.
+    enriched_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), index=True, nullable=True
+    )
+
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class BillText(Base):
+    """Cached full legislative text for a bill, rendered in-platform. Fetched on
+    demand from the GPO/govinfo "Formatted Text" version and reduced to plain
+    text (original indentation preserved) so the frontend renders it in a <pre>
+    without dangerouslySetInnerHTML. One row per bill (its latest text version);
+    huge bills are stored up to a cap with `truncated` set."""
+
+    __tablename__ = "bill_text"
+
+    bill_id: Mapped[str] = mapped_column(
+        String(20), ForeignKey("bills.bill_id", ondelete="CASCADE"), primary_key=True
+    )
+    text_version: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    source_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    plain: Mapped[str | None] = mapped_column(Text, nullable=True)
+    truncated: Mapped[bool] = mapped_column(Boolean, default=False)
+    fetched_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
     )
 
 

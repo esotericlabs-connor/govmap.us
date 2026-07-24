@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, func
+from sqlalchemy import JSON, DateTime, ForeignKey, Index, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -42,3 +42,33 @@ class CommitteeMembership(Base):
     role: Mapped[str | None] = mapped_column(String(30), nullable=True)  # Chair / Ranking / Member
     rank: Mapped[int | None] = mapped_column(Integer, nullable=True)
     side: Mapped[str | None] = mapped_column(String(10), nullable=True)  # majority / minority
+
+
+class CommitteeMeeting(Base):
+    """A scheduled or held committee/subcommittee meeting (hearing, markup, …).
+    Source: Congress.gov /committee-meeting. Keyed by (event_id, committee_id) so
+    a meeting shared by a full committee and one of its subcommittees appears
+    under both. Refreshed as a full replace — meetings churn and canceled ones
+    should drop out. `bill_ids` are the related bills' canonical ids (JSON)."""
+
+    __tablename__ = "committee_meetings"
+
+    event_id: Mapped[str] = mapped_column(String(20), primary_key=True)
+    committee_id: Mapped[str] = mapped_column(
+        String(20), ForeignKey("committees.committee_id", ondelete="CASCADE"), primary_key=True
+    )
+    chamber: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    title: Mapped[str | None] = mapped_column(Text, nullable=True)
+    meeting_type: Mapped[str | None] = mapped_column(String(20), nullable=True)  # Meeting/Hearing/Markup
+    status: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    meeting_datetime: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    location: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    bill_ids: Mapped[list | None] = mapped_column(JSON, nullable=True)
+
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        Index("ix_committee_meetings_committee_dt", "committee_id", "meeting_datetime"),
+    )

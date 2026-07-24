@@ -19,7 +19,7 @@ import html
 import json
 import logging
 import re
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 from sqlalchemy import delete, func
@@ -47,7 +47,7 @@ _BILL_UPDATE_COLS = (
     "congress", "bill_type", "number", "title", "sponsor_bioguide_id",
     "introduced_date", "latest_action", "latest_action_date", "status",
     "policy_area", "update_date", "summary", "summary_date", "text_url",
-    "text_version",
+    "text_version", "enriched_at",
 )
 
 
@@ -107,6 +107,10 @@ def to_bill_row(bill: BillDetailRaw) -> dict:
         "status": "Became Law" if bill.laws else None,
         "policy_area": bill.policyArea.name if bill.policyArea else None,
         "update_date": bill.updateDate,
+        # This row carries full detail (actions/cosponsors/summary/text are
+        # loaded alongside it), so mark it enriched — distinguishing it from the
+        # sponsored-legislation stubs, which never set this.
+        "enriched_at": datetime.now(UTC),
     }
 
 

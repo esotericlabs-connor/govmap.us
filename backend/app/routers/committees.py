@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -5,9 +6,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
-from app.models.committee import Committee, CommitteeMembership
+from app.models.committee import Committee, CommitteeMeeting, CommitteeMembership
 from app.models.member import Member
 from app.schemas.committee import CommitteeOut
+from app.services.committees import referred_bills
 
 router = APIRouter(prefix="/api/committees", tags=["committees"])
 
@@ -50,6 +52,30 @@ async def committee_detail(committee_id: str, db: AsyncSession = Depends(get_db)
         )
     ).all()
 
+    subcommittees = (
+        await db.execute(
+            select(Committee.committee_id, Committee.name)
+            .where(Committee.parent_committee_id == committee_id)
+            .order_by(Committee.name)
+        )
+    ).all()
+
+    meetings = (
+        await db.execute(
+            select(CommitteeMeeting).where(CommitteeMeeting.committee_id == committee_id)
+        )
+    ).scalars().all()
+    now = datetime.now(UTC)
+    upcoming = sorted(
+        (m for m in meetings if m.meeting_datetime and m.meeting_datetime >= now),
+        key=lambda m: m.meeting_datetime,
+    )
+    recent = sorted(
+        (m for m in meetings if not (m.meeting_datetime and m.meeting_datetime >= now)),
+        key=lambda m: m.meeting_datetime or datetime.min.replace(tzinfo=UTC),
+        reverse=True,
+    )[:12]
+
     return {
         "committee_id": committee.committee_id,
         "name": committee.name,
@@ -70,4 +96,31 @@ async def committee_detail(committee_id: str, db: AsyncSession = Depends(get_db)
             }
             for r in rows
         ],
+        "subcommittees": [
+            {"committee_id": s.committee_id, "name": s.name} for s in subcommittees
+        ],
+        "upcoming_meetings": [_meeting_dict(m) for m in upcoming],
+        "recent_meetings": [_meeting_dict(m) for m in recent],
     }
+
+
+def _meeting_dict(m: CommitteeMeeting) -> dict:
+    return {
+        "event_id": m.event_id,
+        "title": m.title,
+        "meeting_type": m.meeting_type,
+        "status": m.status,
+        "datetime": m.meeting_datetime.isoformat() if m.meeting_datetime else None,
+        "location": m.location,
+        "bill_ids": m.bill_ids or [],
+    }
+
+
+@router.get("/{committee_id}/bills")
+async def committee_referred_bills(
+    committee_id: str, db: AsyncSession = Depends(get_db)
+) -> dict:
+    """Recent bills referred to the committee — fetched on demand from
+    Congress.gov and joined to our stored titles (fail-soft: empty when a key or
+    the source is unavailable, or for joint committees)."""
+    return {"committee_id": committee_id, "bills": await referred_bills(db, committee_id)}

@@ -13,7 +13,9 @@ from __future__ import annotations
 import asyncio
 import logging
 
+from app.config import settings
 from app.normalize.bills import normalize_and_load as normalize_bills
+from app.normalize.committee_meetings import load_committee_meetings
 from app.normalize.committees import load_committees
 from app.normalize.crosswalk import load_crosswalk
 from app.normalize.finance import load_finance
@@ -22,6 +24,7 @@ from app.normalize.members import normalize_and_load
 from app.normalize.votes import normalize_and_load as normalize_votes
 from app.normalize.zip_districts import load_zip_districts
 from app.pipelines import (
+    congress_committee_meetings,
     congress_gov_bills,
     congress_legislators,
     congress_member_sponsored,
@@ -31,6 +34,7 @@ from app.pipelines import (
     zip_crosswalk,
 )
 from app.pipelines.status import record_run
+from app.services.bill_enrich import backfill_unenriched
 
 logger = logging.getLogger(__name__)
 
@@ -135,6 +139,40 @@ async def refresh_finance() -> None:
         raise
 
 
+async def refresh_committee_meetings() -> None:
+    """Committee meetings from Congress.gov (detail per event) → committee_meetings.
+    Independent of the other sources except the committees FK, so refresh_members
+    should have run first (it does, on every deploy). Full-replace load."""
+    source = "committee_meetings"
+    try:
+        await asyncio.to_thread(congress_committee_meetings.run)
+        count = await load_committee_meetings()
+        await record_run(source, count, "ok")
+        logger.info("refresh %s: ok (%d meetings)", source, count)
+    except Exception as exc:
+        await record_run(source, 0, "error", str(exc))
+        logger.exception("refresh %s failed", source)
+        raise
+
+
+async def refresh_backfill_bills() -> None:
+    """Rolling enrichment of the sponsored-legislation "stub" bills: each run
+    enriches the next batch of not-yet-enriched bills (actions + cosponsors +
+    summary + text link), most-recently-active first, so the full ~17k corpus
+    fills in over successive scheduled runs. On-demand enrichment (routers/bills)
+    already covers any bill a visitor opens; this walks the long tail. Bounded
+    per run (bills_backfill_per_run) to stay under the Congress.gov rate limit."""
+    source = "backfill_bills"
+    try:
+        count = await backfill_unenriched(settings.bills_backfill_per_run)
+        await record_run(source, count, "ok")
+        logger.info("refresh %s: ok (%d bills enriched this run)", source, count)
+    except Exception as exc:
+        await record_run(source, 0, "error", str(exc))
+        logger.exception("refresh %s failed", source)
+        raise
+
+
 async def refresh_zip_districts() -> None:
     """ZIP→congressional-district crosswalk from the Census ZCTA↔CD relationship
     file. Rare-change data (moves only on redistricting), but cheap to reload;
@@ -171,6 +209,8 @@ EXTRA_REFRESHERS: dict[str, callable] = {
     "sponsored_bills": refresh_sponsored_bills,
     "finance": refresh_finance,
     "zip_districts": refresh_zip_districts,
+    "committee_meetings": refresh_committee_meetings,
+    "backfill_bills": refresh_backfill_bills,
 }
 
 # Full registry (deploy core + extras) — the target for a manual `refresh all`.

@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import nullslast, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -6,6 +8,9 @@ from app.db import get_db
 from app.models.bill import Bill, BillAction, Cosponsor
 from app.models.member import Member
 from app.schemas.bill import BillOut
+from app.services.bill_enrich import enrich_bill, get_bill_text
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/bills", tags=["bills"])
 
@@ -41,7 +46,19 @@ async def list_bills(
 async def bill_detail(bill_id: str, db: AsyncSession = Depends(get_db)) -> dict:
     """Full bill: core fields + sponsor name + action timeline + cosponsors.
     Cosponsor/sponsor names are left-joined from `members` and may be null for
-    an actor no longer in the current-members table."""
+    an actor no longer in the current-members table.
+
+    On first view of a sponsored-legislation stub (title + sponsor only), this
+    enriches it in place — pulling actions/cosponsors/summary/text — so the
+    corpus fills in as people browse, not only for the ~250 recently-updated
+    bills the scheduled pull covers."""
+    # Fail-soft: a transient enrichment error must never block viewing the stub.
+    try:
+        await enrich_bill(db, bill_id)  # no-op if already enriched / missing / no key
+    except Exception:
+        await db.rollback()
+        logger.warning("bill_detail: enrichment failed for %s (showing stub)", bill_id)
+
     bill = (
         await db.execute(select(Bill).where(Bill.bill_id == bill_id))
     ).scalar_one_or_none()
@@ -130,3 +147,15 @@ async def bill_detail(bill_id: str, db: AsyncSession = Depends(get_db)) -> dict:
             for r in cosponsor_rows
         ],
     }
+
+
+@router.get("/{bill_id}/text")
+async def bill_full_text(bill_id: str, db: AsyncSession = Depends(get_db)) -> dict:
+    """The bill's full legislative text as plain text for in-platform rendering,
+    fetched from the official GPO/govinfo 'Formatted Text' version on first view
+    and cached. 404 when the bill is unknown or has no readable text version yet
+    (e.g. only a PDF exists, or text isn't published)."""
+    text = await get_bill_text(db, bill_id)
+    if text is None:
+        raise HTTPException(status_code=404, detail="no in-app text available for this bill")
+    return text

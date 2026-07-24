@@ -9,6 +9,7 @@ from app.routers import (
     bills,
     committees,
     congress,
+    donations,
     members,
     pipeline_status,
     search,
@@ -36,6 +37,7 @@ app.add_middleware(
 )
 
 app.include_router(members.router)
+app.include_router(donations.router)
 app.include_router(committees.router)
 app.include_router(bills.router)
 app.include_router(votes.router)
