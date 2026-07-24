@@ -43,7 +43,9 @@ export function ChamberTabs() {
         return (
           <Link
             key={tab.label}
-            ref={(el) => (tabsRef.current[i] = el)}
+            ref={(el) => {
+              tabsRef.current[i] = el;
+            }}
             href={tab.chamber ? `${pathname}?chamber=${tab.chamber}` : pathname}
             className={`relative z-10 rounded-full px-5 py-1.5 text-sm font-semibold capitalize transition-colors duration-300 ${
               active ? "text-white" : "text-slate-warm-600 hover:text-govnavy"
