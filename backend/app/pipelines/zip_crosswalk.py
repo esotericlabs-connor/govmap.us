@@ -22,6 +22,7 @@ import csv
 import io
 import json
 import logging
+import re
 from pathlib import Path
 
 import requests
@@ -34,12 +35,12 @@ SOURCE_NAME = "zip_crosswalk"
 STAGING_DIR = Path(__file__).resolve().parents[2] / "data" / "staging"
 STAGING_PATH = STAGING_DIR / "zip_districts_raw.json"
 
-_REL_BASE = "https://www2.census.gov/geo/docs/maps-data/data/rel2020/zcta520"
-# Newest Congress first; fall back if that file isn't published yet.
-CANDIDATE_URLS = [
-    f"{_REL_BASE}/tab20_zcta520_cd119_natl.txt",
-    f"{_REL_BASE}/tab20_zcta520_cd118_natl.txt",
-]
+# The Census 2020 ZCTA relationship-file directory. Rather than hard-code a
+# guessed filename (the CD-congress suffix changes — cd118, cd119, …), we list
+# this directory and pick the ZCTA↔CD file with the highest congress number, so
+# the pipeline self-adapts to whatever Census currently publishes.
+_REL_DIR = "https://www2.census.gov/geo/docs/maps-data/data/rel2020/zcta520/"
+_CD_FILE_RE = re.compile(r'href="(tab20_zcta520_cd(\d+)_natl\.txt)"', re.IGNORECASE)
 
 # 2-digit state/territory FIPS → USPS abbreviation. Anything not here (e.g. a
 # stray "00") is dropped as out-of-scope.
@@ -57,20 +58,31 @@ FIPS_TO_USPS = {
 }
 
 
+def _discover_url() -> str:
+    """List the Census relationship-file directory and return the URL of the
+    ZCTA↔CD file for the newest congress present. Raises (fail-soft at the
+    refresh layer) with a helpful message if the directory has no such file."""
+    listing = requests.get(_REL_DIR, timeout=60)
+    listing.raise_for_status()
+    matches = _CD_FILE_RE.findall(listing.text)
+    if not matches:
+        # Surface what the directory actually holds so the real filename (or a
+        # changed layout) is visible in the very next deploy's logs.
+        available = re.findall(r'href="(tab20_[^"]+)"', listing.text, re.IGNORECASE)
+        raise RuntimeError(
+            f"no ZCTA↔CD file (tab20_zcta520_cd*_natl.txt) in {_REL_DIR}; "
+            f"available tab20 files: {', '.join(available[:10]) or '(none)'}"
+        )
+    filename, _ = max(matches, key=lambda m: int(m[1]))  # highest cd number
+    return _REL_DIR + filename
+
+
 def _fetch_relationship_file() -> str:
-    last_exc: Exception | None = None
-    for url in CANDIDATE_URLS:
-        try:
-            resp = requests.get(url, timeout=120)
-            resp.raise_for_status()
-            logger.info("zip_crosswalk: using %s", url)
-            return resp.text
-        except requests.RequestException as exc:
-            last_exc = exc
-            logger.warning("zip_crosswalk: %s unavailable (%s)", url, exc)
-    raise RuntimeError(
-        f"no Census ZCTA→CD relationship file reachable ({last_exc})"
-    )
+    url = _discover_url()
+    logger.info("zip_crosswalk: using %s", url)
+    resp = requests.get(url, timeout=120)
+    resp.raise_for_status()
+    return resp.text
 
 
 def _column(fieldnames: list[str], prefix: str) -> str:

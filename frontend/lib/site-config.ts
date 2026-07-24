@@ -33,7 +33,7 @@ export const siteConfig = {
   // Placeholder handles (@govmapus) — accounts to be claimed; links resolve
   // once they are. `icon` maps to a glyph in components/BrandIcon.tsx.
   socialLinks: [
-    { label: "X", href: "https://x.com/govmapus", icon: "x" },
+    { label: "Mastodon", href: "https://mastodon.social/@govmapus", icon: "mastodon" },
     { label: "Bluesky", href: "https://bsky.app/profile/govmapus.bsky.social", icon: "bluesky" },
     { label: "Instagram", href: "https://instagram.com/govmapus", icon: "instagram" },
   ] as { label: string; href: string; icon: string }[],

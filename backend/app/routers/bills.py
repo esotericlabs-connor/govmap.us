@@ -103,6 +103,10 @@ async def bill_detail(bill_id: str, db: AsyncSession = Depends(get_db)) -> dict:
         "status": bill.status,
         "policy_area": bill.policy_area,
         "update_date": bill.update_date.isoformat() if bill.update_date else None,
+        "summary": bill.summary,
+        "summary_date": bill.summary_date.isoformat() if bill.summary_date else None,
+        "text_url": bill.text_url,
+        "text_version": bill.text_version,
         "sponsor": sponsor,
         "actions": [
             {

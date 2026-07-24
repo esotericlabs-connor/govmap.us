@@ -130,6 +130,35 @@ class CosponsorRaw(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
+class BillSummaryRaw(BaseModel):
+    """GET /bill/{congress}/{type}/{number}/summaries — one CRS summary version.
+    `text` is HTML (stripped to plain text in the normalizer)."""
+
+    actionDate: FlexDate = None
+    actionDesc: str | None = None
+    text: str | None = None
+    updateDate: FlexDate = None
+
+    model_config = ConfigDict(extra="ignore")
+
+
+class BillTextFormatRaw(BaseModel):
+    type: str | None = None  # "Formatted Text" | "PDF" | "XML"
+    url: str | None = None
+
+    model_config = ConfigDict(extra="ignore")
+
+
+class BillTextVersionRaw(BaseModel):
+    """GET /bill/{congress}/{type}/{number}/text — one text version."""
+
+    date: FlexDate = None
+    type: str | None = None  # "Introduced in House", "Engrossed in Senate", …
+    formats: list[BillTextFormatRaw] = Field(default_factory=list)
+
+    model_config = ConfigDict(extra="ignore")
+
+
 # --- Layer 3: API response shape ---
 
 

@@ -35,8 +35,15 @@ class Bill(Base):
     # invented status taxonomy (data-only, no editorializing — AGENTS.md).
     status: Mapped[str | None] = mapped_column(String(40), nullable=True)
     policy_area: Mapped[str | None] = mapped_column(String(120), nullable=True)
-    # Reserved for the (on-hold) plain-English summary work — stays null.
+    # Reserved for the (on-hold) LLM plain-English summary work — stays null.
     summary_plain_english: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # The official Congressional Research Service summary ("what this bill does",
+    # HTML stripped to plain text) + a link to the latest full-text version.
+    # Distinct from the reserved LLM field above — this is authored by the CRS.
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    summary_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    text_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    text_version: Mapped[str | None] = mapped_column(String(80), nullable=True)
     update_date: Mapped[date | None] = mapped_column(Date, index=True, nullable=True)
 
     updated_at: Mapped[datetime] = mapped_column(

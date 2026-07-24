@@ -33,6 +33,8 @@ from app.schemas.bill import (
     BillActionRaw,
     BillDetailRaw,
     BillListItemRaw,
+    BillSummaryRaw,
+    BillTextVersionRaw,
     CosponsorRaw,
 )
 
@@ -141,7 +143,21 @@ def _fetch_one(congress: int, bill_type: str, number: int) -> dict | None:
         _paginate(f"bill/{congress}/{lt}/{number}/cosponsors", "cosponsors"),
         CosponsorRaw, f"cosponsor for {lt}{number}",
     )
-    return {"bill": bill, "actions": actions, "cosponsors": cosponsors}
+    summaries = _validate_each(
+        _paginate(f"bill/{congress}/{lt}/{number}/summaries", "summaries"),
+        BillSummaryRaw, f"summary for {lt}{number}",
+    )
+    text_versions = _validate_each(
+        _paginate(f"bill/{congress}/{lt}/{number}/text", "textVersions"),
+        BillTextVersionRaw, f"text for {lt}{number}",
+    )
+    return {
+        "bill": bill,
+        "actions": actions,
+        "cosponsors": cosponsors,
+        "summaries": summaries,
+        "text_versions": text_versions,
+    }
 
 
 def _stage(path: Path, data) -> None:

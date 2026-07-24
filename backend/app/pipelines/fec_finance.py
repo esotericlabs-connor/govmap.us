@@ -47,6 +47,11 @@ _PACE_SECONDS = 0.5
 # under this; the cap just bounds a pathological response.
 _MAX_PAGES = 60
 _OFFICES = ("S", "H")
+# How many 2-year cycles back to sweep (newest first). A cycle-filtered bulk
+# query only lists candidates running *in that cycle*, so one cycle misses the
+# ~2/3 of senators not up this year. Sweeping the last few cycles and keeping
+# each candidate's most-recent row covers all three Senate classes + the House.
+_CYCLE_SPAN = 4
 # Chamber (legislators-current term type) -> the FEC candidate-id office prefix.
 _CHAMBER_PREFIX = {"sen": "S", "rep": "H"}
 
@@ -105,10 +110,10 @@ def _members() -> list[tuple[str, str]]:
     return out
 
 
-def _row(bioguide: str, candidate_id: str, t: CandidateTotalRaw, cycle: int) -> dict:
+def _row(bioguide: str, candidate_id: str, t: CandidateTotalRaw) -> dict:
     return {
         "bioguide_id": bioguide,
-        "cycle": t.cycle or cycle,
+        "cycle": t.cycle,
         "fec_candidate_id": candidate_id,
         "receipts": t.receipts,
         "disbursements": t.disbursements,
@@ -122,29 +127,32 @@ def _row(bioguide: str, candidate_id: str, t: CandidateTotalRaw, cycle: int) -> 
     }
 
 
-def _totals_index(cycle: int) -> dict[str, dict]:
-    """candidate_id -> raw totals row, for every House & Senate candidate active
-    in `cycle`. A few paginated bulk calls instead of one per member."""
+def _totals_index(cycles: list[int]) -> dict[str, dict]:
+    """candidate_id -> most-recent available totals row across `cycles` (swept
+    newest-first; first row seen for a candidate wins). A cycle-filtered bulk
+    query only lists candidates running in that cycle, so sweeping several
+    cycles is what covers every current member's latest election."""
     index: dict[str, dict] = {}
-    for office in _OFFICES:
-        for page in range(1, _MAX_PAGES + 1):
-            data = _fec_get(
-                "candidates/totals",
-                cycle=cycle,
-                office=office,
-                election_full="false",
-                per_page=100,
-                page=page,
-            )
-            results = data.get("results") or []
-            for it in results:
-                cid = it.get("candidate_id")
-                if cid:
-                    index[cid] = it
-            pages = (data.get("pagination") or {}).get("pages") or 1
-            if page >= pages or not results:
-                break
-            time.sleep(_PACE_SECONDS)
+    for cycle in cycles:
+        for office in _OFFICES:
+            for page in range(1, _MAX_PAGES + 1):
+                data = _fec_get(
+                    "candidates/totals",
+                    cycle=cycle,
+                    office=office,
+                    election_full="false",
+                    per_page=100,
+                    page=page,
+                )
+                results = data.get("results") or []
+                for it in results:
+                    cid = it.get("candidate_id")
+                    if cid and cid not in index:
+                        index[cid] = it
+                pages = (data.get("pagination") or {}).get("pages") or 1
+                if page >= pages or not results:
+                    break
+                time.sleep(_PACE_SECONDS)
     return index
 
 
@@ -154,11 +162,12 @@ def run() -> int:
             "FEC_API_KEY is not set — required for the campaign-finance pipeline "
             "(free key at https://api.data.gov/signup/)"
         )
-    cycle = settings.fec_cycle
+    base = settings.fec_cycle
+    cycles = [base - 2 * i for i in range(_CYCLE_SPAN)]  # e.g. 2026, 2024, 2022, 2020
     members = _members()
-    index = _totals_index(cycle)
+    index = _totals_index(cycles)
     if not index:
-        raise RuntimeError(f"OpenFEC returned no candidate totals for cycle {cycle}")
+        raise RuntimeError(f"OpenFEC returned no candidate totals for cycles {cycles}")
 
     rows: list[dict] = []
     for bioguide, candidate_id in members:
@@ -170,13 +179,15 @@ def run() -> int:
         except ValidationError as exc:
             logger.warning("skipping totals for %s (%s): %s", bioguide, candidate_id, exc)
             continue
-        rows.append(_row(bioguide, candidate_id, t, cycle))
+        if t.cycle is None:
+            continue
+        rows.append(_row(bioguide, candidate_id, t))
 
     STAGING_DIR.mkdir(parents=True, exist_ok=True)
     STAGING_PATH.write_text(json.dumps(rows))
     logger.info(
-        "fec_finance: staged %d finance rows (cycle %d; %d candidates indexed, %d members)",
-        len(rows), cycle, len(index), len(members),
+        "fec_finance: staged %d finance rows (cycles %s; %d candidates indexed, %d members)",
+        len(rows), cycles, len(index), len(members),
     )
     return len(rows)
 

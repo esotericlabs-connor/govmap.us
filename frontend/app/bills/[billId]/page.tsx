@@ -73,6 +73,37 @@ export default async function BillDetailPage({ params }: { params: { billId: str
               )}
             </header>
 
+            {(bill.summary || bill.text_url) && (
+              <div className="mt-8">
+                <Section title="What this bill does">
+                  {bill.summary ? (
+                    <p className="whitespace-pre-line text-sm leading-relaxed text-slate-700">
+                      {bill.summary}
+                    </p>
+                  ) : (
+                    <EmptyState>No plain-English summary published yet for this bill.</EmptyState>
+                  )}
+                  {bill.text_url && (
+                    <a
+                      href={bill.text_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="mt-5 inline-flex items-center gap-1.5 rounded-full bg-govnavy px-4 py-2 text-sm font-semibold text-white transition hover:bg-govnavy/90"
+                    >
+                      Read the full text
+                      {bill.text_version ? ` · ${bill.text_version}` : ""} ↗
+                    </a>
+                  )}
+                  {bill.summary && (
+                    <p className="mt-3 text-xs text-slate-400">
+                      Summary by the Congressional Research Service
+                      {bill.summary_date ? ` · ${formatDate(bill.summary_date)}` : ""}
+                    </p>
+                  )}
+                </Section>
+              </div>
+            )}
+
             <div className="mt-8 grid grid-cols-1 gap-8 lg:grid-cols-3">
               {/* Main content: timeline */}
               <div className="lg:col-span-2">

@@ -145,6 +145,10 @@ export interface BillDetail {
   status: string | null;
   policy_area: string | null;
   update_date: string | null;
+  summary: string | null;
+  summary_date: string | null;
+  text_url: string | null;
+  text_version: string | null;
   sponsor: {
     bioguide_id: string;
     official_full_name: string | null;

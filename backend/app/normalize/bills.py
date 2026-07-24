@@ -15,8 +15,11 @@ bind-parameter limit for a single INSERT.
 from __future__ import annotations
 
 import asyncio
+import html
 import json
 import logging
+import re
+from datetime import date
 from pathlib import Path
 
 from sqlalchemy import delete, func
@@ -24,7 +27,13 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.db import async_session_factory
 from app.models.bill import Bill, BillAction, Cosponsor
-from app.schemas.bill import BillActionRaw, BillDetailRaw, CosponsorRaw
+from app.schemas.bill import (
+    BillActionRaw,
+    BillDetailRaw,
+    BillSummaryRaw,
+    BillTextVersionRaw,
+    CosponsorRaw,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -37,8 +46,47 @@ _CHUNK = 1000
 _BILL_UPDATE_COLS = (
     "congress", "bill_type", "number", "title", "sponsor_bioguide_id",
     "introduced_date", "latest_action", "latest_action_date", "status",
-    "policy_area", "update_date",
+    "policy_area", "update_date", "summary", "summary_date", "text_url",
+    "text_version",
 )
+
+
+def _strip_html(raw: str | None) -> str | None:
+    """CRS summaries come as HTML; reduce to readable plain text so the frontend
+    never needs dangerouslySetInnerHTML. Lists → bullets, blocks → newlines."""
+    if not raw:
+        return None
+    t = re.sub(r"(?i)<li[^>]*>", "\n• ", raw)
+    t = re.sub(r"(?i)</(p|div|li|ul|ol|h[1-6])>", "\n", t)
+    t = re.sub(r"(?i)<br\s*/?>", "\n", t)
+    t = re.sub(r"<[^>]+>", "", t)
+    t = html.unescape(t)
+    t = re.sub(r"[ \t]+", " ", t)
+    t = re.sub(r"\n[ \t]*\n[ \t]*\n+", "\n\n", t)
+    return t.strip() or None
+
+
+def _latest_summary(summaries: list[BillSummaryRaw]) -> tuple[str | None, date | None]:
+    if not summaries:
+        return None, None
+    latest = max(summaries, key=lambda s: s.actionDate or s.updateDate or date.min)
+    return _strip_html(latest.text), latest.actionDate
+
+
+def _latest_text(versions: list[BillTextVersionRaw]) -> tuple[str | None, str | None]:
+    """URL + label of the most recent full-text version (prefer readable HTML,
+    then PDF, then whatever's present)."""
+    if not versions:
+        return None, None
+    latest = max(versions, key=lambda v: v.date or date.min)
+    fmt = None
+    for pref in ("Formatted Text", "PDF"):
+        fmt = next((f for f in latest.formats if f.type == pref and f.url), None)
+        if fmt:
+            break
+    if fmt is None:
+        fmt = next((f for f in latest.formats if f.url), None)
+    return (fmt.url if fmt else None), latest.type
 
 
 def to_bill_row(bill: BillDetailRaw) -> dict:
@@ -129,6 +177,12 @@ async def normalize_and_load() -> int:
     for entry in staged:
         bill = BillDetailRaw.model_validate(entry["bill"])
         row = to_bill_row(bill)
+        summaries = [BillSummaryRaw.model_validate(s) for s in entry.get("summaries", [])]
+        text_versions = [
+            BillTextVersionRaw.model_validate(t) for t in entry.get("text_versions", [])
+        ]
+        row["summary"], row["summary_date"] = _latest_summary(summaries)
+        row["text_url"], row["text_version"] = _latest_text(text_versions)
         bid = row["bill_id"]
         bill_rows.append(row)
         bill_ids.append(bid)
