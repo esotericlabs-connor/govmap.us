@@ -21,17 +21,19 @@ function money(n: number | null | undefined): string {
 
 function Tile({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-slate-200/80 bg-slate-50/60 p-4">
-      <p className="text-xs font-medium uppercase tracking-wider text-slate-500">{label}</p>
+    <div className="rounded-lg border border-slate-warm-200 bg-slate-warm-50/70 p-4">
+      <p className="text-xs font-semibold uppercase tracking-wider text-slate-warm-500">
+        {label}
+      </p>
       <p className="mt-1 font-display text-2xl font-bold text-govnavy">{value}</p>
     </div>
   );
 }
 
 const SOURCES: { key: keyof MemberFinance; label: string; color: string }[] = [
-  { key: "individual_contributions", label: "Individuals", color: "#58A9E6" },
-  { key: "pac_contributions", label: "PACs", color: "#F59E0B" },
-  { key: "party_contributions", label: "Party", color: "#94A3B8" },
+  { key: "individual_contributions", label: "Individuals", color: "var(--color-govblue)" },
+  { key: "pac_contributions", label: "PACs", color: "#f59e0b" /* amber-500 */ },
+  { key: "party_contributions", label: "Party", color: "#64748b" /* slate-500 */ },
 ];
 
 export function FinanceCard({ finance }: { finance: MemberFinance }) {
@@ -52,10 +54,14 @@ export function FinanceCard({ finance }: { finance: MemberFinance }) {
 
       {totalContrib > 0 && (
         <div className="mt-6">
-          <p className="text-xs font-medium uppercase tracking-wider text-slate-500">
+          <p className="text-xs font-semibold uppercase tracking-wider text-slate-warm-500">
             Where receipts came from
           </p>
-          <div className="mt-2 flex h-3 w-full overflow-hidden rounded-full bg-slate-200">
+          <div
+            className="mt-2 flex h-3 w-full overflow-hidden rounded-full bg-slate-warm-200"
+            role="img"
+            aria-label="Contribution sources bar chart"
+          >
             {parts.map((p) => (
               <div
                 key={p.label}
@@ -64,25 +70,25 @@ export function FinanceCard({ finance }: { finance: MemberFinance }) {
               />
             ))}
           </div>
-          <div className="mt-3 flex flex-wrap gap-x-6 gap-y-2 text-sm">
+          <div className="mt-4 flex flex-wrap gap-x-6 gap-y-2 text-sm">
             {parts.map((p) => (
-              <span key={p.label} className="flex items-center gap-1.5 text-slate-600">
+              <div key={p.label} className="flex items-center gap-2">
                 <span className="h-2.5 w-2.5 rounded-full" style={{ background: p.color }} />
-                {p.label}{" "}
+                <span className="font-medium text-slate-warm-600">{p.label}</span>
                 <span className="font-semibold text-govnavy">{money(p.amount)}</span>
-                <span className="text-slate-400">
+                <span className="text-slate-warm-400">
                   ({Math.round((p.amount / totalContrib) * 100)}%)
                 </span>
-              </span>
+              </div>
             ))}
           </div>
         </div>
       )}
 
-      <p className="mt-6 border-t border-slate-100 pt-4 text-xs text-slate-400">
+      <p className="mt-6 border-t border-slate-warm-200 pt-4 text-xs text-slate-warm-400">
         {finance.cycle} cycle
         {finance.coverage_end && ` · through ${formatDate(finance.coverage_end)}`} · Source:
-        U.S. Federal Election Commission
+        Federal Election Commission
       </p>
     </Section>
   );

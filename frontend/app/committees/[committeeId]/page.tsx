@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { Suspense } from "react";
 
 import {
   BackLink,
@@ -10,6 +11,7 @@ import {
   Section,
 } from "@/components/DetailKit";
 import { MemberAvatar } from "@/components/MemberAvatar";
+import { PageSkeleton } from "@/components/PageSkeleton";
 import { Reveal } from "@/components/Reveal";
 import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
@@ -38,46 +40,42 @@ function MemberCard({ member }: { member: CommitteeMember }) {
   return (
     <Link
       href={`/members/${member.bioguide_id}`}
-      className={`group block rounded-lg p-3 transition-colors ${
-        isChair || isRanking ? "bg-slate-50/80 hover:bg-white" : "hover:bg-slate-50/80"
-      }`}
+      className="group -m-3 block rounded-lg p-3 transition-colors hover:bg-slate-warm-50"
     >
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-4">
         <MemberAvatar src={member.photo_url} name={member.official_full_name} size="md" />
         <div className="min-w-0">
-          <p className="truncate font-semibold text-slate-800 group-hover:text-govblue">
+          <p className="truncate font-semibold text-govnavy transition-colors group-hover:text-govblue-600">
             {member.official_full_name}
           </p>
-          <p className="flex items-center gap-1.5 text-sm">
-            <span className={`h-2 w-2 rounded-full ${partyDotClass(member.party)}`} />
+          <div className="mt-0.5 flex items-center gap-1.5 text-sm">
+            <span className={`h-2 w-2 shrink-0 rounded-full ${partyDotClass(member.party)}`} />
             <span className={partyTextClass(member.party)}>{member.party}</span>
-            <span className="text-slate-400">· {member.state}</span>
-          </p>
+            <span className="text-slate-warm-400">· {member.state}</span>
+          </div>
         </div>
       </div>
       {member.role && (
-        <p
-          className={`mt-2 inline-block rounded-full px-2 py-0.5 text-xs font-semibold ${
-            isChair
-              ? "bg-govnavy text-white"
-              : isRanking
-                ? "border border-govnavy/50 text-govnavy"
-                : "text-slate-500"
-          }`}
-        >
-          {member.role}
-        </p>
+        <div className="mt-3">
+          <span
+            className={`inline-block rounded-full px-2.5 py-1 text-xs font-semibold ${
+              isChair
+                ? "bg-govnavy text-white"
+                : isRanking
+                  ? "bg-white ring-1 ring-inset ring-slate-warm-300"
+                  : "bg-slate-warm-100 text-slate-warm-600"
+            }`}
+          >
+            {member.role}
+          </span>
+        </div>
       )}
     </Link>
   );
 }
 
-export default async function CommitteeDetailPage({
-  params,
-}: {
-  params: { committeeId: string };
-}) {
-  const committee = await getCommittee(params.committeeId);
+async function CommitteeDetailContent({ committeeId }: { committeeId: string }) {
+  const committee = await getCommittee(committeeId);
   if (!committee) notFound();
 
   const majority = committee.members.filter((m) => m.side === "majority");
@@ -99,82 +97,89 @@ export default async function CommitteeDetailPage({
   other.sort(sortMembers);
 
   return (
+    <Reveal>
+      <header className="mt-6">
+        <p className="font-semibold uppercase tracking-wider text-slate-warm-500">
+          {chamberLabel(committee.chamber)} Committee
+        </p>
+        <h1 className="mt-1 font-display text-4xl font-bold tracking-tight text-govnavy sm:text-5xl">
+          {committee.name}
+        </h1>
+        <div className="mt-4 flex flex-wrap gap-4">
+          {committee.url && (
+            <a
+              href={committee.url}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 text-sm font-semibold text-govblue transition-colors hover:text-govblue-600"
+            >
+              Official Website ↗
+            </a>
+          )}
+          {committee.parent_committee_id && (
+            <Link
+              href={`/committees/${committee.parent_committee_id}`}
+              className="inline-flex items-center gap-1 text-sm font-semibold text-govblue transition-colors hover:text-govblue-600"
+            >
+              Parent Committee ↑
+            </Link>
+          )}
+        </div>
+      </header>
+
+      <div className="mt-12">
+        {committee.members.length === 0 ? (
+          <Section title="Members">
+            <EmptyState>No membership data is available for this committee.</EmptyState>
+          </Section>
+        ) : (
+          <div className="grid grid-cols-1 gap-10 lg:grid-cols-2 lg:gap-16">
+            {majority.length > 0 && (
+              <Section title="Majority" count={majority.length}>
+                <div className="grid grid-cols-1 gap-x-6 gap-y-4 md:grid-cols-2">
+                  {majority.map((m) => (
+                    <MemberCard key={m.bioguide_id} member={m} />
+                  ))}
+                </div>
+              </Section>
+            )}
+            {minority.length > 0 && (
+              <Section title="Minority" count={minority.length}>
+                <div className="grid grid-cols-1 gap-x-6 gap-y-4 md:grid-cols-2">
+                  {minority.map((m) => (
+                    <MemberCard key={m.bioguide_id} member={m} />
+                  ))}
+                </div>
+              </Section>
+            )}
+            {other.length > 0 && (
+              <div className="lg:col-span-2">
+                <Section title="Other Members" count={other.length}>
+                  <div className="grid grid-cols-1 gap-x-6 gap-y-4 md:grid-cols-2">
+                    {other.map((m) => (
+                      <MemberCard key={m.bioguide_id} member={m} />
+                    ))}
+                  </div>
+                </Section>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </Reveal>
+  );
+}
+
+export default function CommitteeDetailPage({ params }: { params: { committeeId: string } }) {
+  return (
     <>
       <SiteHeader variant="app" />
-      <main className="min-h-screen bg-slate-50 pb-20 pt-24">
-        <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
+      <main className="bg-slate-warm-50 pb-20 pt-28">
+        <div className="mx-auto max-w-6xl px-6">
           <BackLink href="/members">All Members</BackLink>
-
-          <Reveal>
-            <header className="mt-4 rounded-xl border border-slate-200/80 bg-white p-6 shadow-card">
-              <p className="font-semibold uppercase tracking-wider text-slate-500">
-                {chamberLabel(committee.chamber)} Committee
-              </p>
-              <h1 className="mt-1 font-display text-3xl font-bold tracking-tight text-govnavy">
-                {committee.name}
-              </h1>
-              <div className="mt-3 flex gap-4">
-                {committee.url && (
-                  <a
-                    href={committee.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-sm font-medium text-govblue underline-offset-2 hover:underline"
-                  >
-                    Official Website ↗
-                  </a>
-                )}
-                {committee.parent_committee_id && (
-                  <Link
-                    href={`/committees/${committee.parent_committee_id}`}
-                    className="text-sm font-medium text-govblue underline-offset-2 hover:underline"
-                  >
-                    Parent Committee ↑
-                  </Link>
-                )}
-              </div>
-            </header>
-
-            <div className="mt-8">
-              {committee.members.length === 0 ? (
-                <Section title="Members">
-                  <EmptyState>No membership data is available for this committee.</EmptyState>
-                </Section>
-              ) : (
-                <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
-                  {majority.length > 0 && (
-                    <Section title="Majority" count={majority.length}>
-                      <div className="grid grid-cols-1 gap-x-4 gap-y-2 md:grid-cols-2">
-                        {majority.map((m) => (
-                          <MemberCard key={m.bioguide_id} member={m} />
-                        ))}
-                      </div>
-                    </Section>
-                  )}
-                  {minority.length > 0 && (
-                    <Section title="Minority" count={minority.length}>
-                      <div className="grid grid-cols-1 gap-x-4 gap-y-2 md:grid-cols-2">
-                        {minority.map((m) => (
-                          <MemberCard key={m.bioguide_id} member={m} />
-                        ))}
-                      </div>
-                    </Section>
-                  )}
-                  {other.length > 0 && (
-                    <div className="lg:col-span-2">
-                      <Section title="Other Members" count={other.length}>
-                        <div className="grid grid-cols-1 gap-x-4 gap-y-2 md:grid-cols-2">
-                          {other.map((m) => (
-                            <MemberCard key={m.bioguide_id} member={m} />
-                          ))}
-                        </div>
-                      </Section>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          </Reveal>
+          <Suspense fallback={<PageSkeleton />}>
+            <CommitteeDetailContent committeeId={params.committeeId} />
+          </Suspense>
         </div>
       </main>
       <SiteFooter />

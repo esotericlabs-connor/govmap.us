@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { Suspense } from "react";
 
 import {
   BackLink,
@@ -12,6 +13,7 @@ import {
   Section,
 } from "@/components/DetailKit";
 import { MemberAvatar } from "@/components/MemberAvatar";
+import { PageSkeleton } from "@/components/PageSkeleton";
 import { Reveal } from "@/components/Reveal";
 import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
@@ -34,172 +36,187 @@ export async function generateMetadata({ params }: { params: { billId: string } 
   return { title: bill?.title ?? label };
 }
 
-export default async function BillDetailPage({ params }: { params: { billId: string } }) {
-  const bill = await getBill(params.billId);
+function StatusPill({ status }: { status: string | null }) {
+  if (!status) return null;
+  // A simple heuristic for status color. Could be expanded.
+  const norm = status.toLowerCase();
+  const isGood = norm.includes("law") || norm.includes("agreed to");
+  const color = isGood
+    ? "bg-green-100/80 text-green-800 ring-green-600/30"
+    : "bg-slate-warm-100 text-slate-warm-700 ring-slate-600/20";
+
+  return (
+    <p
+      className={`inline-block rounded-full px-3 py-1 text-xs font-bold ring-1 ring-inset ${color}`}
+    >
+      {status}
+    </p>
+  );
+}
+
+async function BillDetailContent({ billId }: { billId: string }) {
+  const bill = await getBill(billId);
   if (!bill) notFound();
 
   const label = `${bill.bill_type.toUpperCase()} ${bill.number}`;
 
   return (
-    <>
-      <SiteHeader variant="app" />
-      <main className="min-h-screen bg-slate-50 pb-20 pt-24">
-        <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
-          <BackLink href="/members">All Members</BackLink>
+    <Reveal>
+      <header className="mt-6">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <CodePill>{label}</CodePill>
+          {bill.congress && (
+            <p className="text-sm font-medium text-slate-warm-500">{bill.congress}th Congress</p>
+          )}
+          <StatusPill status={bill.status} />
+        </div>
+        <h1 className="mt-3 font-display text-4xl font-bold tracking-tight text-govnavy sm:text-5xl">
+          {bill.title ?? label}
+        </h1>
+        {bill.latest_action && (
+          <div className="mt-6 rounded-lg border border-slate-warm-200 bg-slate-warm-100/70 p-4">
+            <p className="font-semibold text-slate-warm-600">
+              Latest action ({formatDate(bill.latest_action_date)})
+            </p>
+            <p className="mt-1 text-slate-800">{bill.latest_action}</p>
+          </div>
+        )}
+      </header>
 
-          <Reveal>
-            <header className="mt-4 rounded-xl border border-slate-200/80 bg-white p-6 shadow-card">
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                <CodePill>{label}</CodePill>
-                {bill.congress && (
-                  <p className="text-sm text-slate-500">{bill.congress}th Congress</p>
-                )}
-                {bill.status && (
-                  <p className="rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-bold text-green-800 ring-1 ring-inset ring-green-500/50">
-                    {bill.status}
-                  </p>
-                )}
-              </div>
-              <h1 className="mt-3 font-display text-3xl font-bold tracking-tight text-govnavy">
-                {bill.title ?? label}
-              </h1>
-              {bill.latest_action && (
-                <div className="mt-4 rounded-lg border border-slate-200/80 bg-slate-50/80 p-4 text-sm">
-                  <p className="font-semibold text-slate-600">
-                    Latest action ({formatDate(bill.latest_action_date)})
-                  </p>
-                  <p className="mt-1 text-slate-800">{bill.latest_action}</p>
-                </div>
-              )}
-            </header>
-
+      <div className="mt-12 grid grid-cols-1 gap-10 lg:grid-cols-3">
+        {/* Main content: summary + timeline */}
+        <div className="lg:col-span-2">
+          <div className="space-y-10">
             {(bill.summary || bill.text_url) && (
-              <div className="mt-8">
-                <Section title="What this bill does">
-                  {bill.summary ? (
-                    <p className="whitespace-pre-line text-sm leading-relaxed text-slate-700">
-                      {bill.summary}
-                    </p>
-                  ) : (
-                    <EmptyState>No plain-English summary published yet for this bill.</EmptyState>
-                  )}
-                  {bill.text_url && (
-                    <a
-                      href={bill.text_url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="mt-5 inline-flex items-center gap-1.5 rounded-full bg-govnavy px-4 py-2 text-sm font-semibold text-white transition hover:bg-govnavy/90"
-                    >
-                      Read the full text
-                      {bill.text_version ? ` · ${bill.text_version}` : ""} ↗
-                    </a>
-                  )}
-                  {bill.summary && (
-                    <p className="mt-3 text-xs text-slate-400">
-                      Summary by the Congressional Research Service
-                      {bill.summary_date ? ` · ${formatDate(bill.summary_date)}` : ""}
-                    </p>
-                  )}
-                </Section>
-              </div>
+              <Section title="What this bill does">
+                {bill.summary ? (
+                  <p className="whitespace-pre-line leading-relaxed text-slate-warm-700">
+                    {bill.summary}
+                  </p>
+                ) : (
+                  <EmptyState>No plain-English summary published yet for this bill.</EmptyState>
+                )}
+                {bill.text_url && (
+                  <a
+                    href={bill.text_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="group mt-6 inline-flex items-center gap-1.5 self-start rounded-full bg-govnavy px-5 py-2.5 text-sm font-semibold text-white transition-all duration-200 hover:-translate-y-px hover:bg-govnavy/90"
+                  >
+                    Read full text {bill.text_version && `(${bill.text_version})`}
+                    <span className="transition-transform group-hover:translate-x-0.5">↗</span>
+                  </a>
+                )}
+                {bill.summary && (
+                  <p className="mt-4 text-xs text-slate-warm-400">
+                    Summary by the Congressional Research Service
+                    {bill.summary_date ? ` · ${formatDate(bill.summary_date)}` : ""}
+                  </p>
+                )}
+              </Section>
             )}
 
-            <div className="mt-8 grid grid-cols-1 gap-8 lg:grid-cols-3">
-              {/* Main content: timeline */}
-              <div className="lg:col-span-2">
-                <Section title="Action Timeline" count={bill.actions.length}>
-                  {bill.actions.length === 0 ? (
-                    <EmptyState>No actions found for this bill.</EmptyState>
-                  ) : (
-                    <ol className="relative border-l border-slate-200">
-                      {bill.actions.map((a) => (
-                        <li key={a.seq} className="mb-6 ml-6">
-                          <span className="absolute -left-[9px] flex h-[18px] w-[18px] items-center justify-center rounded-full bg-slate-200 ring-8 ring-white">
-                            <svg
-                              className="h-4 w-4 text-white"
-                              viewBox="0 0 24 24"
-                              fill="currentColor"
-                            >
-                              <path d="M12,18A6,6 0 0,1 6,12C6,11 6.25,10.03 6.7,9.15L5.24,7.68C4.46,8.87 4,10.36 4,12A8,8 0 0,0 12,20A8,8 0 0,0 20,12C20,10.36 19.54,8.87 18.76,7.68L17.3,9.15C17.75,10.03 18,11 18,12A6,6 0 0,1 12,18M12,4A8,8 0 0,0 4,12C4,12.79 4.14,13.55 4.38,14.25L5.84,12.79C5.8,12.54 5.75,12.27 5.75,12A6.25,6.25 0 0,1 12,5.75A6.25,6.25 0 0,1 18.25,12C18.25,12.27 18.2,12.54 18.16,12.79L19.62,14.25C19.86,13.55 20,12.79 20,12A8,8 0 0,0 12,4Z" />
-                            </svg>
-                          </span>
-                          <div className="rounded-lg border border-slate-200/80 bg-white p-4">
-                            <p className="text-sm font-medium text-slate-600">
-                              {a.action_date ? formatDate(a.action_date) : "Date not specified"}
-                              {a.chamber && ` · ${chamberLabel(a.chamber)}`}
-                            </p>
-                            <p className="mt-1 text-sm text-slate-800">{a.text}</p>
-                          </div>
-                        </li>
-                      ))}
-                    </ol>
-                  )}
-                </Section>
-              </div>
-
-              {/* Sidebar: sponsor + cosponsors */}
-              <aside className="space-y-8">
-                {bill.sponsor && (
-                  <Section title="Sponsor">
-                    <Link
-                      href={`/members/${bill.sponsor.bioguide_id}`}
-                      className="group -m-2 block rounded-lg p-2"
-                    >
-                      <div className="flex items-center gap-4">
-                        <MemberAvatar
-                          src={bill.sponsor.photo_url}
-                          name={bill.sponsor.official_full_name ?? ""}
-                          size="md"
-                        />
-                        <div className="min-w-0">
-                          <p className="font-semibold text-govnavy group-hover:text-govblue">
-                            {bill.sponsor.official_full_name}
-                          </p>
-                          <p className="flex items-center gap-1.5 text-sm text-slate-500">
-                            <span
-                              className={`h-2 w-2 rounded-full ${partyDotClass(
-                                bill.sponsor.party,
-                              )}`}
-                            />
-                            <span className={partyTextClass(bill.sponsor.party)}>
-                              {bill.sponsor.party}
-                            </span>
-                            <span>· {bill.sponsor.state}</span>
-                          </p>
-                        </div>
+            <Section title="Action Timeline" count={bill.actions.length}>
+              {bill.actions.length === 0 ? (
+                <EmptyState>No actions found for this bill.</EmptyState>
+              ) : (
+                <ol className="relative -ml-1 border-l-2 border-slate-warm-200">
+                  {bill.actions.map((a, i) => (
+                    <li key={a.seq} className="mb-6 ml-6">
+                      <span
+                        className={`absolute -left-[9px] flex h-4 w-4 items-center justify-center rounded-full ring-8 ring-white ${
+                          i === 0 ? "bg-govblue" : "bg-slate-warm-300"
+                        }`}
+                      />
+                      <div className="rounded-lg border border-slate-warm-200 bg-white p-4 shadow-sm">
+                        <p className="text-sm font-semibold text-slate-warm-600">
+                          {a.action_date ? formatDate(a.action_date) : "Date not specified"}
+                          {a.chamber && ` · ${chamberLabel(a.chamber)}`}
+                        </p>
+                        <p className="mt-1 text-slate-800">{a.text}</p>
                       </div>
-                    </Link>
-                  </Section>
-                )}
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </Section>
+          </div>
+        </div>
 
-                <Section title="Cosponsors" count={bill.cosponsors.length}>
-                  {bill.cosponsors.length === 0 ? (
-                    <EmptyState>No cosponsors on this bill.</EmptyState>
-                  ) : (
-                    <ul className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-3 lg:grid-cols-2">
-                      {bill.cosponsors.map((c) => (
-                        <li key={c.bioguide_id}>
-                          <Link
-                            href={`/members/${c.bioguide_id}`}
-                            className="inline-flex items-baseline gap-1.5 text-sm group"
-                          >
-                            <span
-                              className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${partyDotClass(
-                                c.party,
-                              )}`}
-                            />
-                            <span className="font-medium text-slate-700 group-hover:text-govblue">
-                              {c.official_full_name}
-                            </span>
-                          </Link>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </Section>
-              </aside>
-            </div>
-          </Reveal>
+        {/* Sidebar: sponsor + cosponsors */}
+        <aside className="space-y-10">
+          {bill.sponsor && (
+            <Section title="Sponsor">
+              <Link
+                href={`/members/${bill.sponsor.bioguide_id}`}
+                className="group -m-3 block rounded-lg p-3 transition-colors hover:bg-slate-warm-50"
+              >
+                <div className="flex items-center gap-4">
+                  <MemberAvatar
+                    src={bill.sponsor.photo_url}
+                    name={bill.sponsor.official_full_name ?? ""}
+                    size="md"
+                  />
+                  <div className="min-w-0">
+                    <p className="font-semibold text-govnavy transition-colors group-hover:text-govblue-600">
+                      {bill.sponsor.official_full_name}
+                    </p>
+                    <p className="flex items-center gap-1.5 text-sm">
+                      <span
+                        className={`h-2 w-2 rounded-full ${partyDotClass(bill.sponsor.party)}`}
+                      />
+                      <span className={partyTextClass(bill.sponsor.party)}>
+                        {bill.sponsor.party}
+                      </span>
+                      <span className="text-slate-warm-400">· {bill.sponsor.state}</span>
+                    </p>
+                  </div>
+                </div>
+              </Link>
+            </Section>
+          )}
+
+          <Section title="Cosponsors" count={bill.cosponsors.length}>
+            {bill.cosponsors.length === 0 ? (
+              <EmptyState>No cosponsors on this bill.</EmptyState>
+            ) : (
+              <ul className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2 lg:grid-cols-1">
+                {bill.cosponsors.map((c) => (
+                  <li key={c.bioguide_id}>
+                    <Link
+                      href={`/members/${c.bioguide_id}`}
+                      className="group inline-flex items-start gap-2 text-sm"
+                    >
+                      <span
+                        className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${partyDotClass(
+                          c.party,
+                        )}`}
+                      />
+                      <span className="font-medium text-slate-warm-700 transition-colors group-hover:text-govblue-600">
+                        {c.official_full_name}
+                      </span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Section>
+        </aside>
+      </div>
+    </Reveal>
+  );
+}
+
+export default function BillDetailPage({ params }: { params: { billId: string } }) {
+  return (
+    <>
+      <SiteHeader variant="app" />
+      <main className="bg-slate-warm-50 pb-20 pt-28">
+        <div className="mx-auto max-w-6xl px-6">
+          <BackLink href="/bills">All Bills</BackLink>
+          <Suspense fallback={<PageSkeleton />}>
+            <BillDetailContent billId={params.billId} />
+          </Suspense>
         </div>
       </main>
       <SiteFooter />

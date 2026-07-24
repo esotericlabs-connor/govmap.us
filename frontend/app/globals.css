@@ -8,12 +8,19 @@
      flashing a white bar. */
   html {
     background-color: #070b1a;
+    /* Define CSS vars for SVG fills, which can't use Tailwind classes */
+    --color-govblue: #58a9e6;
+    --color-govred: #dd1922;
   }
 
   :focus-visible {
     outline: 2px solid #58a9e6;
-    outline-offset: 2px;
-    border-radius: 3px;
+    outline-offset: 4px;
+    border-radius: 6px;
+  }
+
+  body {
+    @apply min-h-screen bg-slate-warm-50 font-sans text-slate-700 antialiased;
   }
 }
 
@@ -62,6 +69,6 @@
     @apply mt-3 list-disc space-y-2 pl-5 text-slate-600;
   }
   .legal-prose a {
-    @apply text-govblue underline underline-offset-2 hover:text-govnavy;
+    @apply rounded-sm text-govblue underline-offset-2 hover:text-govnavy hover:underline;
   }
 }

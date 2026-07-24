@@ -1,9 +1,11 @@
-import Link from "next/link";
-
+import { ChamberTabs } from "@/components/ChamberTabs";
 import { MemberAvatar } from "@/components/MemberAvatar";
 import { Reveal } from "@/components/Reveal";
 import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
+import { apiGet } from "@/lib/api";
+import Link from "next/link";
+import { Suspense } from "react";
 
 // Rendered on demand, never prerendered — the backend isn't reachable during
 // the Docker image build, so prerendering would fetch a dead host and fail
@@ -23,59 +25,23 @@ type Member = {
   state: string;
   district: number | null;
   party: string;
-  term_start: string;
-  fec_candidate_ids: string[];
   photo_url: string | null;
 };
 
 type Chamber = "house" | "senate";
 
 async function getMembers(chamber: Chamber | null): Promise<Member[]> {
-  // Runs server-side in the frontend container; reach the backend directly
-  // over the compose network rather than through the public API hostname.
-  const apiUrl =
-    process.env.API_INTERNAL_URL ??
-    process.env.NEXT_PUBLIC_API_URL ??
-    "http://localhost:8000";
   const query = chamber ? `&chamber=${chamber}` : "";
-  const res = await fetch(`${apiUrl}/api/members?limit=600${query}`, {
-    cache: "no-store",
-  });
-  if (!res.ok) {
-    throw new Error(`failed to load members: ${res.status}`);
-  }
-  return res.json();
-}
-
-const TABS: { label: string; chamber: Chamber | null }[] = [
-  { label: "All", chamber: null },
-  { label: "House", chamber: "house" },
-  { label: "Senate", chamber: "senate" },
-];
-
-function partyColor(party: string): string {
-  if (party.startsWith("Republican")) return "text-govred";
-  if (party.startsWith("Democrat")) return "text-govblue";
-  return "text-slate-500";
+  return await apiGet<Member[]>(`/api/members?limit=600${query}`);
 }
 
 function seatLabel(member: Member): string {
   const where =
     member.district !== null ? `${member.state}-${member.district}` : member.state;
-  const chamber = member.chamber === "senate" ? "Senate" : "House";
-  return `${where} · ${chamber}`;
+  return `${where} · ${member.chamber === "senate" ? "Senate" : "House"}`;
 }
 
-export default async function MembersPage({
-  searchParams,
-}: {
-  searchParams: { chamber?: string };
-}) {
-  const chamber: Chamber | null =
-    searchParams.chamber === "house" || searchParams.chamber === "senate"
-      ? searchParams.chamber
-      : null;
-
+async function MemberGrid({ chamber }: { chamber: Chamber | null }) {
   let members: Member[] = [];
   let loadError = false;
   try {
@@ -85,81 +51,104 @@ export default async function MembersPage({
     loadError = true;
   }
 
+  if (loadError) {
+    return (
+      <div className="mt-10 rounded-2xl border border-red-200/80 bg-red-100/50 p-8 text-center">
+        <h2 className="font-semibold text-red-900">Could not load members</h2>
+        <p className="mt-2 text-red-800">
+          There was an issue fetching data from the backend. Please try again in a moment.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-10 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+      {members.map((member, i) => (
+        <Reveal key={member.bioguide_id} delay={i * 20}>
+          <Link
+            href={`/members/${member.bioguide_id}`}
+            className="group block rounded-xl border border-slate-warm-200 bg-white p-4 shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-card-hover"
+          >
+            <div className="flex items-center gap-4">
+              <MemberAvatar src={member.photo_url} name={member.official_full_name} size="md" />
+              <div className="min-w-0">
+                <p className="truncate font-bold text-govnavy transition-colors group-hover:text-govblue-600">
+                  {member.official_full_name}
+                </p>
+                <p className="flex items-center gap-1.5 text-sm text-slate-warm-500">
+                  <span
+                    className={`font-semibold ${
+                      member.party.startsWith("R")
+                        ? "text-govred"
+                        : member.party.startsWith("D")
+                          ? "text-govblue"
+                          : ""
+                    }`}
+                  >
+                    {member.party.slice(0, 1)}
+                  </span>
+                  <span>· {seatLabel(member)}</span>
+                </p>
+              </div>
+            </div>
+          </Link>
+        </Reveal>
+      ))}
+    </div>
+  );
+}
+
+function MemberGridSkeleton() {
+  return (
+    <div className="mt-10 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+      {Array.from({ length: 12 }).map((_, i) => (
+        <div key={i} className="h-20 w-full animate-pulse rounded-xl bg-slate-warm-200" />
+      ))}
+    </div>
+  );
+}
+
+export default function MembersPage({
+  searchParams,
+}: {
+  searchParams: { chamber?: string };
+}) {
+  const chamber: Chamber | null =
+    searchParams.chamber === "house" || searchParams.chamber === "senate"
+      ? searchParams.chamber
+      : null;
+
   const scopeLabel =
-    chamber === "house" ? "the U.S. House" : chamber === "senate" ? "the U.S. Senate" : "the U.S. House and Senate";
+    chamber === "house"
+      ? "the U.S. House"
+      : chamber === "senate"
+        ? "the U.S. Senate"
+        : "Congress";
 
   return (
     <>
       <SiteHeader variant="app" />
-      <main className="min-h-screen bg-slate-50 pb-20 pt-24">
-        <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
+      <main className="bg-slate-warm-50 pb-20 pt-28">
+        <div className="mx-auto max-w-7xl px-6">
           <Reveal>
-            <div className="rounded-xl border border-slate-200/80 bg-white p-6 shadow-card">
-              <h1 className="font-display text-3xl font-bold tracking-tight text-govnavy">
-                Members of Congress
-              </h1>
-              <p className="mt-1 text-slate-500">
-                Browse all {members.length > 0 ? members.length : ""}{" "}
-                currently-serving members of {scopeLabel}.
-              </p>
-              <div className="mt-5 inline-flex rounded-full border border-slate-200 bg-slate-50 p-1">
-                {TABS.map((tab) => {
-                  const active = tab.chamber === chamber;
-                  return (
-                    <Link
-                      key={tab.label}
-                      href={tab.chamber ? `/members?chamber=${tab.chamber}` : "/members"}
-                      className={`rounded-full px-4 py-1.5 text-sm font-semibold transition ${
-                        active
-                          ? "bg-govnavy text-white shadow-sm"
-                          : "text-slate-600 hover:text-govnavy"
-                      }`}
-                    >
-                      {tab.label}
-                    </Link>
-                  );
-                })}
-              </div>
-            </div>
-
-            {loadError ? (
-              <div className="mt-8 rounded-xl border border-red-200/80 bg-red-50/80 p-6 text-center">
-                <h2 className="font-semibold text-red-800">Could not load members</h2>
-                <p className="mt-1 text-sm text-red-700">
-                  There was an issue fetching data from the backend. Please try again in a moment.
+            <div className="md:flex md:items-center md:justify-between">
+              <div>
+                <h1 className="font-display text-4xl font-bold tracking-tight text-govnavy sm:text-5xl">
+                  Members of {scopeLabel}
+                </h1>
+                <p className="mt-2 text-lg text-slate-warm-600">
+                  Browse all currently-serving members.
                 </p>
               </div>
-            ) : (
-              <div className="mt-8 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-                {members.map((member) => (
-                  <Link
-                    key={member.bioguide_id}
-                    href={`/members/${member.bioguide_id}`}
-                    className="group block rounded-lg border border-slate-200/80 bg-white p-4 shadow-sm transition-all duration-150 ease-in-out hover:scale-[1.02] hover:border-slate-300 hover:shadow-md"
-                  >
-                    <div className="flex items-center gap-4">
-                      <MemberAvatar
-                        src={member.photo_url}
-                        name={member.official_full_name}
-                        size="md"
-                      />
-                      <div className="min-w-0">
-                        <p className="truncate font-bold text-govnavy group-hover:text-govblue">
-                          {member.official_full_name}
-                        </p>
-                        <p className="text-sm text-slate-500">
-                          <span className={`font-semibold ${partyColor(member.party)}`}>
-                            {member.party}
-                          </span>{" "}
-                          · {seatLabel(member)}
-                        </p>
-                      </div>
-                    </div>
-                  </Link>
-                ))}
+              <div className="mt-6 md:mt-0">
+                <ChamberTabs />
               </div>
-            )}
+            </div>
           </Reveal>
+          <Suspense fallback={<MemberGridSkeleton />}>
+            <MemberGrid chamber={chamber} />
+          </Suspense>
         </div>
       </main>
       <SiteFooter />

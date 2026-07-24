@@ -51,9 +51,8 @@ export default function RootLayout({
       lang="en"
       className={`${inter.variable} ${spaceGrotesk.variable} scroll-smooth`}
     >
-      <body className="min-h-screen bg-govnavy font-sans text-slate-100 antialiased">
-        {children}
-      </body>
+      {/* Base background/text colors are now in globals.css */}
+      <body>{children}</body>
     </html>
   );
 }

@@ -1,14 +1,14 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useRef, type MouseEvent } from "react";
 
 import type { CongressMap } from "@/lib/api";
 
 /**
  * Self-contained seat-chart (hemicycle) of Congress. Every seat is one member,
  * colored by party from /api/map — no external geometry, no map tiles, no
- * third-party requests. Toggle House / Senate; hover a seat for who it is;
+* third-party requests. Toggle House / Senate; hover a seat for who it is;
  * click to open their profile; a ZIP lookup rings "your" seats.
  *
  * The polygon geometry is computed here (concentric arcs, seats distributed
@@ -20,10 +20,23 @@ type Seat = { bioguide: string; label: string; name: string; party: string };
 
 type PartyKey = "D" | "R" | "I";
 
-const FILL: Record<PartyKey, string> = {
-  D: "#58A9E6", // govblue
-  R: "#DD1922", // govred
-  I: "#94a3b8", // slate-400
+// Party → Tailwind fill/text classes; brand colors come straight from the theme.
+const PARTY_COLORS = {
+  D: {
+    base: "text-govblue",
+    dot: "bg-govblue",
+    fill: "fill-govblue",
+  },
+  R: {
+    base: "text-govred",
+    dot: "bg-govred",
+    fill: "fill-govred",
+  },
+  I: {
+    base: "text-slate-500",
+    dot: "bg-slate-400",
+    fill: "fill-slate-400",
+  },
 };
 
 function partyKey(party: string): PartyKey {
@@ -81,8 +94,8 @@ function hemicycle(n: number, rows: number, innerR: number, outerR: number): Pt[
 }
 
 const CHART = {
-  house: { rows: 12, innerR: 48, outerR: 100, dot: 2.0 },
-  senate: { rows: 5, innerR: 52, outerR: 100, dot: 4.2 },
+  house: { rows: 12, innerR: 48, outerR: 100, dot: 2.1, stroke: 1.2 },
+  senate: { rows: 5, innerR: 52, outerR: 100, dot: 4.5, stroke: 1.5 },
 } as const;
 
 const CX = 110;
@@ -112,6 +125,44 @@ function seatsFor(map: CongressMap, chamber: "house" | "senate"): Seat[] {
   );
 }
 
+function CartogramSkeleton() {
+  return (
+    <svg viewBox="0 0 220 120" className="mt-4 w-full animate-pulse" role="presentation">
+      <defs>
+        <radialGradient id="skeleton-gradient">
+          <stop offset="0%" stopColor="#f1f0ee" />
+          <stop offset="100%" stopColor="#e4e2de" />
+        </radialGradient>
+      </defs>
+      {hemicycle(435, 12, 48, 100).map((p, i) => (
+        <circle
+          key={i}
+          cx={CX + p.x}
+          cy={CY + p.y}
+          r={CHART.house.dot}
+          className="fill-slate-200"
+        />
+      ))}
+    </svg>
+  );
+}
+
+function Tooltip({ seat, pos }: { seat: Seat | null; pos: { x: number; y: number } }) {
+  if (!seat) return null;
+  const pKey = partyKey(seat.party);
+  return (
+    <div
+      className="pointer-events-none absolute z-10 animate-slide-down-and-fade rounded-lg bg-govnavy px-3 py-2 text-sm text-white shadow-lg"
+      style={{ left: pos.x, top: pos.y, transform: "translate(-50%, -100%)" }}
+    >
+      <p className="whitespace-nowrap font-bold">{seat.name}</p>
+      <p className={`whitespace-nowrap text-sm ${pKey === "D" ? "text-govblue-400" : pKey === "R" ? "text-red-400" : "text-slate-400"}`}>
+        {pKey} · {seat.label}
+      </p>
+    </div>
+  );
+}
+
 export function CongressCartogram({
   map,
   highlight,
@@ -122,6 +173,8 @@ export function CongressCartogram({
   const router = useRouter();
   const [chamber, setChamber] = useState<"house" | "senate">("house");
   const [hovered, setHovered] = useState<Seat | null>(null);
+  const [hoverPos, setHoverPos] = useState({ x: 0, y: 0 });
+  const containerRef = useRef<HTMLDivElement>(null);
 
   const seats = useMemo(() => seatsFor(map, chamber), [map, chamber]);
   const cfg = CHART[chamber];
@@ -132,85 +185,109 @@ export function CongressCartogram({
 
   const hasSeats = seats.length > 0;
 
+  function onSeatEnter(e: MouseEvent, seat: Seat) {
+    setHovered(seat);
+    if (containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      // Position tooltip relative to the container.
+      setHoverPos({ x: e.clientX - rect.left, y: e.clientY - rect.top - 20 });
+    }
+  }
+
   return (
-    <div>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="inline-flex rounded-full border border-slate-200 bg-slate-50 p-1">
+    <div className="relative" ref={containerRef}>
+      <Tooltip seat={hovered} pos={hoverPos} />
+
+      <div className="flex flex-wrap items-center justify-between gap-y-3">
+        <div className="relative isolate inline-flex rounded-full border border-slate-warm-200 bg-slate-warm-50 p-1">
           {(["house", "senate"] as const).map((c) => (
             <button
               key={c}
               type="button"
-              onClick={() => setChamber(c)}
-              className={`rounded-full px-4 py-1.5 text-sm font-semibold capitalize transition ${
-                chamber === c ? "bg-govnavy text-white shadow-sm" : "text-slate-600 hover:text-govnavy"
+              onClick={() => {
+                setHovered(null);
+                setChamber(c);
+              }}
+              className={`relative z-10 rounded-full px-4 py-1.5 text-sm font-semibold capitalize transition-colors duration-300 ${
+                chamber === c ? "text-white" : "text-slate-warm-600 hover:text-govnavy"
               }`}
             >
               {c}
             </button>
           ))}
+          <span
+            className="absolute inset-y-1 left-1 z-0 w-[calc(50%-4px)] rounded-full bg-govnavy shadow-md transition-transform duration-300 ease-in-out"
+            style={{ transform: `translateX(${chamber === "senate" ? "100%" : "0"})` }}
+          />
         </div>
         <div className="flex items-center gap-4 text-xs text-slate-500">
           <span className="flex items-center gap-1.5">
-            <span className="h-2.5 w-2.5 rounded-full" style={{ background: FILL.D }} /> Democrat
+            <span className={`h-2.5 w-2.5 rounded-full ${PARTY_COLORS.D.dot}`} /> Democrat
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="h-2.5 w-2.5 rounded-full" style={{ background: FILL.I }} /> Independent
+            <span className={`h-2.5 w-2.5 rounded-full ${PARTY_COLORS.I.dot}`} /> Independent
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="h-2.5 w-2.5 rounded-full" style={{ background: FILL.R }} /> Republican
+            <span className={`h-2.5 w-2.5 rounded-full ${PARTY_COLORS.R.dot}`} /> Republican
           </span>
         </div>
       </div>
 
       {hasSeats ? (
-        <svg
-          viewBox="0 0 220 120"
-          className="mt-4 w-full"
-          role="img"
-          aria-label={`Seat chart of the ${chamber === "house" ? "House" : "Senate"}`}
-        >
-          {positions.map((p, idx) => {
-            const seat = seats[idx];
-            if (!seat) return null;
-            const isHi = highlight.has(seat.bioguide);
-            const r = isHi ? cfg.dot * 1.7 : cfg.dot;
-            return (
-              <circle
-                key={seat.bioguide + idx}
-                cx={CX + p.x}
-                cy={CY + p.y}
-                r={r}
-                fill={FILL[partyKey(seat.party)]}
-                stroke={isHi ? "#070B1A" : "none"}
-                strokeWidth={isHi ? 0.9 : 0}
-                className="cursor-pointer transition-[r] hover:opacity-80"
-                onMouseEnter={() => setHovered(seat)}
-                onMouseLeave={() => setHovered((h) => (h === seat ? null : h))}
-                onClick={() => router.push(`/members/${seat.bioguide}`)}
-              >
-                <title>{`${seat.name} (${partyKey(seat.party)}) · ${seat.label}`}</title>
-              </circle>
-            );
-          })}
-        </svg>
+        <div className="relative">
+          <svg
+            key={chamber} // Re-mounts to trigger animation on chamber change
+            viewBox="0 0 220 120"
+            className="mt-4 w-full animate-subtle-fade-in"
+            role="img"
+            aria-label={`Seat chart of the ${chamber === "house" ? "House" : "Senate"}`}
+          >
+            {positions.map((p, idx) => {
+              const seat = seats[idx];
+              if (!seat) return null;
+              const isHi = highlight.has(seat.bioguide);
+              const pKey = partyKey(seat.party);
+              const isHovered = hovered?.bioguide === seat.bioguide;
+
+              return (
+                <g
+                  key={seat.bioguide + idx}
+                  className="cursor-pointer"
+                  onMouseEnter={(e) => onSeatEnter(e, seat)}
+                  onMouseLeave={() => setHovered(null)}
+                  onClick={() => router.push(`/members/${seat.bioguide}`)}
+                >
+                  {isHi && (
+                    <circle
+                      cx={CX + p.x}
+                      cy={CY + p.y}
+                      r={cfg.dot}
+                      className={`${PARTY_COLORS[pKey].fill} animate-ring pointer-events-none`}
+                    />
+                  )}
+                  <circle
+                    cx={CX + p.x}
+                    cy={CY + p.y}
+                    r={isHovered ? cfg.dot * 1.3 : cfg.dot}
+                    className={`${PARTY_COLORS[pKey].fill} transition-all duration-150`}
+                    stroke={isHi ? "rgb(7 11 26 / 0.8)" : "none"}
+                    strokeWidth={isHi ? cfg.stroke : 0}
+                  >
+                    <title>{`${seat.name} (${pKey}) · ${seat.label}`}</title>
+                  </circle>
+                </g>
+              );
+            })}
+          </svg>
+        </div>
       ) : (
-        <p className="py-16 text-center text-sm text-slate-400">
-          Seat data is loading — check back in a moment.
-        </p>
+        <CartogramSkeleton />
       )}
 
-      <div className="mt-3 flex min-h-[2.5rem] items-center justify-center rounded-lg bg-slate-50 px-4 py-2 text-center text-sm">
-        {hovered ? (
-          <span className="text-slate-700">
-            <span className="font-semibold text-govnavy">{hovered.name}</span>{" "}
-            ({partyKey(hovered.party)}) · {hovered.label} —{" "}
-            <span className="text-govblue">click to open profile</span>
-          </span>
-        ) : (
-          <span className="text-slate-400">
-            {seats.length} seats · hover a seat to see who holds it, click to open their profile
-          </span>
-        )}
+      <div className="mt-3 flex min-h-[2.5rem] items-center justify-center rounded-lg bg-slate-warm-50 px-4 py-2 text-center text-sm text-slate-warm-400">
+        <span>
+          {seats.length > 0 ? `${seats.length} seats · Hover for details, click for profile` : "Seat data is loading..."}
+        </span>
       </div>
     </div>
   );

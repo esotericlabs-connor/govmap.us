@@ -200,6 +200,17 @@ def run() -> int:
         "fec_finance: staged %d finance rows (cycles %s; %d of %d members matched)",
         len(rows), cycles, len(rows), len(by_candidate),
     )
+
+    # Name any members with no FEC totals so a real gap (a wrong candidate id)
+    # is distinguishable from a legitimate one (a member who's never run a
+    # federal campaign / a dormant committee).
+    matched = {r["bioguide_id"] for r in rows}
+    unmatched = [f"{bio}/{cid}" for cid, bio in by_candidate.items() if bio not in matched]
+    if unmatched:
+        logger.info(
+            "fec_finance: %d member(s) had no FEC totals in %s: %s",
+            len(unmatched), cycles, ", ".join(unmatched),
+        )
     return len(rows)
 
 

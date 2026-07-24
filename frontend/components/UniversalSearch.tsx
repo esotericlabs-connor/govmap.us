@@ -121,8 +121,8 @@ export function UniversalSearch({
 
   return (
     <div ref={containerRef} className={`relative ${className}`}>
-      <div className="group flex items-center gap-3 rounded-full border border-white/20 bg-white/10 px-4 py-2.5 text-white/90 transition-colors focus-within:border-white/50 focus-within:bg-white/20 hover:border-white/40">
-        <span className="text-white/60">
+      <div className="group relative flex items-center">
+        <span className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-4">
           <SearchIcon />
         </span>
         <input
@@ -141,19 +141,15 @@ export function UniversalSearch({
           }}
           placeholder="Search members, bills, votes, committees…"
           aria-label="Search the platform"
-          className="w-full bg-transparent text-white placeholder:text-white/50 focus:outline-none"
+          className="w-full rounded-full border border-white/20 bg-white/10 py-2.5 pl-11 pr-4 text-white/90 placeholder:text-white/60 transition-colors focus:border-white/50 focus:bg-white/20 focus:outline-none focus:ring-2 focus:ring-govblue/70"
         />
       </div>
 
       {showPanel && (
-        <div className="absolute left-0 right-0 top-full z-50 mt-2 max-h-[70vh] overflow-y-auto rounded-xl border border-white/20 bg-govnavy-800/80 text-slate-200 shadow-2xl shadow-black/40 backdrop-blur-lg">
+        <div className="absolute left-0 right-0 top-full z-50 mt-2 max-h-[70vh] overflow-y-auto rounded-xl border border-white/10 bg-govnavy-800/90 text-slate-200 shadow-2xl shadow-black/40 backdrop-blur-xl animate-slide-down-and-fade">
           {isEmpty(results) ? (
             <div className="flex flex-col items-center gap-2 px-4 py-16 text-center text-sm text-slate-400">
-              {loading ? (
-                <Spinner />
-              ) : (
-                <p>No results for “{query.trim()}”</p>
-              )}
+              {loading ? <Spinner /> : <p>No results for “{query.trim()}”</p>}
             </div>
           ) : (
             <div className="py-2">
@@ -161,7 +157,7 @@ export function UniversalSearch({
                 <Group label="Members">
                   {results!.members.map((m) => (
                     <Row key={m.bioguide_id} href={`/members/${m.bioguide_id}`} onClick={close}>
-                      <span className="font-medium">{m.official_full_name}</span>
+                      <span className="font-semibold">{m.official_full_name}</span>
                       <span className="text-xs text-slate-400">
                         {m.party?.slice(0, 1)} · {m.state}
                       </span>
@@ -210,8 +206,8 @@ export function UniversalSearch({
 
 function Group({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="border-b border-white/5 py-1.5 last:border-b-0">
-      <p className="px-4 py-1.5 text-xs font-semibold uppercase tracking-wider text-slate-400">
+    <div className="border-b border-white/10 py-2 last:border-b-0">
+      <p className="px-4 pb-1 pt-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
         {label}
       </p>
       {children}
@@ -232,7 +228,7 @@ function Row({
     <Link
       href={href}
       onClick={onClick}
-      className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm hover:bg-white/10"
+      className="flex items-center justify-between gap-3 px-4 py-3 text-sm transition-colors hover:bg-white/5"
     >
       {children}
     </Link>

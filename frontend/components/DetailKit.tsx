@@ -9,10 +9,10 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 
 export function partyTextClass(party: string | null | undefined): string {
-  if (!party) return "text-slate-500";
+  if (!party) return "text-slate-warm-500";
   if (party.startsWith("Republican")) return "text-govred";
   if (party.startsWith("Democrat")) return "text-govblue";
-  return "text-slate-500";
+  return "text-slate-warm-500";
 }
 
 export function partyDotClass(party: string | null | undefined): string {
@@ -53,11 +53,11 @@ export function Section({
   children: ReactNode;
 }) {
   return (
-    <section className="rounded-xl border border-slate-200/80 bg-white shadow-card">
-      <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
-        <h2 className="font-display text-lg font-semibold text-govnavy">{title}</h2>
+    <section className="rounded-2xl border border-slate-warm-200 bg-white shadow-card">
+      <div className="flex items-center justify-between border-b border-slate-warm-100 px-6 py-4">
+        <h2 className="font-display text-lg font-bold text-govnavy">{title}</h2>
         {count !== undefined && count > 0 && (
-          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500">
+          <span className="rounded-full bg-slate-warm-100 px-2.5 py-1 text-xs font-semibold text-slate-warm-500">
             {count}
           </span>
         )}
@@ -68,30 +68,32 @@ export function Section({
 }
 
 export function EmptyState({ children }: { children: ReactNode }) {
-  return <p className="py-8 text-center text-sm text-slate-400">{children}</p>;
+  return <p className="py-8 text-center text-sm text-slate-warm-400">{children}</p>;
 }
 
 /** A small labelled fact (e.g. "Born · Oct 11, 1950"). */
 export function Stat({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div>
-      <dt className="text-xs font-medium uppercase tracking-wider text-slate-500">{label}</dt>
-      <dd className="mt-1 text-base text-govnavy">{children}</dd>
+      <dt className="text-xs font-semibold uppercase tracking-wider text-slate-warm-500">
+        {label}
+      </dt>
+      <dd className="mt-1 text-base font-medium text-govnavy">{children}</dd>
     </div>
   );
 }
 
 const POSITION_STYLES: Record<string, string> = {
   // Yea/Aye: green
-  yea: "text-green-800 bg-green-100 ring-green-500/50",
-  aye: "text-green-800 bg-green-100 ring-green-500/50",
+  yea: "text-green-800 bg-green-100/80 ring-green-600/30",
+  aye: "text-green-800 bg-green-100/80 ring-green-600/30",
   // Nay/No: red
-  nay: "text-red-800 bg-red-100 ring-red-500/50",
-  no: "text-red-800 bg-red-100 ring-red-500/50",
+  nay: "text-red-800 bg-red-100/80 ring-red-600/30",
+  no: "text-red-800 bg-red-100/80 ring-red-600/30",
   // Present: amber
-  present: "text-amber-800 bg-amber-100 ring-amber-500/50",
+  present: "text-amber-800 bg-amber-100/80 ring-amber-600/30",
   // Not Voting / everything else: neutral
-  "not voting": "text-slate-600 bg-slate-100 ring-slate-500/30",
+  "not voting": "text-slate-700 bg-slate-100 ring-slate-600/30",
 };
 
 /** A colored vote-position chip (Yea/Aye green, Nay/No red, Present amber,
@@ -101,7 +103,7 @@ export function PositionPill({ position }: { position: string | null | undefined
   const style = POSITION_STYLES[key] ?? POSITION_STYLES["not voting"];
   return (
     <span
-      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold ring-1 ring-inset ${style}`}
+      className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-bold ring-1 ring-inset ${style}`}
     >
       {position || "Not Voting"}
     </span>
@@ -111,7 +113,7 @@ export function PositionPill({ position }: { position: string | null | undefined
 /** Small monospace pill for an identifier (bill_id, committee code, etc.). */
 export function CodePill({ children }: { children: ReactNode }) {
   return (
-    <span className="rounded-md border border-slate-200 bg-slate-50 px-1.5 py-1 font-mono text-xs text-slate-600">
+    <span className="rounded-md border border-slate-warm-200 bg-slate-warm-50 px-2 py-1 font-mono text-xs font-medium text-slate-warm-600">
       {children}
     </span>
   );
@@ -122,7 +124,7 @@ export function BackLink({ href, children }: { href: string; children: ReactNode
   return (
     <Link
       href={href}
-      className="group inline-flex items-center gap-1.5 text-sm font-medium text-slate-500 transition-colors hover:text-govnavy"
+      className="group inline-flex items-center gap-1.5 text-sm font-semibold text-slate-warm-500 transition-colors hover:text-govnavy"
     >
       <svg
         viewBox="0 0 16 16"
@@ -133,7 +135,7 @@ export function BackLink({ href, children }: { href: string; children: ReactNode
         <path
           d="M10.75 3.5L5.75 8l5 4.5"
           stroke="currentColor"
-          strokeWidth="1.5"
+          strokeWidth="2"
           strokeLinecap="round"
           strokeLinejoin="round"
         />

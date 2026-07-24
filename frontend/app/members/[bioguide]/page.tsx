@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { Suspense } from "react";
 
 import {
   BackLink,
@@ -15,6 +16,7 @@ import {
 } from "@/components/DetailKit";
 import { FinanceCard } from "@/components/FinanceCard";
 import { MemberAvatar } from "@/components/MemberAvatar";
+import { PageSkeleton } from "@/components/PageSkeleton";
 import { Reveal } from "@/components/Reveal";
 import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
@@ -42,12 +44,8 @@ function seatLabel(m: MemberDetail): string {
   return `${where} · ${chamberLabel(m.chamber)}`;
 }
 
-export default async function MemberDetailPage({
-  params,
-}: {
-  params: { bioguide: string };
-}) {
-  const member = await getMember(params.bioguide);
+async function MemberDetailContent({ bioguide }: { bioguide: string }) {
+  const member = await getMember(bioguide);
   if (!member) notFound();
 
   const contact: Record<string, string> = member.contact ?? {};
@@ -59,159 +57,167 @@ export default async function MemberDetailPage({
   idBadges.push(["Bioguide", member.bioguide_id]);
 
   return (
+    <Reveal>
+      {/* Header */}
+      <header className="relative mt-6">
+        <div className="flex flex-col items-start gap-8 sm:flex-row">
+          <MemberAvatar src={member.photo_url} name={member.official_full_name} size="2xl" />
+          <div className="min-w-0 flex-1 pt-2">
+            <div className="flex items-center gap-2 text-base font-semibold">
+              <span className={`h-2.5 w-2.5 rounded-full ${partyDotClass(member.party)}`} />
+              <span className={partyTextClass(member.party)}>{member.party}</span>
+            </div>
+            <h1 className="mt-1 font-display text-4xl font-bold tracking-tight text-govnavy sm:text-5xl">
+              {member.official_full_name}
+            </h1>
+            <p className="mt-2 text-xl text-slate-warm-500">{seatLabel(member)}</p>
+          </div>
+          {member.leadership_role && (
+            <div className="absolute right-0 top-0 rounded-full bg-govnavy px-4 py-1.5 text-sm font-semibold text-white">
+              {member.leadership_role}
+            </div>
+          )}
+        </div>
+      </header>
+
+      <div className="mt-12 space-y-10">
+        {/* Stat grid */}
+        <Section title="Info">
+          <dl className="grid grid-cols-2 gap-x-6 gap-y-8 md:grid-cols-4">
+            {(member.served_since ?? member.term_start) && (
+              <Stat label="In office since">
+                {formatDate(member.served_since ?? member.term_start)}
+              </Stat>
+            )}
+            {member.birthday && <Stat label="Born">{formatDate(member.birthday)}</Stat>}
+            {contact.office && <Stat label="Office">{contact.office}</Stat>}
+            {contact.phone && <Stat label="Phone">{contact.phone}</Stat>}
+            {contact.url && (
+              <Stat label="Website">
+                <a
+                  href={contact.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-medium text-govblue underline-offset-2 transition-colors hover:text-govblue-600 hover:underline"
+                >
+                  Official site ↗
+                </a>
+              </Stat>
+            )}
+          </dl>
+        </Section>
+
+        {/* Campaign finance (only once the FEC pipeline has data) */}
+        {member.finance && <FinanceCard finance={member.finance} />}
+
+        {/* Data sections */}
+        <div className="grid grid-cols-1 gap-10 lg:grid-cols-2">
+          <Section title="Committee Assignments" count={member.committees.length}>
+            {member.committees.length === 0 ? (
+              <EmptyState>No committee assignments on record.</EmptyState>
+            ) : (
+              <ul className="-my-3 divide-y divide-slate-warm-100">
+                {member.committees.map((c) => (
+                  <li key={c.committee_id} className="flex items-center justify-between gap-4 py-3">
+                    <Link
+                      href={`/committees/${c.committee_id}`}
+                      className="font-semibold text-slate-800 transition-colors hover:text-govblue"
+                    >
+                      {c.name}
+                    </Link>
+                    {c.role && (
+                      <span className="flex-shrink-0 rounded-full bg-slate-warm-100 px-2.5 py-1 text-xs font-semibold text-slate-warm-600">
+                        {c.role}
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Section>
+
+          <Section title="Sponsored Bills" count={member.sponsored_bills_total}>
+            {member.sponsored_bills.length === 0 ? (
+              <EmptyState>No bills sponsored in the current Congress.</EmptyState>
+            ) : (
+              <ul className="-my-3 divide-y divide-slate-warm-100">
+                {member.sponsored_bills.map((b) => (
+                  <li key={b.bill_id} className="py-3.5">
+                    <Link href={`/bills/${b.bill_id}`} className="group block">
+                      <p className="font-semibold text-slate-800 transition-colors group-hover:text-govblue">
+                        {b.title ?? `${b.bill_type.toUpperCase()} ${b.number}`}
+                      </p>
+                      <div className="mt-1.5 flex items-center gap-3">
+                        <CodePill>{`${b.bill_type.toUpperCase()} ${b.number}`}</CodePill>
+                        {b.introduced_date && (
+                          <p className="text-sm text-slate-warm-500">
+                            Introduced {formatDate(b.introduced_date)}
+                          </p>
+                        )}
+                      </div>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Section>
+        </div>
+
+        <Section title="Recent Voting Record" count={member.voting_record.length}>
+          {member.voting_record.length === 0 ? (
+            <EmptyState>No votes loaded yet for this member.</EmptyState>
+          ) : (
+            <ul className="-my-2 divide-y divide-slate-warm-100">
+              {member.voting_record.map((v) => (
+                <li
+                  key={v.vote_id}
+                  className="flex flex-wrap items-center justify-between gap-4 py-3"
+                >
+                  <Link href={`/votes/${v.vote_id}`} className="group min-w-0">
+                    <p className="font-semibold text-slate-800 transition-colors group-hover:text-govblue">
+                      {v.question ?? v.vote_id}
+                    </p>
+                    <p className="mt-0.5 text-sm text-slate-warm-500">
+                      {chamberLabel(v.chamber)} vote
+                      {v.date && ` on ${formatDate(v.date)}`}
+                      {v.result && ` (Result: ${v.result})`}
+                    </p>
+                  </Link>
+                  <div className="flex-shrink-0">
+                    <PositionPill position={v.position} />
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Section>
+      </div>
+
+      {/* Source IDs — provenance, kept at the bottom (not front-and-center). */}
+      <div className="mt-12 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-slate-warm-200 pt-6">
+        <p className="text-sm font-semibold text-slate-warm-400">Source IDs</p>
+        {idBadges.map(([label, value]) => (
+          <span key={label} className="text-sm text-slate-warm-500">
+            <CodePill>
+              {label}: {value}
+            </CodePill>
+          </span>
+        ))}
+      </div>
+    </Reveal>
+  );
+}
+
+export default function MemberDetailPage({ params }: { params: { bioguide: string } }) {
+  return (
     <>
       <SiteHeader variant="app" />
-      <main className="min-h-screen bg-slate-50 pb-20 pt-24">
-        <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
+      <main className="bg-slate-warm-50 pb-20 pt-28">
+        <div className="mx-auto max-w-6xl px-6">
           <BackLink href="/members">All Members</BackLink>
-
-          <Reveal>
-            {/* Header */}
-            <header className="relative mt-4 flex flex-col items-center gap-8 rounded-xl border border-slate-200/80 bg-white p-8 shadow-card sm:flex-row">
-              <MemberAvatar src={member.photo_url} name={member.official_full_name} size="2xl" />
-              <div className="min-w-0 flex-1">
-                <p className="flex items-center gap-2 text-sm font-medium">
-                  <span className={`h-2 w-2 rounded-full ${partyDotClass(member.party)}`} />
-                  <span className={partyTextClass(member.party)}>{member.party}</span>
-                </p>
-                <h1 className="mt-1 font-display text-4xl font-bold tracking-tight text-govnavy">
-                  {member.official_full_name}
-                </h1>
-                <p className="mt-2 text-lg text-slate-500">{seatLabel(member)}</p>
-              </div>
-              {member.leadership_role && (
-                <div className="absolute right-6 top-6 rounded-full bg-govnavy-800 px-3 py-1 text-xs font-semibold text-white/80">
-                  {member.leadership_role}
-                </div>
-              )}
-            </header>
-
-            {/* Stat grid */}
-            <div className="mt-8">
-              <dl className="grid grid-cols-2 gap-x-6 gap-y-8 md:grid-cols-5">
-                {(member.served_since ?? member.term_start) && (
-                  <Stat label="In office since">
-                    {formatDate(member.served_since ?? member.term_start)}
-                  </Stat>
-                )}
-                {member.birthday && <Stat label="Born">{formatDate(member.birthday)}</Stat>}
-                {contact.office && <Stat label="Office">{contact.office}</Stat>}
-                {contact.phone && <Stat label="Phone">{contact.phone}</Stat>}
-                {contact.url && (
-                  <Stat label="Website">
-                    <a
-                      href={contact.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-govblue underline-offset-2 hover:underline"
-                    >
-                      Official site
-                    </a>
-                  </Stat>
-                )}
-              </dl>
-            </div>
-
-            {/* Campaign finance (only once the FEC pipeline has data) */}
-            {member.finance && (
-              <div className="mt-8">
-                <FinanceCard finance={member.finance} />
-              </div>
-            )}
-
-            {/* Data sections */}
-            <div className="mt-8 grid grid-cols-1 gap-8 lg:grid-cols-2">
-              <Section title="Committee Assignments" count={member.committees.length}>
-                {member.committees.length === 0 ? (
-                  <EmptyState>No committee assignments on record.</EmptyState>
-                ) : (
-                  <ul className="-my-2 divide-y divide-slate-100">
-                    {member.committees.map((c) => (
-                      <li key={c.committee_id} className="flex items-center justify-between gap-4 py-3">
-                        <Link
-                          href={`/committees/${c.committee_id}`}
-                          className="text-sm font-medium text-slate-800 hover:text-govblue"
-                        >
-                          {c.name}
-                        </Link>
-                        {c.role && (
-                          <span className="flex-shrink-0 rounded-md bg-slate-50 px-2 py-1 text-xs font-medium text-slate-500">
-                            {c.role}
-                          </span>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </Section>
-
-              <Section title="Sponsored Bills" count={member.sponsored_bills_total}>
-                {member.sponsored_bills.length === 0 ? (
-                  <EmptyState>No bills sponsored in the current Congress.</EmptyState>
-                ) : (
-                  <ul className="-my-3 divide-y divide-slate-100">
-                    {member.sponsored_bills.map((b) => (
-                      <li key={b.bill_id} className="py-3">
-                        <Link href={`/bills/${b.bill_id}`} className="group block">
-                          <p className="text-sm font-medium text-slate-800 group-hover:text-govblue">
-                            {b.title ?? `${b.bill_type.toUpperCase()} ${b.number}`}
-                          </p>
-                          <div className="mt-1 flex items-center gap-2">
-                            <CodePill>{`${b.bill_type.toUpperCase()} ${b.number}`}</CodePill>
-                            {b.introduced_date && (
-                              <p className="text-xs text-slate-500">
-                                Introduced {formatDate(b.introduced_date)}
-                              </p>
-                            )}
-                          </div>
-                        </Link>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </Section>
-            </div>
-
-            <div className="mt-8">
-              <Section title="Recent Voting Record" count={member.voting_record.length}>
-                {member.voting_record.length === 0 ? (
-                  <EmptyState>No votes loaded yet for this member.</EmptyState>
-                ) : (
-                  <ul className="-my-2 divide-y divide-slate-100">
-                    {member.voting_record.map((v) => (
-                      <li key={v.vote_id} className="flex items-center justify-between gap-4 py-3">
-                        <Link href={`/votes/${v.vote_id}`} className="group min-w-0">
-                          <p className="truncate text-sm font-medium text-slate-800 group-hover:text-govblue">
-                            {v.question ?? v.vote_id}
-                          </p>
-                          <p className="mt-0.5 text-xs text-slate-500">
-                            {chamberLabel(v.chamber)} vote
-                            {v.date && ` on ${formatDate(v.date)}`}
-                            {v.result && ` (Result: ${v.result})`}
-                          </p>
-                        </Link>
-                        <div className="flex-shrink-0">
-                          <PositionPill position={v.position} />
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </Section>
-            </div>
-
-            {/* Source IDs — provenance, kept at the bottom (not front-and-center). */}
-            <div className="mt-8 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-slate-200/80 pt-6">
-              <p className="text-xs font-medium text-slate-400">Source IDs</p>
-              {idBadges.map(([label, value]) => (
-                <span key={label} className="text-xs text-slate-500">
-                  <CodePill>
-                    {label}: {value}
-                  </CodePill>
-                </span>
-              ))}
-            </div>
-          </Reveal>
+          <Suspense fallback={<PageSkeleton />}>
+            <MemberDetailContent bioguide={params.bioguide} />
+          </Suspense>
         </div>
       </main>
       <SiteFooter />

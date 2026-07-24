@@ -39,7 +39,8 @@ export function MemberAvatar({
   if (!src || failed) {
     return (
       <div
-        className={`flex shrink-0 items-center justify-center rounded-full bg-slate-200 font-semibold text-slate-500 ${dim}`}
+        className={`flex shrink-0 items-center justify-center rounded-full bg-slate-warm-200 font-bold text-slate-warm-500 ring-1 ring-slate-warm-200 ${dim}`}
+        aria-hidden="true"
       >
         {initials}
       </div>
@@ -53,7 +54,7 @@ export function MemberAvatar({
       alt={name}
       loading="lazy"
       onError={() => setFailed(true)}
-      className={`shrink-0 rounded-full object-cover ${dim}`}
+      className={`shrink-0 rounded-full object-cover ring-2 ring-white/50 ${dim}`}
     />
   );
 }

@@ -25,11 +25,11 @@ function MemberResultCard({ m }: { m: LookupMember }) {
   return (
     <Link
       href={`/members/${m.bioguide_id}`}
-      className="group flex items-center gap-4 rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-govblue hover:shadow-card"
+      className="group flex items-center gap-4 rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-govblue-400 hover:shadow-card-hover"
     >
       <MemberAvatar src={m.photo_url} name={m.official_full_name} size="md" />
       <div className="min-w-0">
-        <p className="truncate font-semibold text-govnavy group-hover:text-govblue">
+        <p className="truncate font-semibold text-govnavy transition-colors group-hover:text-govblue-600">
           {m.official_full_name}
         </p>
         <p className="mt-0.5 flex items-center gap-1.5 text-sm text-slate-500">
@@ -88,7 +88,7 @@ export function ZipLookup({
 
   return (
     <div className={className}>
-      <form onSubmit={onSubmit} className="flex flex-col gap-3 sm:flex-row">
+      <form onSubmit={onSubmit} className="flex flex-col gap-3 sm:flex-row sm:items-center">
         <label htmlFor="zip-lookup" className="sr-only">
           ZIP code
         </label>
@@ -102,27 +102,31 @@ export function ZipLookup({
           onChange={(e) => setZip(e.target.value.replace(/\D/g, "").slice(0, 5))}
           placeholder="Enter your ZIP code"
           aria-label="Enter your ZIP code"
-          className="w-full rounded-full border border-white/25 bg-white/10 px-5 py-3 text-white placeholder:text-white/50 outline-none backdrop-blur-sm transition focus:border-white/60 focus:bg-white/20 sm:w-56"
+          className="w-full rounded-full border border-white/20 bg-white/10 px-5 py-3.5 text-lg text-white placeholder:text-white/60 outline-none backdrop-blur-sm transition focus:border-white/60 focus:bg-white/20 focus:ring-2 focus:ring-govblue/70 sm:w-52"
         />
         <button
           type="submit"
           disabled={loading}
-          className="rounded-full bg-govblue px-6 py-3 font-semibold text-govnavy shadow-lg shadow-govblue/30 transition hover:-translate-y-0.5 hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+          className="transform rounded-full bg-govblue px-7 py-3.5 font-semibold text-govnavy shadow-lg shadow-govblue/30 transition-transform duration-200 hover:-translate-y-0.5 hover:bg-white active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-60"
         >
           {loading ? "Finding…" : "Find my reps"}
         </button>
       </form>
 
-      {error && <p className="mt-3 text-sm font-medium text-govred">{error}</p>}
+      {error && <p className="mt-4 text-sm font-medium text-govred">{error}</p>}
 
       {result && (
-        <div className="mt-6 space-y-6">
+        <div
+          // Add key to re-trigger animation on new results
+          key={result.senators.map((s) => s.bioguide_id).join(",")}
+          className="mt-8 animate-fade-up space-y-6"
+        >
           {result.senators.length > 0 && (
             <div>
-              <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-white/70">
+              <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-white/80">
                 Your Senators
               </h3>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 {result.senators.map((m) => (
                   <MemberResultCard key={m.bioguide_id} m={m} />
                 ))}
@@ -131,10 +135,10 @@ export function ZipLookup({
           )}
           {result.representatives.length > 0 && (
             <div>
-              <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-white/70">
+              <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-white/80">
                 Your Representative{result.representatives.length > 1 ? "s" : ""}
               </h3>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 {result.representatives.map((m) => (
                   <MemberResultCard key={m.bioguide_id} m={m} />
                 ))}
