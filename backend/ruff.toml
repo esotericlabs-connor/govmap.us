@@ -1,0 +1,25 @@
+# Ruff config for the backend.
+#
+# Pinned explicitly on purpose: CI runs an unpinned `pip install ruff`, and
+# ruff's DEFAULT rule set changes between releases — without this file a new
+# ruff version silently enables new rules and turns the lint job red on code
+# that never changed. This keeps `ruff check .` deterministic.
+target-version = "py311"
+
+# Alembic revision scripts are generated from Alembic's template, which still
+# uses `typing.Union` / `typing.Sequence` (UP007/UP035) and other boilerplate
+# we don't hand-maintain per revision. They're plain DDL — exclude from linting.
+extend-exclude = ["migrations"]
+
+[lint]
+# A useful, stable core: pyflakes (F, unused/undefined), pycodestyle errors (E),
+# pyupgrade (UP, modern syntax), and bugbear (B, real anti-patterns).
+select = ["E", "F", "UP", "B"]
+ignore = [
+    # FastAPI's dependency-injection idiom puts `= Depends(...)` in the argument
+    # default — B008 flags it, but it's the correct, universal pattern here.
+    "B008",
+    # Line length isn't enforced — there are intentional long explanatory
+    # comments throughout, and wrapping them hurts readability.
+    "E501",
+]

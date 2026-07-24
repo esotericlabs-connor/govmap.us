@@ -46,7 +46,7 @@ services:
       # MUST be listed here to reach the container — a value in .env alone is
       # only used for ${...} substitution, not injected automatically.
       FEC_API_KEY: ${FEC_API_KEY:-}
-      FEC_CYCLES_KEPT: ${FEC_CYCLES_KEPT:-4}
+      FEC_CYCLE: ${FEC_CYCLE:-2026}
       # Which Congress/session to track, and per-refresh caps for bills and
       # votes. Defaults are fine; override in .env to roll to the 120th/session 1
       # in Jan 2027 or to widen coverage.

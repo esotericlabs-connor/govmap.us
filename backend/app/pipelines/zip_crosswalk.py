@@ -65,7 +65,7 @@ def _fetch_relationship_file() -> str:
             resp.raise_for_status()
             logger.info("zip_crosswalk: using %s", url)
             return resp.text
-        except requests.RequestException as exc:  # noqa: PERF203
+        except requests.RequestException as exc:
             last_exc = exc
             logger.warning("zip_crosswalk: %s unavailable (%s)", url, exc)
     raise RuntimeError(

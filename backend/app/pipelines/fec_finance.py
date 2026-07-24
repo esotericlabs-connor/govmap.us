@@ -1,15 +1,17 @@
 """Layer 1 pipeline: FEC campaign-finance totals per member (Increment 4).
 
-Source: OpenFEC (api.open.fec.gov via the api.data.gov gateway) — free, but keyed
-(FEC_API_KEY). For every current member (bioguides + FEC candidate ids + chamber
-read from the legislators staging file — DB-free), it selects the candidate id
-for the member's *current* office (S… for senators, H… for representatives),
-pulls GET /candidate/{id}/totals, and stages the most-recent cycles' totals.
+Source: OpenFEC (api.open.fec.gov via the api.data.gov gateway) — free, keyed
+(FEC_API_KEY). To respect api.data.gov's ~1000 req/hr limit, this pulls the
+**bulk** aggregate endpoint `GET /candidates/totals` once per chamber for the
+configured cycle (a handful of paginated calls) instead of one call per member
+(~537, which exhausted the hourly budget and 429'd). It builds a
+`candidate_id -> totals` index, then maps each current member (bioguide +
+current-office FEC id, chosen by S/H prefix, read from the legislators staging
+file — DB-free) onto its row.
 
-Consistent with the security rule from the bills pipeline: the API key is sent
-as the ``X-Api-Key`` header, never a URL query param, so it can't leak into
-exceptions/logs/pipeline_status.detail. Skipped (raises, non-fatal) when
-FEC_API_KEY is unset, exactly like the bills pipeline without a Congress.gov key.
+The API key is sent as the ``X-Api-Key`` header, never a URL query param, so it
+can't leak into exceptions/logs/pipeline_status.detail. Skipped (raises,
+non-fatal) when FEC_API_KEY is unset, like the bills pipeline without a key.
 
 Run directly: `python -m app.pipelines.fec_finance`.
 """
@@ -38,12 +40,13 @@ STAGING_DIR = Path(__file__).resolve().parents[2] / "data" / "staging"
 STAGING_PATH = STAGING_DIR / "member_finance_raw.json"
 
 _MAX_RETRIES = 4
-_TIMEOUT = 45  # OpenFEC's /totals is occasionally slow; 30s wasn't enough.
-# Polite pacing between candidates. api.data.gov allows ~1000 req/hr per key;
-# spacing calls keeps a full run (~537 members) under the burst throttle so it
-# doesn't 429 itself. At ~2/sec a full run is ~4-5 min — which is exactly why
-# this pipeline runs off the deploy hot path (scheduler / on-demand only).
+_TIMEOUT = 45  # OpenFEC's totals endpoint is occasionally slow; 30s wasn't enough.
+# Brief pause between the (few) bulk pages, to stay polite under the throttle.
 _PACE_SECONDS = 0.5
+# Safety cap on pages per chamber (100 candidates/page). A chamber-cycle is well
+# under this; the cap just bounds a pathological response.
+_MAX_PAGES = 60
+_OFFICES = ("S", "H")
 # Chamber (legislators-current term type) -> the FEC candidate-id office prefix.
 _CHAMBER_PREFIX = {"sen": "S", "rep": "H"}
 
@@ -102,34 +105,47 @@ def _members() -> list[tuple[str, str]]:
     return out
 
 
-def _totals_for(bioguide: str, candidate_id: str, keep: int) -> list[dict]:
-    data = _fec_get(f"candidate/{candidate_id}/totals", sort="-cycle", per_page=keep)
-    rows: list[dict] = []
-    for it in (data.get("results") or [])[:keep]:
-        try:
-            t = CandidateTotalRaw.model_validate(it)
-        except ValidationError as exc:
-            logger.warning("skipping totals row for %s: %s", candidate_id, exc)
-            continue
-        if t.cycle is None:
-            continue
-        rows.append(
-            {
-                "bioguide_id": bioguide,
-                "cycle": t.cycle,
-                "fec_candidate_id": candidate_id,
-                "receipts": t.receipts,
-                "disbursements": t.disbursements,
-                "cash_on_hand": t.cash_on_hand_end_period,
-                "debts": t.debts_owed_by_committee,
-                "individual_contributions": t.individual_contributions,
-                "pac_contributions": t.other_political_committee_contributions,
-                "party_contributions": t.political_party_committee_contributions,
-                "coverage_start": t.coverage_start_date.isoformat() if t.coverage_start_date else None,
-                "coverage_end": t.coverage_end_date.isoformat() if t.coverage_end_date else None,
-            }
-        )
-    return rows
+def _row(bioguide: str, candidate_id: str, t: CandidateTotalRaw, cycle: int) -> dict:
+    return {
+        "bioguide_id": bioguide,
+        "cycle": t.cycle or cycle,
+        "fec_candidate_id": candidate_id,
+        "receipts": t.receipts,
+        "disbursements": t.disbursements,
+        "cash_on_hand": t.cash_on_hand_end_period,
+        "debts": t.debts_owed_by_committee,
+        "individual_contributions": t.individual_contributions,
+        "pac_contributions": t.other_political_committee_contributions,
+        "party_contributions": t.political_party_committee_contributions,
+        "coverage_start": t.coverage_start_date.isoformat() if t.coverage_start_date else None,
+        "coverage_end": t.coverage_end_date.isoformat() if t.coverage_end_date else None,
+    }
+
+
+def _totals_index(cycle: int) -> dict[str, dict]:
+    """candidate_id -> raw totals row, for every House & Senate candidate active
+    in `cycle`. A few paginated bulk calls instead of one per member."""
+    index: dict[str, dict] = {}
+    for office in _OFFICES:
+        for page in range(1, _MAX_PAGES + 1):
+            data = _fec_get(
+                "candidates/totals",
+                cycle=cycle,
+                office=office,
+                election_full="false",
+                per_page=100,
+                page=page,
+            )
+            results = data.get("results") or []
+            for it in results:
+                cid = it.get("candidate_id")
+                if cid:
+                    index[cid] = it
+            pages = (data.get("pagination") or {}).get("pages") or 1
+            if page >= pages or not results:
+                break
+            time.sleep(_PACE_SECONDS)
+    return index
 
 
 def run() -> int:
@@ -138,28 +154,29 @@ def run() -> int:
             "FEC_API_KEY is not set — required for the campaign-finance pipeline "
             "(free key at https://api.data.gov/signup/)"
         )
-    keep = settings.fec_cycles_kept
+    cycle = settings.fec_cycle
     members = _members()
+    index = _totals_index(cycle)
+    if not index:
+        raise RuntimeError(f"OpenFEC returned no candidate totals for cycle {cycle}")
 
     rows: list[dict] = []
-    failures = 0
     for bioguide, candidate_id in members:
+        raw = index.get(candidate_id)
+        if not raw:
+            continue
         try:
-            rows.extend(_totals_for(bioguide, candidate_id, keep))
-        except Exception as exc:
-            failures += 1
-            logger.warning("finance pull failed for %s (%s): %s", bioguide, candidate_id, exc)
-        time.sleep(_PACE_SECONDS)  # stay under the api.data.gov burst throttle
-
-    # Total wipe-out (bad key / source down) must surface; a few misses don't.
-    if not rows and failures:
-        raise RuntimeError(f"FEC totals pull failed for all {failures} candidates")
+            t = CandidateTotalRaw.model_validate(raw)
+        except ValidationError as exc:
+            logger.warning("skipping totals for %s (%s): %s", bioguide, candidate_id, exc)
+            continue
+        rows.append(_row(bioguide, candidate_id, t, cycle))
 
     STAGING_DIR.mkdir(parents=True, exist_ok=True)
     STAGING_PATH.write_text(json.dumps(rows))
     logger.info(
-        "fec_finance: staged %d finance rows across %d candidates (%d pull failures)",
-        len(rows), len(members), failures,
+        "fec_finance: staged %d finance rows (cycle %d; %d candidates indexed, %d members)",
+        len(rows), cycle, len(index), len(members),
     )
     return len(rows)
 

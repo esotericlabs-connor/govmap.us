@@ -35,8 +35,10 @@ class Settings(BaseSettings):
     # is skipped and records a non-fatal error, exactly like the bills pipeline
     # without a Congress.gov key. Sent as the X-Api-Key header, never a URL param.
     fec_api_key: str = ""
-    # How many most-recent election cycles of finance totals to keep per member.
-    fec_cycles_kept: int = 4
+    # The FEC 2-year election cycle to pull totals for (even year). 119th
+    # Congress → 2026; bump to 2028 in Jan 2027 (env-overridable, like
+    # congress_number). Pulled in bulk per chamber, so it's a handful of calls.
+    fec_cycle: int = 2026
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
