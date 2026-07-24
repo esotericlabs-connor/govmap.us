@@ -79,7 +79,11 @@ def _fec_get(path: str, **params: Any) -> dict:
             time.sleep(wait)
             continue
         if not resp.ok:
-            raise RuntimeError(f"openfec {path} -> HTTP {resp.status_code}")
+            # Include the response body — OpenFEC's 4xx (esp. 422) says exactly
+            # which parameter it rejected. No secret leaks: the key is a header,
+            # and the body only echoes validation detail, not the key.
+            body = " ".join(resp.text.split())[:300]
+            raise RuntimeError(f"openfec {path} -> HTTP {resp.status_code}: {body}")
         return resp.json()
     raise RuntimeError(
         f"openfec {path} still failing after {_MAX_RETRIES} attempts (HTTP {last_status})"
@@ -132,7 +136,8 @@ def _totals_index(candidate_ids: list[str], cycles: list[int]) -> dict[str, dict
     """candidate_id -> most-recent totals row, fetched by filtering the bulk
     endpoint on OUR members' candidate ids (batched) across `cycles`. Targeted
     (no scanning thousands of challengers) and cheap: ~2 pages per 50-id batch.
-    `sort=-cycle` means the first row seen for a candidate is their newest."""
+    The newest cycle per candidate is chosen client-side (no `sort` param —
+    OpenFEC 422s on sort fields it doesn't allow for this endpoint)."""
     index: dict[str, dict] = {}
     for start in range(0, len(candidate_ids), _ID_BATCH):
         batch = candidate_ids[start : start + _ID_BATCH]
@@ -142,15 +147,17 @@ def _totals_index(candidate_ids: list[str], cycles: list[int]) -> dict[str, dict
                 candidate_id=batch,   # repeatable filter — requests encodes the list
                 cycle=cycles,         # repeatable filter (OR across cycles)
                 election_full="false",
-                sort="-cycle",
                 per_page=100,
                 page=page,
             )
             results = data.get("results") or []
             for it in results:
                 cid = it.get("candidate_id")
-                if cid and cid not in index:
-                    index[cid] = it
+                if not cid:
+                    continue
+                prev = index.get(cid)
+                if prev is None or (it.get("cycle") or 0) > (prev.get("cycle") or 0):
+                    index[cid] = it  # keep the newest cycle per candidate
             pages = (data.get("pagination") or {}).get("pages") or 1
             if page >= pages or not results:
                 break
