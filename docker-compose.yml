@@ -47,6 +47,9 @@ services:
       # only used for ${...} substitution, not injected automatically.
       FEC_API_KEY: ${FEC_API_KEY:-}
       FEC_CYCLE: ${FEC_CYCLE:-2026}
+      # HUD USPS ZIP→CD crosswalk token (must be listed here to reach the
+      # container, same as the keys above). Free from huduser.gov.
+      HUD_API_TOKEN: ${HUD_API_TOKEN:-}
       # Which Congress/session to track, and per-refresh caps for bills and
       # votes. Defaults are fine; override in .env to roll to the 120th/session 1
       # in Jan 2027 or to widen coverage.

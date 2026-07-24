@@ -1,31 +1,28 @@
-"""Layer 1 pipeline: ZIP → congressional-district crosswalk.
+"""Layer 1 pipeline: ZIP → congressional-district crosswalk (HUD USPS).
 
-Source: the U.S. Census Bureau 2020 ZCTA↔Congressional-District **relationship
-file** (public domain, no auth, no rate limit) — the same self-contained,
-fetch-at-refresh pattern as the other pipelines. We key on ZCTA5 (ZIP Code
-Tabulation Areas), which is the Census stand-in for USPS ZIP codes: for a
-"find your representatives" lookup ZCTA ≈ ZIP, and it avoids the auth-gated HUD
-crosswalk. `district` 0 means an at-large / single-district state (or a
-non-voting delegate seat coded 00).
+Source: the HUD USPS ZIP Code Crosswalk API (huduser.gov), **type 5 = ZIP →
+Congressional District**. This is the authoritative ZIP→CD mapping — the Census
+Bureau publishes *no* ZCTA↔CD relationship file (its `rel2020/zcta520/` set
+pairs ZCTAs with county/place/tract/tabblock/cousub only, confirmed by listing
+the directory). HUD keys on real USPS ZIP codes and refreshes quarterly.
 
-The file is pipe-delimited with a header row; we resolve the ZCTA and CD
-columns *by name prefix* so the same code works whether the current relationship
-file is published as `cd119`, `cd118`, … We try the newest Congress first and
-fall back, so a redistricting-year publish gap never breaks the pull.
+Requires HUD_API_TOKEN (free). The token is sent as a Bearer header, never a URL
+param, so it can't leak into logs/exceptions. Skipped (raises, non-fatal) when
+unset, like the other keyed pipelines. A ZIP that straddles districts yields
+multiple rows; `district` 0 = at-large / single-district state.
 
 Run directly: `python -m app.pipelines.zip_crosswalk`.
 """
 
 from __future__ import annotations
 
-import csv
-import io
 import json
 import logging
-import re
 from pathlib import Path
 
 import requests
+
+from app.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -35,12 +32,8 @@ SOURCE_NAME = "zip_crosswalk"
 STAGING_DIR = Path(__file__).resolve().parents[2] / "data" / "staging"
 STAGING_PATH = STAGING_DIR / "zip_districts_raw.json"
 
-# The Census 2020 ZCTA relationship-file directory. Rather than hard-code a
-# guessed filename (the CD-congress suffix changes — cd118, cd119, …), we list
-# this directory and pick the ZCTA↔CD file with the highest congress number, so
-# the pipeline self-adapts to whatever Census currently publishes.
-_REL_DIR = "https://www2.census.gov/geo/docs/maps-data/data/rel2020/zcta520/"
-_CD_FILE_RE = re.compile(r'href="(tab20_zcta520_cd(\d+)_natl\.txt)"', re.IGNORECASE)
+HUD_URL = "https://www.huduser.gov/hudapi/public/usps"
+_TYPE_ZIP_CD = 5  # HUD crosswalk type: ZIP → Congressional District
 
 # 2-digit state/territory FIPS → USPS abbreviation. Anything not here (e.g. a
 # stray "00") is dropped as out-of-scope.
@@ -58,84 +51,55 @@ FIPS_TO_USPS = {
 }
 
 
-def _discover_url() -> str:
-    """List the Census relationship-file directory and return the URL of the
-    ZCTA↔CD file for the newest congress present. Raises (fail-soft at the
-    refresh layer) with a helpful message if the directory has no such file."""
-    listing = requests.get(_REL_DIR, timeout=60)
-    listing.raise_for_status()
-    matches = _CD_FILE_RE.findall(listing.text)
-    if not matches:
-        # Surface what the directory actually holds so the real filename (or a
-        # changed layout) is visible in the very next deploy's logs.
-        available = re.findall(r'href="(tab20_[^"]+)"', listing.text, re.IGNORECASE)
+def _fetch() -> list[dict]:
+    if not settings.hud_api_token:
         raise RuntimeError(
-            f"no ZCTA↔CD file (tab20_zcta520_cd*_natl.txt) in {_REL_DIR}; "
-            f"available tab20 files: {', '.join(available[:10]) or '(none)'}"
+            "HUD_API_TOKEN is not set — required for the ZIP→district crosswalk "
+            "(free token at https://www.huduser.gov/portal/dataset/uspszip-api.html)"
         )
-    filename, _ = max(matches, key=lambda m: int(m[1]))  # highest cd number
-    return _REL_DIR + filename
-
-
-def _fetch_relationship_file() -> str:
-    url = _discover_url()
-    logger.info("zip_crosswalk: using %s", url)
-    resp = requests.get(url, timeout=120)
-    resp.raise_for_status()
-    return resp.text
-
-
-def _column(fieldnames: list[str], prefix: str) -> str:
-    for name in fieldnames:
-        if name.upper().startswith(prefix):
-            return name
-    raise ValueError(f"no column starting with {prefix!r} in {fieldnames}")
-
-
-def _parse(text: str) -> list[dict]:
-    reader = csv.DictReader(io.StringIO(text), delimiter="|")
-    if not reader.fieldnames:
-        raise ValueError("relationship file has no header row")
-
-    zcta_col = _column(reader.fieldnames, "GEOID_ZCTA5")
-    cd_col = _column(reader.fieldnames, "GEOID_CD")
-    # Optional: land area of the ZCTA∩CD part — used to drop water-only slivers
-    # so a ZIP doesn't pick up a district it barely (or doesn't) touch.
-    area_col = next(
-        (c for c in reader.fieldnames if c.upper().startswith("AREALAND_PART")),
-        None,
+    resp = requests.get(
+        HUD_URL,
+        params={"type": _TYPE_ZIP_CD, "query": "All"},
+        headers={"Authorization": f"Bearer {settings.hud_api_token}"},
+        timeout=180,
     )
+    resp.raise_for_status()
+    payload = resp.json()
+    data = payload.get("data") or {}
+    results = data.get("results") or []
+    if not results:
+        raise RuntimeError(
+            f"HUD returned no ZIP→CD results (payload keys: {list(payload.keys())}; "
+            f"data keys: {list(data.keys())})"
+        )
+    return results
 
+
+def _parse(results: list[dict]) -> list[dict]:
     seen: set[tuple[str, str, int]] = set()
     rows: list[dict] = []
-    for record in reader:
-        zcta = (record.get(zcta_col) or "").strip()
-        cd = (record.get(cd_col) or "").strip()
-        if len(zcta) != 5 or not zcta.isdigit() or len(cd) < 4:
+    for r in results:
+        zip5 = str(r.get("zip") or "").strip()
+        # HUD returns the target-geography id as `geoid`; for a CD that's the
+        # 4-char STATEFP(2)+CD(2), e.g. "0603" = CA-3.
+        geoid = str(r.get("geoid") or r.get("cd") or "").strip()
+        if len(zip5) != 5 or not zip5.isdigit() or len(geoid) < 4:
             continue
-        if area_col is not None:
-            try:
-                if float(record.get(area_col) or 0) <= 0:
-                    continue
-            except ValueError:
-                pass  # unparseable area — keep the row rather than lose a rep
-
-        state = FIPS_TO_USPS.get(cd[:2])
+        state = FIPS_TO_USPS.get(geoid[:2])
         if state is None:
             continue
         try:
-            district = int(cd[2:])
+            district = int(geoid[2:4])
         except ValueError:
             continue
-
-        key = (zcta, state, district)
+        key = (zip5, state, district)
         if key in seen:
             continue
         seen.add(key)
-        rows.append({"zip": zcta, "state": state, "district": district})
+        rows.append({"zip": zip5, "state": state, "district": district})
 
     if not rows:
-        raise ValueError("no ZIP→district rows parsed from relationship file")
+        raise ValueError("no ZIP→district rows parsed from HUD response")
     return rows
 
 
@@ -145,7 +109,7 @@ def _stage(rows: list[dict]) -> None:
 
 
 def run() -> int:
-    rows = _parse(_fetch_relationship_file())
+    rows = _parse(_fetch())
     _stage(rows)
     logger.info(
         "zip_crosswalk: staged %d ZIP→district rows (%d distinct ZIPs)",

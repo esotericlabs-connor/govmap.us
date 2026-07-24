@@ -40,6 +40,12 @@ class Settings(BaseSettings):
     # congress_number). Pulled in bulk per chamber, so it's a handful of calls.
     fec_cycle: int = 2026
 
+    # HUD USPS ZIP→Congressional District crosswalk (huduser.gov) — the
+    # authoritative ZIP→CD source (Census publishes no ZCTA↔CD relationship
+    # file). Free token from https://www.huduser.gov/portal/dataset/uspszip-api.html.
+    # Empty = the zip_crosswalk pipeline is skipped (non-fatal), like the others.
+    hud_api_token: str = ""
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
     @property

@@ -45,12 +45,13 @@ _TIMEOUT = 45  # OpenFEC's totals endpoint is occasionally slow; 30s wasn't enou
 _PACE_SECONDS = 0.5
 # Safety cap on pages per chamber (100 candidates/page). A chamber-cycle is well
 # under this; the cap just bounds a pathological response.
-_MAX_PAGES = 60
-_OFFICES = ("S", "H")
-# How many 2-year cycles back to sweep (newest first). A cycle-filtered bulk
-# query only lists candidates running *in that cycle*, so one cycle misses the
-# ~2/3 of senators not up this year. Sweeping the last few cycles and keeping
-# each candidate's most-recent row covers all three Senate classes + the House.
+# We query the bulk endpoint filtered to OUR members' candidate ids (batched),
+# not the whole field of thousands of challengers — a few targeted calls that
+# also stay well under api.data.gov's ~1000 req/hr limit.
+_ID_BATCH = 50           # candidate_ids per request (repeatable filter; short URL)
+_BATCH_MAX_PAGES = 3     # 50 ids × _CYCLE_SPAN cycles fits in ~2 pages; cap for safety
+# How many 2-year cycles back to include (newest wins). Covers all three Senate
+# classes + the House regardless of which year each member last ran.
 _CYCLE_SPAN = 4
 # Chamber (legislators-current term type) -> the FEC candidate-id office prefix.
 _CHAMBER_PREFIX = {"sen": "S", "rep": "H"}
@@ -127,32 +128,33 @@ def _row(bioguide: str, candidate_id: str, t: CandidateTotalRaw) -> dict:
     }
 
 
-def _totals_index(cycles: list[int]) -> dict[str, dict]:
-    """candidate_id -> most-recent available totals row across `cycles` (swept
-    newest-first; first row seen for a candidate wins). A cycle-filtered bulk
-    query only lists candidates running in that cycle, so sweeping several
-    cycles is what covers every current member's latest election."""
+def _totals_index(candidate_ids: list[str], cycles: list[int]) -> dict[str, dict]:
+    """candidate_id -> most-recent totals row, fetched by filtering the bulk
+    endpoint on OUR members' candidate ids (batched) across `cycles`. Targeted
+    (no scanning thousands of challengers) and cheap: ~2 pages per 50-id batch.
+    `sort=-cycle` means the first row seen for a candidate is their newest."""
     index: dict[str, dict] = {}
-    for cycle in cycles:
-        for office in _OFFICES:
-            for page in range(1, _MAX_PAGES + 1):
-                data = _fec_get(
-                    "candidates/totals",
-                    cycle=cycle,
-                    office=office,
-                    election_full="false",
-                    per_page=100,
-                    page=page,
-                )
-                results = data.get("results") or []
-                for it in results:
-                    cid = it.get("candidate_id")
-                    if cid and cid not in index:
-                        index[cid] = it
-                pages = (data.get("pagination") or {}).get("pages") or 1
-                if page >= pages or not results:
-                    break
-                time.sleep(_PACE_SECONDS)
+    for start in range(0, len(candidate_ids), _ID_BATCH):
+        batch = candidate_ids[start : start + _ID_BATCH]
+        for page in range(1, _BATCH_MAX_PAGES + 1):
+            data = _fec_get(
+                "candidates/totals",
+                candidate_id=batch,   # repeatable filter — requests encodes the list
+                cycle=cycles,         # repeatable filter (OR across cycles)
+                election_full="false",
+                sort="-cycle",
+                per_page=100,
+                page=page,
+            )
+            results = data.get("results") or []
+            for it in results:
+                cid = it.get("candidate_id")
+                if cid and cid not in index:
+                    index[cid] = it
+            pages = (data.get("pagination") or {}).get("pages") or 1
+            if page >= pages or not results:
+                break
+            time.sleep(_PACE_SECONDS)
     return index
 
 
@@ -164,15 +166,17 @@ def run() -> int:
         )
     base = settings.fec_cycle
     cycles = [base - 2 * i for i in range(_CYCLE_SPAN)]  # e.g. 2026, 2024, 2022, 2020
-    members = _members()
-    index = _totals_index(cycles)
+    by_candidate = {cid: bio for bio, cid in _members()}  # candidate_id -> bioguide
+    index = _totals_index(list(by_candidate), cycles)
     if not index:
-        raise RuntimeError(f"OpenFEC returned no candidate totals for cycles {cycles}")
+        raise RuntimeError(
+            f"OpenFEC returned no totals for {len(by_candidate)} candidates, cycles {cycles}"
+        )
 
     rows: list[dict] = []
-    for bioguide, candidate_id in members:
-        raw = index.get(candidate_id)
-        if not raw:
+    for candidate_id, raw in index.items():
+        bioguide = by_candidate.get(candidate_id)
+        if not bioguide:
             continue
         try:
             t = CandidateTotalRaw.model_validate(raw)
@@ -186,8 +190,8 @@ def run() -> int:
     STAGING_DIR.mkdir(parents=True, exist_ok=True)
     STAGING_PATH.write_text(json.dumps(rows))
     logger.info(
-        "fec_finance: staged %d finance rows (cycles %s; %d candidates indexed, %d members)",
-        len(rows), cycles, len(index), len(members),
+        "fec_finance: staged %d finance rows (cycles %s; %d of %d members matched)",
+        len(rows), cycles, len(rows), len(by_candidate),
     )
     return len(rows)
 
