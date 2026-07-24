@@ -135,47 +135,39 @@ export function SiteHeader({
           />
         </Link>
 
-        {/* Universal search — centered on app pages */}
+        {/* Universal search — prominent and centered on app pages. */}
         {variant === "app" && (
           <div className="hidden flex-1 justify-center px-4 md:flex">
-            <UniversalSearch className="w-full max-w-md" />
+            <UniversalSearch className="w-full max-w-xl" />
           </div>
         )}
 
-        {/* Desktop Nav */}
-        <nav className="hidden items-center gap-8 md:flex" aria-label="Primary">
-          {navItems.map((item) => (
-            <NavLink
-              key={item.href}
-              item={item}
-              active={pathname.startsWith(item.href)}
-            />
-          ))}
-        </nav>
+        {/* Desktop nav — marketing only. On app pages every destination lives
+            behind the menu button (right), keeping the bar to logo + search. */}
+        {variant === "marketing" && (
+          <nav className="hidden items-center gap-8 md:flex" aria-label="Primary">
+            {navItems.map((item) => (
+              <NavLink key={item.href} item={item} active={pathname.startsWith(item.href)} />
+            ))}
+          </nav>
+        )}
 
-        <div className="hidden shrink-0 items-center gap-4 md:flex">
-          {variant === "marketing" && (
+        {variant === "marketing" && (
+          <div className="hidden shrink-0 items-center gap-4 md:flex">
             <Link
               href={siteConfig.appUrl}
               className="transform rounded-full bg-white px-5 py-2 text-sm font-semibold text-govnavy shadow-md transition-transform duration-200 hover:-translate-y-0.5 active:translate-y-0"
             >
               Enter App
             </Link>
-          )}
-          {variant === "app" && (
-            <Link
-              href="/account"
-              className="text-sm font-medium text-white/70 transition-colors hover:text-white"
-            >
-              Sign In
-            </Link>
-          )}
-        </div>
+          </div>
+        )}
 
-        {/* Mobile Menu Button */}
+        {/* Menu button — always shown on app pages (holds the nav), mobile-only
+            on marketing (which keeps its inline nav on desktop). */}
         <button
           type="button"
-          className="text-white md:hidden"
+          className={`shrink-0 text-white ${variant === "app" ? "" : "md:hidden"}`}
           aria-label={menuOpen ? "Close menu" : "Open menu"}
           aria-expanded={menuOpen}
           onClick={() => setMenuOpen((v) => !v)}
@@ -184,15 +176,21 @@ export function SiteHeader({
         </button>
       </div>
 
-      {/* Mobile Menu */}
+      {/* Dropdown menu — the primary nav on app pages (all sizes), and the
+          mobile menu on marketing. */}
       {menuOpen && (
-        <div className="border-t border-white/10 bg-govnavy/95 backdrop-blur-lg md:hidden">
+        <div
+          className={`border-t border-white/10 bg-govnavy/95 backdrop-blur-lg ${
+            variant === "app" ? "" : "md:hidden"
+          }`}
+        >
           <nav
             className="mx-auto flex max-w-6xl flex-col gap-1 px-6 pb-6 pt-4"
-            aria-label="Mobile"
+            aria-label={variant === "app" ? "Primary" : "Mobile"}
           >
+            {/* Search here only where the centered bar is hidden (mobile). */}
             {variant === "app" && (
-              <div className="mb-3">
+              <div className="mb-3 md:hidden">
                 <UniversalSearch onNavigate={() => setMenuOpen(false)} />
               </div>
             )}

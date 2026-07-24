@@ -2,28 +2,18 @@
 
 import { useMemo, useState } from "react";
 
-import { CongressCartogram } from "@/components/CongressCartogram";
 import { Reveal } from "@/components/Reveal";
+import { UsMap } from "@/components/UsMap";
 import { ZipLookup } from "@/components/ZipLookup";
 import type { CongressMap, LookupResult } from "@/lib/api";
 
 /**
- * Ties the ZIP lookup to the seat chart: looking up your ZIP rings your
- * senators + representative(s) on the map. Both need to share the resolved
- * result, so they live in one client component; the page fetches /api/map
- * server-side and passes it in.
+ * Ties the ZIP lookup to the geographic map: looking up your ZIP rings your
+ * district + state. Both need to share the resolved result, so they live in one
+ * client component; the page fetches /api/map server-side and passes it in.
  */
 export function CongressExplorer({ map }: { map: CongressMap }) {
   const [result, setResult] = useState<LookupResult | null>(null);
-
-  const highlight = useMemo(() => {
-    const s = new Set<string>();
-    if (result) {
-      for (const m of result.senators) s.add(m.bioguide_id);
-      for (const m of result.representatives) s.add(m.bioguide_id);
-    }
-    return s;
-  }, [result]);
 
   const highlightAnnouncement = useMemo(() => {
     if (!result || (result.senators.length === 0 && result.representatives.length === 0)) {
@@ -56,9 +46,9 @@ export function CongressExplorer({ map }: { map: CongressMap }) {
         </div>
       </section>
 
-      {/* The seat chart. */}
+      {/* The geographic map (falls back to the seat chart if geometry is absent). */}
       <section className="bg-slate-warm-50">
-        <div className="mx-auto w-full max-w-5xl px-6 py-16 sm:py-20">
+        <div className="mx-auto w-full max-w-6xl px-6 py-16 sm:py-20">
           <Reveal>
             <div className="rounded-2xl border border-slate-warm-200 bg-white p-6 shadow-card sm:p-8">
               {/* Announce ZIP results to screen readers */}
@@ -67,7 +57,7 @@ export function CongressExplorer({ map }: { map: CongressMap }) {
                   {highlightAnnouncement}
                 </div>
               )}
-              <CongressCartogram map={map} highlight={highlight} />
+              <UsMap map={map} result={result} />
             </div>
           </Reveal>
         </div>
