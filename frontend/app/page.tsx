@@ -63,24 +63,23 @@ export default function MarketingHomePage() {
             sizes="100vw"
             className="-z-10 object-cover object-center"
           />
-          <div className="absolute inset-0 -z-10 bg-gradient-to-r from-govnavy via-govnavy/80 to-transparent" />
+          {/* Short top scrim only — keeps the logo/nav legible while letting the
+              Capitol photo show behind the hero text. */}
+          <div className="absolute inset-x-0 top-0 -z-10 h-32 bg-gradient-to-b from-govnavy to-transparent" />
           <div className="absolute inset-x-0 bottom-0 -z-10 h-1/3 bg-gradient-to-t from-govnavy via-govnavy/80 to-transparent" />
 
           <div className="mx-auto w-full max-w-6xl px-6 pb-24 pt-36 sm:pb-32 sm:pt-48">
             <div className="max-w-3xl">
-              <div
-                className="rounded-xl bg-white/80 p-6 shadow-xl backdrop-blur-sm animate-fade-up"
-                style={{ animationDelay: "100ms" }}
-              >
-                <h1 className="font-display text-4xl font-bold leading-tight tracking-tight text-govnavy sm:text-6xl lg:text-7xl">
+              <div className="animate-fade-up" style={{ animationDelay: "100ms" }}>
+                <h1 className="font-display text-4xl font-bold leading-[1.35] tracking-tight text-govnavy [text-shadow:0_2px_16px_rgba(255,255,255,0.55)] sm:text-6xl lg:text-7xl">
                   See your{" "}
                   {/* Solid, square-cornered highlight — like a text-selection block. */}
-                  <span className="box-decoration-clone bg-govblue px-2 text-white [text-shadow:none]">
+                  <span className="box-decoration-clone bg-govblue px-1.5 text-white [text-shadow:none]">
                     government
                   </span>{" "}
                   <span className="text-govred">with clarity</span>
                 </h1>
-                <p className="mt-6 max-w-xl text-lg leading-relaxed text-gray-900 sm:text-xl">
+                <p className="mt-6 max-w-xl text-lg font-medium leading-relaxed text-black [text-shadow:0_1px_12px_rgba(255,255,255,0.7)] sm:text-xl">
                   GovMap is a nonpartisan, end-to-end live-synced view of the
                   entire US federal government — who represents you, how they
                   vote, who runs the agencies that govern you, where the money
