@@ -3,7 +3,6 @@ import { Suspense } from "react";
 
 import { chamberLabel, CodePill, EmptyState, formatDate } from "@/components/DetailKit";
 import { Reveal } from "@/components/Reveal";
-import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
 import { apiGet } from "@/lib/api";
 
@@ -117,7 +116,6 @@ export default function VotesPage() {
           </Suspense>
         </div>
       </main>
-      <SiteFooter />
     </>
   );
 }

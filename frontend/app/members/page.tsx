@@ -1,7 +1,6 @@
 import { ChamberTabs } from "@/components/ChamberTabs";
 import { MemberAvatar } from "@/components/MemberAvatar";
 import { Reveal } from "@/components/Reveal";
-import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
 import { apiGet } from "@/lib/api";
 import Link from "next/link";
@@ -151,7 +150,6 @@ export default function MembersPage({
           </Suspense>
         </div>
       </main>
-      <SiteFooter />
     </>
   );
 }

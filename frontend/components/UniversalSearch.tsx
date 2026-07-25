@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { publicApiBase, type SearchResults } from "@/lib/api";
+import { useHomeZip } from "@/lib/zip-context";
 
 /**
  * The platform's "search everything" box. Debounced, abortable typeahead over
@@ -72,6 +73,7 @@ export function UniversalSearch({
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const { zip: homeZip, setHomeZip } = useHomeZip();
 
   // Debounced + abortable fetch.
   useEffect(() => {
@@ -117,7 +119,16 @@ export function UniversalSearch({
     onNavigate?.();
   };
 
+  const zipQuery = /^\d{5}$/.test(query.trim()) ? query.trim() : null;
   const showPanel = open && query.trim().length >= 2;
+
+  async function applyZip(zip: string) {
+    const ok = await setHomeZip(zip);
+    if (ok) {
+      setQuery("");
+      close();
+    }
+  }
 
   return (
     <div ref={containerRef} className={`relative ${className}`}>
@@ -137,20 +148,39 @@ export function UniversalSearch({
             if (e.key === "Escape") {
               setOpen(false);
               (e.target as HTMLInputElement).blur();
+            } else if (e.key === "Enter" && zipQuery) {
+              e.preventDefault();
+              void applyZip(zipQuery);
+              (e.target as HTMLInputElement).blur();
             }
           }}
-          placeholder="Search members, bills, votes, committees…"
-          aria-label="Search the platform"
-          className="w-full rounded-full border border-white/20 bg-white/10 py-2.5 pl-11 pr-4 text-white/90 placeholder:text-white/60 transition-colors focus:border-white/50 focus:bg-white/20 focus:outline-none focus:ring-2 focus:ring-govblue/70"
+          placeholder="Search — or enter your ZIP to set your area…"
+          aria-label="Search the platform, or enter a ZIP code"
+          className={`w-full rounded-full border border-white/20 bg-white/10 py-2.5 pl-11 pr-4 text-white/90 placeholder:text-white/60 transition-colors focus:border-white/50 focus:bg-white/20 focus:outline-none focus:ring-2 focus:ring-govblue/70 ${
+            homeZip ? "" : "ring-2 ring-govblue/50"
+          }`}
         />
       </div>
 
       {showPanel && (
         <div className="absolute left-0 right-0 top-full z-50 mt-2 max-h-[70vh] overflow-y-auto rounded-xl border border-white/10 bg-govnavy-800/90 text-slate-200 shadow-2xl shadow-black/40 backdrop-blur-xl animate-slide-down-and-fade">
+          {zipQuery && (
+            <button
+              type="button"
+              onClick={() => void applyZip(zipQuery)}
+              className="flex w-full items-center gap-3 border-b border-white/10 px-4 py-3.5 text-left transition-colors hover:bg-white/5"
+            >
+              <span aria-hidden="true">📍</span>
+              <span className="text-sm font-semibold text-white">Set {zipQuery} as your area</span>
+              <span className="ml-auto text-xs text-slate-400">find your reps →</span>
+            </button>
+          )}
           {isEmpty(results) ? (
-            <div className="flex flex-col items-center gap-2 px-4 py-16 text-center text-sm text-slate-400">
-              {loading ? <Spinner /> : <p>No results for “{query.trim()}”</p>}
-            </div>
+            zipQuery ? null : (
+              <div className="flex flex-col items-center gap-2 px-4 py-16 text-center text-sm text-slate-400">
+                {loading ? <Spinner /> : <p>No results for “{query.trim()}”</p>}
+              </div>
+            )
           ) : (
             <div className="py-2">
               {results!.members.length > 0 && (

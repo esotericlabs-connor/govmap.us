@@ -17,10 +17,14 @@ async def member_donations(
     cycle: int | None = None,
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=50, ge=1, le=100),
+    sort: str = "amount",
+    q: str | None = Query(default=None, max_length=100),
 ) -> dict:
     """A member's itemized FEC donations ledger (disclosed receipts ≥ $200),
-    biggest first — cached on demand from the FEC. Defaults to the cycle shown on
-    the member's finance card (their latest with totals), else the current cycle."""
+    cached on demand from the FEC. `sort` (amount|amount_asc|date|date_asc|name)
+    and `q` (search contributor/employer/city) filter the cached rows. Defaults
+    to the cycle on the member's finance card (their latest with totals), else
+    the current cycle."""
     if cycle is None:
         cycle = (
             await db.execute(
@@ -29,4 +33,4 @@ async def member_donations(
                 .order_by(MemberFinance.cycle.desc())
             )
         ).scalars().first() or settings.fec_cycle
-    return await get_donations(db, bioguide_id, cycle, offset, limit)
+    return await get_donations(db, bioguide_id, cycle, offset, limit, sort=sort, q=q)

@@ -11,10 +11,10 @@ import {
   partyTextClass,
   Section,
 } from "@/components/DetailKit";
+import { DonationControls } from "@/components/DonationControls";
 import { MemberAvatar } from "@/components/MemberAvatar";
 import { PageSkeleton } from "@/components/PageSkeleton";
 import { Reveal } from "@/components/Reveal";
-import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
 import {
   apiGet,
@@ -60,11 +60,23 @@ export async function generateMetadata({ params }: { params: { bioguide: string 
   return { title: member ? `${member.official_full_name} — Donations` : "Donations" };
 }
 
-async function DonationsContent({ bioguide, offset }: { bioguide: string; offset: number }) {
+async function DonationsContent({
+  bioguide,
+  offset,
+  sort,
+  q,
+}: {
+  bioguide: string;
+  offset: number;
+  sort: string;
+  q: string;
+}) {
+  const query = new URLSearchParams({ offset: String(offset), limit: String(PAGE_SIZE), sort });
+  if (q) query.set("q", q);
   const [member, data] = await Promise.all([
     getMember(bioguide),
     apiGet<DonationsResponse>(
-      `/api/members/${encodeURIComponent(bioguide)}/donations?offset=${offset}&limit=${PAGE_SIZE}`,
+      `/api/members/${encodeURIComponent(bioguide)}/donations?${query.toString()}`,
     ),
   ]);
   if (!member) notFound();
@@ -76,6 +88,14 @@ async function DonationsContent({ bioguide, offset }: { bioguide: string; offset
   const hasPrev = offset > 0;
   const hasNext = total !== null ? offset + PAGE_SIZE < total : items.length === PAGE_SIZE;
   const base = `/members/${bioguide}/donations`;
+  // Preserve the active sort + search when paging (offset-only links would
+  // silently reset them to the default largest-first view).
+  const pageHref = (o: number) => {
+    const p = new URLSearchParams({ offset: String(Math.max(0, o)) });
+    if (sort && sort !== "amount") p.set("sort", sort);
+    if (q) p.set("q", q);
+    return `${base}?${p.toString()}`;
+  };
 
   return (
     <Reveal>
@@ -99,23 +119,16 @@ async function DonationsContent({ bioguide, offset }: { bioguide: string; offset
             </p>
           </div>
         </div>
-        <p className="mt-4 max-w-3xl text-sm leading-relaxed text-slate-warm-500">
-          Every disclosed contribution of <strong>$200 or more</strong> to this member&rsquo;s
-          principal campaign committee, largest first. Small-dollar gifts under $200 aren&rsquo;t
-          itemized by the FEC and so don&rsquo;t appear individually. Records are pulled and cached
-          on demand from the FEC — a deep page may take a moment the first time. Source: Federal
-          Election Commission.
-        </p>
       </header>
 
       <div className="mt-10">
-        <Section
-          title="Contributions"
-          count={total ?? undefined}
-        >
+        <Section title="Contributions" count={total ?? undefined}>
+          <DonationControls sort={data.sort} q={data.q ?? ""} />
           {items.length === 0 ? (
             <EmptyState>
-              No itemized contributions found for this member in the {data.cycle} cycle.
+              {data.q
+                ? `No contributions match “${data.q}”.`
+                : `No itemized contributions found for this member in the ${data.cycle} cycle.`}
             </EmptyState>
           ) : (
             <>
@@ -169,19 +182,24 @@ async function DonationsContent({ bioguide, offset }: { bioguide: string; offset
                   )}
                 </p>
                 <div className="flex gap-2">
-                  <PageLink
-                    href={`${base}?offset=${Math.max(0, offset - PAGE_SIZE)}`}
-                    disabled={!hasPrev}
-                  >
+                  <PageLink href={pageHref(offset - PAGE_SIZE)} disabled={!hasPrev}>
                     ← Prev
                   </PageLink>
-                  <PageLink href={`${base}?offset=${offset + PAGE_SIZE}`} disabled={!hasNext}>
+                  <PageLink href={pageHref(offset + PAGE_SIZE)} disabled={!hasNext}>
                     Next →
                   </PageLink>
                 </div>
               </div>
             </>
           )}
+
+          <p className="mt-8 border-t border-slate-warm-200 pt-6 text-xs leading-relaxed text-slate-warm-400">
+            Every disclosed contribution of <strong>$200 or more</strong> to this member&rsquo;s
+            principal campaign committee. Small-dollar gifts under $200 aren&rsquo;t itemized by the
+            FEC and so don&rsquo;t appear individually. Search and the alternate sorts cover the
+            contributions loaded so far — browse the default largest-first view to load more. Records
+            are pulled and cached on demand from the FEC. Source: Federal Election Commission.
+          </p>
         </Section>
       </div>
     </Reveal>
@@ -219,10 +237,12 @@ export default function DonationsPage({
   searchParams,
 }: {
   params: { bioguide: string };
-  searchParams: { offset?: string };
+  searchParams: { offset?: string; sort?: string; q?: string };
 }) {
   const parsed = Number.parseInt(searchParams.offset ?? "0", 10);
   const offset = Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+  const sort = searchParams.sort ?? "amount";
+  const q = searchParams.q ?? "";
 
   return (
     <>
@@ -230,12 +250,11 @@ export default function DonationsPage({
       <main className="bg-slate-warm-50 pb-20 pt-28">
         <div className="mx-auto max-w-4xl px-6">
           <BackLink href={`/members/${params.bioguide}`}>Back to member</BackLink>
-          <Suspense key={offset} fallback={<PageSkeleton />}>
-            <DonationsContent bioguide={params.bioguide} offset={offset} />
+          <Suspense key={`${offset}-${sort}-${q}`} fallback={<PageSkeleton />}>
+            <DonationsContent bioguide={params.bioguide} offset={offset} sort={sort} q={q} />
           </Suspense>
         </div>
       </main>
-      <SiteFooter />
     </>
   );
 }

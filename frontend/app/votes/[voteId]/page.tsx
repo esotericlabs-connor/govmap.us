@@ -5,7 +5,6 @@ import { Suspense } from "react";
 import { BackLink, chamberLabel, EmptyState, formatDate, partyTextClass, Section } from "@/components/DetailKit";
 import { PageSkeleton } from "@/components/PageSkeleton";
 import { Reveal } from "@/components/Reveal";
-import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
 import { apiGet, HttpError, type VoteDetail, type VotePosition } from "@/lib/api";
 
@@ -189,7 +188,6 @@ export default function VoteDetailPage({ params }: { params: { voteId: string } 
           </Suspense>
         </div>
       </main>
-      <SiteFooter />
     </>
   );
 }

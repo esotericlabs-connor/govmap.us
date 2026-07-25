@@ -13,7 +13,6 @@ import {
 import { MemberAvatar } from "@/components/MemberAvatar";
 import { PageSkeleton } from "@/components/PageSkeleton";
 import { Reveal } from "@/components/Reveal";
-import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
 import {
   apiGet,
@@ -135,7 +134,7 @@ async function ReferredBills({ committeeId }: { committeeId: string }) {
   const data = await getReferredBills(committeeId);
   if (!data || data.bills.length === 0) return null;
   return (
-    <Section title="Recent bills before this committee" count={data.bills.length}>
+    <Section title="Recent bills before this committee" count={data.bills.length} scroll>
       <ul className="space-y-3">
         {data.bills.map((b) => (
           <li key={b.bill_id}>
@@ -263,7 +262,7 @@ async function CommitteeDetailContent({ committeeId }: { committeeId: string }) 
 
       {committee.upcoming_meetings.length > 0 && (
         <div className="mt-12">
-          <Section title="Upcoming meetings" count={committee.upcoming_meetings.length}>
+          <Section title="Upcoming meetings" count={committee.upcoming_meetings.length} scroll>
             <div className="space-y-4">
               {committee.upcoming_meetings.map((m) => (
                 <MeetingCard key={m.event_id} meeting={m} upcoming />
@@ -281,7 +280,7 @@ async function CommitteeDetailContent({ committeeId }: { committeeId: string }) 
         ) : (
           <div className="grid grid-cols-1 gap-10 lg:grid-cols-2 lg:gap-16">
             {majority.length > 0 && (
-              <Section title="Majority" count={majority.length}>
+              <Section title="Majority" count={majority.length} scroll>
                 <div className="grid grid-cols-1 gap-x-6 gap-y-4 md:grid-cols-2">
                   {majority.map((m) => (
                     <MemberCard key={m.bioguide_id} member={m} />
@@ -290,7 +289,7 @@ async function CommitteeDetailContent({ committeeId }: { committeeId: string }) 
               </Section>
             )}
             {minority.length > 0 && (
-              <Section title="Minority" count={minority.length}>
+              <Section title="Minority" count={minority.length} scroll>
                 <div className="grid grid-cols-1 gap-x-6 gap-y-4 md:grid-cols-2">
                   {minority.map((m) => (
                     <MemberCard key={m.bioguide_id} member={m} />
@@ -300,7 +299,7 @@ async function CommitteeDetailContent({ committeeId }: { committeeId: string }) 
             )}
             {other.length > 0 && (
               <div className="lg:col-span-2">
-                <Section title="Other Members" count={other.length}>
+                <Section title="Other Members" count={other.length} scroll>
                   <div className="grid grid-cols-1 gap-x-6 gap-y-4 md:grid-cols-2">
                     {other.map((m) => (
                       <MemberCard key={m.bioguide_id} member={m} />
@@ -315,7 +314,7 @@ async function CommitteeDetailContent({ committeeId }: { committeeId: string }) 
 
       {committee.subcommittees.length > 0 && (
         <div className="mt-12">
-          <Section title="Subcommittees" count={committee.subcommittees.length}>
+          <Section title="Subcommittees" count={committee.subcommittees.length} scroll>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               {committee.subcommittees.map((s) => (
                 <Link
@@ -339,7 +338,7 @@ async function CommitteeDetailContent({ committeeId }: { committeeId: string }) 
 
       {committee.recent_meetings.length > 0 && (
         <div className="mt-12">
-          <Section title="Recent meetings" count={committee.recent_meetings.length}>
+          <Section title="Recent meetings" count={committee.recent_meetings.length} scroll>
             <div className="space-y-3">
               {committee.recent_meetings.map((m) => (
                 <MeetingCard key={m.event_id} meeting={m} />
@@ -358,13 +357,12 @@ export default function CommitteeDetailPage({ params }: { params: { committeeId:
       <SiteHeader variant="app" />
       <main className="bg-slate-warm-50 pb-20 pt-28">
         <div className="mx-auto max-w-6xl px-6">
-          <BackLink href="/members">All Members</BackLink>
+          <BackLink href="/congress">Back to map</BackLink>
           <Suspense fallback={<PageSkeleton />}>
             <CommitteeDetailContent committeeId={params.committeeId} />
           </Suspense>
         </div>
       </main>
-      <SiteFooter />
     </>
   );
 }

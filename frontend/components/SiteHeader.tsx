@@ -4,7 +4,10 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 
+import { BugReport } from "@/components/BugReport";
+import { HomeZipChip } from "@/components/HomeZipChip";
 import { UniversalSearch } from "@/components/UniversalSearch";
 import { siteConfig } from "@/lib/site-config";
 
@@ -120,9 +123,9 @@ export function SiteHeader({
     >
       <div className="flex w-full items-center justify-between gap-4 px-6 py-3.5">
         <Link
-          href="/"
+          href={variant === "app" ? siteConfig.appUrl : "/"}
           className="shrink-0"
-          aria-label="GovMap.us home"
+          aria-label={variant === "app" ? "GovMap" : "GovMap.us home"}
           onClick={() => setMenuOpen(false)}
         >
           <Image
@@ -163,6 +166,12 @@ export function SiteHeader({
           </div>
         )}
 
+        {variant === "app" && (
+          <div className="hidden shrink-0 sm:block">
+            <HomeZipChip />
+          </div>
+        )}
+
         {/* Menu button — always shown on app pages (holds the nav), mobile-only
             on marketing (which keeps its inline nav on desktop). */}
         <button
@@ -176,55 +185,96 @@ export function SiteHeader({
         </button>
       </div>
 
-      {/* Dropdown menu — the primary nav on app pages (all sizes), and the
-          mobile menu on marketing. */}
-      {menuOpen && (
-        <div
-          className={`border-t border-white/10 bg-govnavy/95 backdrop-blur-lg ${
-            variant === "app" ? "" : "md:hidden"
-          }`}
-        >
-          <nav
-            className="mx-auto flex max-w-6xl flex-col gap-1 px-6 pb-6 pt-4"
-            aria-label={variant === "app" ? "Primary" : "Mobile"}
-          >
-            {/* Search here only where the centered bar is hidden (mobile). */}
-            {variant === "app" && (
-              <div className="mb-3 md:hidden">
-                <UniversalSearch onNavigate={() => setMenuOpen(false)} />
+      {typeof document !== "undefined" &&
+        createPortal(
+          <>
+            {/* Backdrop — always mounted so it fades; pointer-events off when
+                closed so it never blocks the page underneath. */}
+            <div
+              className={`fixed inset-0 z-[55] bg-govnavy/70 backdrop-blur-sm transition-opacity duration-300 ${
+                menuOpen ? "opacity-100" : "pointer-events-none opacity-0"
+              } ${variant === "app" ? "" : "md:hidden"}`}
+              onClick={() => setMenuOpen(false)}
+              aria-hidden={true}
+            />
+            {/* Right-side blade. Portaled to <body> so the header's backdrop-blur
+                (a containing block for `fixed`) can't clip it; always mounted so
+                the slide transition actually animates. */}
+            <div
+              className={`fixed inset-y-0 right-0 z-[60] flex w-full max-w-[340px] transform flex-col border-l border-white/10 bg-govnavy/95 shadow-2xl transition-transform duration-300 ease-out ${
+                menuOpen ? "translate-x-0" : "translate-x-full"
+              } ${variant === "app" ? "" : "md:hidden"}`}
+              aria-hidden={!menuOpen}
+            >
+              <div className="flex items-center justify-between px-6 py-3.5">
+                <span className="text-sm font-semibold uppercase tracking-wider text-white/50">
+                  Menu
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setMenuOpen(false)}
+                  aria-label="Close menu"
+                  className="text-white transition-colors hover:text-white/70"
+                >
+                  <CloseIcon />
+                </button>
               </div>
-            )}
-            {navItems.map((item) => (
-              <NavLink
-                key={item.href}
-                item={item}
-                active={pathname.startsWith(item.href)}
-                isMobile
-                onClick={() => setMenuOpen(false)}
-              />
-            ))}
-            <div className="mt-4 border-t border-white/10 pt-4">
-              {variant === "marketing" ? (
-                <Link
-                  href={siteConfig.appUrl}
-                  onClick={() => setMenuOpen(false)}
-                  className="block w-full rounded-full bg-govblue px-5 py-3 text-center text-base font-semibold text-govnavy shadow-lg"
-                >
-                  Enter GovMap App
-                </Link>
-              ) : (
-                <Link
-                  href="/account"
-                  onClick={() => setMenuOpen(false)}
-                  className="block rounded-md px-3 py-2 text-base font-medium text-white/80 transition-colors hover:bg-white/5"
-                >
-                  Sign In
-                </Link>
-              )}
+              <nav
+                className="flex flex-1 flex-col gap-1 overflow-y-auto px-6 pb-6"
+                aria-label={variant === "app" ? "Primary" : "Mobile"}
+              >
+                {/* Search here only where the centered bar is hidden (mobile). */}
+                {variant === "app" && (
+                  <div className="mb-3 md:hidden">
+                    <UniversalSearch onNavigate={() => setMenuOpen(false)} />
+                  </div>
+                )}
+                {navItems.map((item) => (
+                  <NavLink
+                    key={item.href}
+                    item={item}
+                    active={pathname.startsWith(item.href)}
+                    isMobile
+                    onClick={() => setMenuOpen(false)}
+                  />
+                ))}
+                <div className="mt-4 border-t border-white/10 pt-4">
+                  {variant === "marketing" ? (
+                    <Link
+                      href={siteConfig.appUrl}
+                      onClick={() => setMenuOpen(false)}
+                      className="block w-full rounded-full bg-govblue px-5 py-3 text-center text-base font-semibold text-govnavy shadow-lg"
+                    >
+                      Enter GovMap App
+                    </Link>
+                  ) : (
+                    <div className="space-y-1">
+                      <Link
+                        href="/account"
+                        onClick={() => setMenuOpen(false)}
+                        className="block rounded-md px-3 py-2 text-base font-medium text-white/80 transition-colors hover:bg-white/5"
+                      >
+                        Sign In
+                      </Link>
+                      <BugReport
+                        triggerClassName="block w-full rounded-md px-3 py-2 text-left text-base font-medium text-white/80 transition-colors hover:bg-white/5"
+                        triggerLabel="Report a problem"
+                      />
+                    </div>
+                  )}
+                </div>
+                {/* Home-area chip lives outside the menu on desktop; surface it
+                    here for mobile, where it's part of the app experience. */}
+                {variant === "app" && (
+                  <div className="mt-4 border-t border-white/10 pt-4 sm:hidden">
+                    <HomeZipChip />
+                  </div>
+                )}
+              </nav>
             </div>
-          </nav>
-        </div>
-      )}
+          </>,
+          document.body,
+        )}
     </header>
   );
 }

@@ -1,12 +1,12 @@
 import Link from "next/link";
 
 import type { ChamberBalance, ChamberSummary } from "@/lib/api";
-import { Reveal } from "./Reveal";
 
 /**
- * The House vs Senate split: two distinct panels, each with a party-balance bar
- * and a "browse this chamber" link. Pure server-safe presentation — the page
- * fetches /api/summary and passes it in.
+ * The House vs Senate split, rendered as a compact status strip beneath the map
+ * on /congress: two dense panels, each with a party-balance bar, counts, and a
+ * "browse this chamber" link. Pure server-safe presentation — the page fetches
+ * /api/summary and passes it in.
  */
 
 function BalanceBar({ b }: { b: ChamberBalance }) {
@@ -27,11 +27,9 @@ function BalanceBar({ b }: { b: ChamberBalance }) {
 
 function Legend({ color, label, n }: { color: string; label: string; n: number }) {
   return (
-    <div className="flex items-baseline gap-2 text-sm">
-      <div className="flex items-center gap-1.5">
-        <span className={`h-2 w-2 rounded-full ${color}`} />
-        <span className="text-slate-warm-500">{label}</span>
-      </div>
+    <div className="flex items-baseline gap-1.5 text-sm">
+      <span className={`h-2 w-2 self-center rounded-full ${color}`} />
+      <span className="text-slate-warm-500">{label}</span>
       <span className="font-semibold text-govnavy">{n}</span>
     </div>
   );
@@ -39,40 +37,38 @@ function Legend({ color, label, n }: { color: string; label: string; n: number }
 
 function ChamberPanel({
   title,
-  subtitle,
   chamber,
   b,
 }: {
   title: string;
-  subtitle: string;
   chamber: "house" | "senate";
   b: ChamberBalance;
 }) {
   return (
-    <div className="flex h-full flex-col rounded-2xl border border-slate-warm-200 bg-white p-6 shadow-card transition-shadow duration-300 hover:shadow-card-hover">
-      <div className="flex items-baseline justify-between gap-3">
-        <h3 className="font-display text-2xl font-bold text-govnavy">{title}</h3>
-        <span className="shrink-0 text-sm font-medium text-slate-warm-500">{b.total} seats</span>
+    <div className="rounded-2xl border border-slate-warm-200 bg-white p-4 shadow-card sm:p-5">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+        <h3 className="font-display text-lg font-bold text-govnavy">{title}</h3>
+        <span className="shrink-0 text-xs font-medium text-slate-warm-500">{b.total} seats</span>
       </div>
-      <p className="mt-1 text-sm text-slate-warm-600">{subtitle}</p>
 
-      <div className="mt-auto pt-6">
-        <div className="space-y-3">
-          <BalanceBar b={b} />
-          <div className="flex flex-wrap gap-x-5 gap-y-2">
-            <Legend color="bg-govblue" label="Democrat" n={b.D} />
-            {b.I > 0 && <Legend color="bg-slate-400" label="Independent" n={b.I} />}
-            <Legend color="bg-govred" label="Republican" n={b.R} />
+      <div className="mt-3 space-y-3">
+        <BalanceBar b={b} />
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+          <div className="flex flex-wrap gap-x-4 gap-y-1">
+            <Legend color="bg-govblue" label="Dem" n={b.D} />
+            {b.I > 0 && <Legend color="bg-slate-400" label="Ind" n={b.I} />}
+            <Legend color="bg-govred" label="Rep" n={b.R} />
           </div>
+          <Link
+            href={`/members?chamber=${chamber}`}
+            className="group inline-flex items-center gap-1 text-sm font-semibold text-govblue transition-colors hover:text-govnavy"
+          >
+            Browse {title}
+            <span aria-hidden="true" className="transition-transform group-hover:translate-x-0.5">
+              →
+            </span>
+          </Link>
         </div>
-
-        <Link
-          href={`/members?chamber=${chamber}`}
-          className="group mt-6 inline-flex items-center gap-1.5 self-start rounded-full bg-govnavy px-5 py-2.5 text-sm font-semibold text-white transition-all duration-200 hover:-translate-y-px hover:bg-govnavy/90"
-        >
-          Browse the {title}
-          <span className="transition-transform group-hover:translate-x-0.5">→</span>
-        </Link>
       </div>
     </div>
   );
@@ -80,23 +76,9 @@ function ChamberPanel({
 
 export function ChamberSplit({ summary }: { summary: ChamberSummary }) {
   return (
-    <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-      <Reveal>
-        <ChamberPanel
-          title="The House"
-          subtitle="435 members representing congressional districts, plus non-voting delegates."
-          chamber="house"
-          b={summary.house}
-        />
-      </Reveal>
-      <Reveal delay={100}>
-        <ChamberPanel
-          title="The Senate"
-          subtitle="100 members, two from each state, regardless of population."
-          chamber="senate"
-          b={summary.senate}
-        />
-      </Reveal>
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <ChamberPanel title="The House" chamber="house" b={summary.house} />
+      <ChamberPanel title="The Senate" chamber="senate" b={summary.senate} />
     </div>
   );
 }

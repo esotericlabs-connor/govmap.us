@@ -1,4 +1,3 @@
-import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
 
 export const metadata = {
@@ -28,7 +27,6 @@ export default function AccountPage() {
           </a>
         </div>
       </main>
-      <SiteFooter />
     </>
   );
 }

@@ -15,7 +15,6 @@ import {
 import { MemberAvatar } from "@/components/MemberAvatar";
 import { PageSkeleton } from "@/components/PageSkeleton";
 import { Reveal } from "@/components/Reveal";
-import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
 import { apiGet, HttpError, type BillDetail, type BillText } from "@/lib/api";
 
@@ -285,7 +284,6 @@ export default function BillDetailPage({ params }: { params: { billId: string } 
           </Suspense>
         </div>
       </main>
-      <SiteFooter />
     </>
   );
 }

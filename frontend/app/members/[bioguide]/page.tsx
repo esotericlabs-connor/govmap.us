@@ -18,7 +18,6 @@ import { FinanceCard } from "@/components/FinanceCard";
 import { MemberAvatar } from "@/components/MemberAvatar";
 import { PageSkeleton } from "@/components/PageSkeleton";
 import { Reveal } from "@/components/Reveal";
-import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
 import { apiGet, HttpError, type MemberDetail } from "@/lib/api";
 
@@ -114,7 +113,7 @@ async function MemberDetailContent({ bioguide }: { bioguide: string }) {
 
         {/* Data sections */}
         <div className="grid grid-cols-1 gap-10 lg:grid-cols-2">
-          <Section title="Committee Assignments" count={member.committees.length}>
+          <Section title="Committee Assignments" count={member.committees.length} scroll>
             {member.committees.length === 0 ? (
               <EmptyState>No committee assignments on record.</EmptyState>
             ) : (
@@ -138,7 +137,7 @@ async function MemberDetailContent({ bioguide }: { bioguide: string }) {
             )}
           </Section>
 
-          <Section title="Sponsored Bills" count={member.sponsored_bills_total}>
+          <Section title="Sponsored Bills" count={member.sponsored_bills_total} scroll>
             {member.sponsored_bills.length === 0 ? (
               <EmptyState>No bills sponsored in the current Congress.</EmptyState>
             ) : (
@@ -165,7 +164,7 @@ async function MemberDetailContent({ bioguide }: { bioguide: string }) {
           </Section>
         </div>
 
-        <Section title="Recent Voting Record" count={member.voting_record.length}>
+        <Section title="Recent Voting Record" count={member.voting_record.length} scroll>
           {member.voting_record.length === 0 ? (
             <EmptyState>No votes loaded yet for this member.</EmptyState>
           ) : (
@@ -216,13 +215,12 @@ export default function MemberDetailPage({ params }: { params: { bioguide: strin
       <SiteHeader variant="app" />
       <main className="bg-slate-warm-50 pb-20 pt-28">
         <div className="mx-auto max-w-6xl px-6">
-          <BackLink href="/members">All Members</BackLink>
+          <BackLink href="/congress">Back to map</BackLink>
           <Suspense fallback={<PageSkeleton />}>
             <MemberDetailContent bioguide={params.bioguide} />
           </Suspense>
         </div>
       </main>
-      <SiteFooter />
     </>
   );
 }

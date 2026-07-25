@@ -114,6 +114,8 @@ export interface DonationsResponse {
   total: number | null;
   cached: number;
   complete: boolean;
+  sort: string;
+  q: string | null;
   offset: number;
   limit: number;
   items: Contribution[];

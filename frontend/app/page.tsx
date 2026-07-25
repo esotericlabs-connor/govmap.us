@@ -67,26 +67,27 @@ export default function MarketingHomePage() {
           <div className="absolute inset-x-0 bottom-0 -z-10 h-1/3 bg-gradient-to-t from-govnavy via-govnavy/80 to-transparent" />
 
           <div className="mx-auto w-full max-w-6xl px-6 pb-24 pt-36 sm:pb-32 sm:pt-48">
-            <div
-              className="max-w-3xl animate-fade-up"
-              style={{ animationDelay: "100ms" }}
-            >
-              <h1 className="font-display text-4xl font-bold leading-tight tracking-tight text-white [text-shadow:0_2px_20px_rgba(0,0,0,0.5)] sm:text-6xl lg:text-7xl">
-                See your{" "}
-                <span className="relative inline-block">
-                  <span className="absolute inset-x-0 bottom-1.5 h-1/3 bg-govblue/70 sm:bottom-2.5" />
-                  <span className="relative">government</span>
-                </span>{" "}
-                <span className="text-govred">clearly.</span>
-              </h1>
-              <p className="mt-6 max-w-xl text-lg leading-relaxed text-white/90 sm:text-xl">
-                GovMap is a nonpartisan, end-to-end live-synced view of the
-                entire US federal government — who represents you, how they
-                vote, who runs the agencies that govern you, where the money
-                goes, and how a bill becomes law. Real data, always sourced. No
-                press. No spin.
-              </p>
-            </div>
+            <div className="max-w-3xl">
+              <div
+                className="rounded-xl bg-white/80 p-6 shadow-xl backdrop-blur-sm animate-fade-up"
+                style={{ animationDelay: "100ms" }}
+              >
+                <h1 className="font-display text-4xl font-bold leading-tight tracking-tight text-govnavy sm:text-6xl lg:text-7xl">
+                  See your{" "}
+                  {/* Solid, square-cornered highlight — like a text-selection block. */}
+                  <span className="box-decoration-clone bg-govblue px-2 text-white [text-shadow:none]">
+                    government
+                  </span>{" "}
+                  <span className="text-govred">with clarity</span>
+                </h1>
+                <p className="mt-6 max-w-xl text-lg leading-relaxed text-gray-900 sm:text-xl">
+                  GovMap is a nonpartisan, end-to-end live-synced view of the
+                  entire US federal government — who represents you, how they
+                  vote, who runs the agencies that govern you, where the money
+                  goes, and how a bill becomes law. Real data, always sourced. No
+                  press. No spin.
+                </p>
+              </div>
             <div
               className="mt-10 flex flex-wrap items-center gap-4 animate-fade-up"
               style={{ animationDelay: "250ms" }}
@@ -104,6 +105,7 @@ export default function MarketingHomePage() {
                 How it works
               </a>
             </div>
+          </div>
           </div>
         </section>
 
@@ -192,7 +194,7 @@ export default function MarketingHomePage() {
             <Reveal className="mt-16">
               <div className="rounded-2xl border border-dashed border-slate-300 p-6 sm:p-8">
                 <h3 className="font-display text-xl font-bold text-govnavy">
-                  Seeking a fiscal sponsor
+                  Seeking Fiscal Sponsorship
                 </h3>
                 <p className="mt-2 max-w-2xl text-slate-warm-600">
                   GovMap is also looking for a fiscal sponsor — a 501(c)(3) or

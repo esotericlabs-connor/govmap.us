@@ -21,7 +21,7 @@ import time
 from typing import Any
 
 import requests
-from sqlalchemy import nullslast, select
+from sqlalchemy import func, nullslast, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -41,6 +41,17 @@ _PER_PAGE = 100  # FEC Schedule A max page size
 # request. Deeper paging continues on the next request from the stored cursor.
 _MAX_PAGES_PER_REQUEST = 8
 _CHAMBER_PREFIX = {"house": "H", "senate": "S"}
+
+# Ledger sort options → ORDER BY tuple (sub_id tiebreaks for stability). Default
+# is biggest-first, which is the order the on-demand cache is populated in.
+_ORDER = {
+    "amount": (nullslast(Contribution.amount.desc()), Contribution.sub_id),
+    "amount_asc": (nullslast(Contribution.amount.asc()), Contribution.sub_id),
+    "date": (nullslast(Contribution.receipt_date.desc()), Contribution.sub_id),
+    "date_asc": (nullslast(Contribution.receipt_date.asc()), Contribution.sub_id),
+    "name": (nullslast(Contribution.contributor_name.asc()), Contribution.sub_id),
+}
+_DEFAULT_SORT = "amount"
 
 _session = requests.Session()
 
@@ -176,11 +187,22 @@ async def _fetch_more(db: AsyncSession, state: DonationFetch, cycle: int, until:
 
 
 async def get_donations(
-    db: AsyncSession, bioguide: str, cycle: int, offset: int, limit: int
+    db: AsyncSession,
+    bioguide: str,
+    cycle: int,
+    offset: int,
+    limit: int,
+    sort: str = _DEFAULT_SORT,
+    q: str | None = None,
 ) -> dict:
-    """The member's itemized donations ledger slice [offset, offset+limit),
-    biggest first — cached on demand from the FEC. Serves from our DB; fetches
-    only enough to cover the requested window."""
+    """A slice of the member's itemized donations ledger, cached on demand from
+    the FEC. `sort` reorders and `q` filters (contributor/employer/city) the
+    cached rows. Only the default biggest-first view grows the cache (the FEC
+    pull is biggest-first); search / alternate sorts run over what's cached."""
+    sort = sort if sort in _ORDER else _DEFAULT_SORT
+    q = (q or "").strip()
+    default_view = not q and sort == _DEFAULT_SORT
+
     state = await db.get(DonationFetch, (bioguide, cycle))
     if state is None:
         # Race-safe create: two cold first-views of the same member/cycle can't
@@ -208,28 +230,53 @@ async def get_donations(
         except Exception as exc:
             logger.warning("donations: committee resolve failed for %s/%s: %s", bioguide, cycle, exc)
 
-    # Fill the cache up to the requested window (bounded per request).
+    # Only the default biggest-first view grows the cache (the FEC pull walks
+    # biggest-first, so it can't cheaply satisfy a filtered/other-sorted window).
     need = offset + limit
-    if fec_enabled and state.committee_id and not state.complete and state.fetched_count < need:
+    if (
+        default_view
+        and fec_enabled
+        and state.committee_id
+        and not state.complete
+        and state.fetched_count < need
+    ):
         await _fetch_more(db, state, cycle, until=need)
 
-    items = (
-        await db.execute(
-            select(Contribution)
-            .where(Contribution.bioguide_id == bioguide, Contribution.cycle == cycle)
-            .order_by(nullslast(Contribution.amount.desc()), Contribution.sub_id)
-            .limit(limit)
-            .offset(offset)
+    base = select(Contribution).where(
+        Contribution.bioguide_id == bioguide, Contribution.cycle == cycle
+    )
+    if q:
+        like = f"%{q}%"
+        base = base.where(
+            or_(
+                Contribution.contributor_name.ilike(like),
+                Contribution.employer.ilike(like),
+                Contribution.city.ilike(like),
+            )
         )
+
+    # Default view reports the FEC grand total; filtered/sorted views report the
+    # count of matching cached rows so pagination stays consistent with results.
+    if default_view:
+        total = state.total_count
+    else:
+        total = (
+            await db.execute(select(func.count()).select_from(base.subquery()))
+        ).scalar_one()
+
+    items = (
+        await db.execute(base.order_by(*_ORDER[sort]).limit(limit).offset(offset))
     ).scalars().all()
 
     return {
         "bioguide_id": bioguide,
         "cycle": cycle,
         "committee_id": state.committee_id,
-        "total": state.total_count,
+        "total": total,
         "cached": state.fetched_count,
         "complete": state.complete,
+        "sort": sort,
+        "q": q or None,
         "offset": offset,
         "limit": limit,
         "items": [

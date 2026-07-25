@@ -2,6 +2,7 @@
 
 import { usePathname } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
+import { createPortal } from "react-dom";
 
 import { publicApiBase } from "@/lib/api";
 import {
@@ -95,13 +96,15 @@ export function BugReport({
         {triggerLabel}
       </button>
 
-      {open && (
-        <div
-          className="fixed inset-0 z-[100] flex items-center justify-center p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Report a problem"
-        >
+      {open &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[100] flex items-center justify-center p-4"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Report a problem"
+          >
           <div className="absolute inset-0 bg-black/50" onClick={() => setOpen(false)} aria-hidden="true" />
           <div className="relative w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl">
             {status === "done" ? (
@@ -203,8 +206,9 @@ export function BugReport({
               </form>
             )}
           </div>
-        </div>
-      )}
+          </div>,
+          document.body,
+        )}
     </>
   );
 }

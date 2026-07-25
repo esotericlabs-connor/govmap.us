@@ -42,15 +42,19 @@ export function formatDate(iso: string | null | undefined): string {
   });
 }
 
-/** A titled content card. `count` renders a subtle tally next to the title. */
+/** A titled content card. `count` renders a subtle tally next to the title.
+ *  `scroll` caps the body height and scrolls it internally, so long lists don't
+ *  grow the whole page (keeps detail pages feeling single-pane). */
 export function Section({
   title,
   count,
   children,
+  scroll = false,
 }: {
   title: string;
   count?: number;
   children: ReactNode;
+  scroll?: boolean;
 }) {
   return (
     <section className="rounded-2xl border border-slate-warm-200 bg-white shadow-card">
@@ -62,7 +66,7 @@ export function Section({
           </span>
         )}
       </div>
-      <div className="p-6">{children}</div>
+      <div className={`p-6 ${scroll ? "max-h-[26rem] overflow-y-auto" : ""}`}>{children}</div>
     </section>
   );
 }

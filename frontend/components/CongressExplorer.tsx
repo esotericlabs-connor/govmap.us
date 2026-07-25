@@ -1,67 +1,50 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 
-import { Reveal } from "@/components/Reveal";
 import { UsMap } from "@/components/UsMap";
-import { ZipLookup } from "@/components/ZipLookup";
-import type { CongressMap, LookupResult } from "@/lib/api";
+import { useHomeZip } from "@/lib/zip-context";
+import type { CongressMap } from "@/lib/api";
 
 /**
- * Ties the ZIP lookup to the geographic map: looking up your ZIP rings your
- * district + state. Both need to share the resolved result, so they live in one
- * client component; the page fetches /api/map server-side and passes it in.
+ * The geographic map is the centerpiece of /congress. Global search + the "set
+ * your ZIP" affordance now live in the header (UniversalSearch → ZipProvider),
+ * so this page no longer carries its own ZIP hero; the resolved home area drives
+ * the highlight + fly-to inside UsMap, and here we only mirror it to screen
+ * readers. The server page fetches /api/map and passes it in.
  */
 export function CongressExplorer({ map }: { map: CongressMap }) {
-  const [result, setResult] = useState<LookupResult | null>(null);
+  const { result } = useHomeZip();
 
-  const highlightAnnouncement = useMemo(() => {
-    if (!result || (result.senators.length === 0 && result.representatives.length === 0)) {
-      return "No representatives found for that ZIP code.";
-    }
+  const announcement = useMemo(() => {
+    if (!result) return "";
     const names = [...result.senators, ...result.representatives]
       .map((m) => m.official_full_name)
       .join(", ");
-    return `Found and highlighted representatives: ${names}.`;
+    return names ? `Showing your representatives: ${names}.` : "";
   }, [result]);
 
   return (
-    <>
-      {/* Hero: find-your-reps ZIP entry over the dark brand gradient. */}
-      <section className="relative isolate overflow-hidden bg-govnavy">
-        <div className="absolute inset-0 -z-10 bg-gradient-to-b from-govnavy-800 via-govnavy to-govnavy" />
-        <div className="mx-auto w-full max-w-6xl px-6 pb-16 pt-32 sm:pb-20 sm:pt-40">
-          <div className="max-w-2xl">
-            <h1 className="font-display text-4xl font-bold leading-tight tracking-tight text-white sm:text-5xl lg:text-6xl">
-              Find your voice in Congress.
-            </h1>
-            <p className="mt-4 max-w-xl text-lg text-white/80 sm:text-xl">
-              Enter your ZIP code to see exactly who represents you, then
-              explore every seat in the House and Senate.
-            </p>
-            <div className="mt-10">
-              <ZipLookup onResult={setResult} />
-            </div>
+    <section className="bg-slate-warm-50">
+      <div className="mx-auto w-full max-w-6xl px-6 pb-6 pt-24 sm:pt-28">
+        {announcement && (
+          <div className="sr-only" role="status" aria-live="polite">
+            {announcement}
           </div>
+        )}
+        <div className="mb-4 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+          <h1 className="font-display text-2xl font-bold tracking-tight text-govnavy sm:text-3xl">
+            Congress
+          </h1>
+          <p className="text-sm text-slate-warm-500">
+            Tap your district — or set your ZIP in the search bar above to find your reps.
+          </p>
         </div>
-      </section>
-
-      {/* The geographic map (falls back to the seat chart if geometry is absent). */}
-      <section className="bg-slate-warm-50">
-        <div className="mx-auto w-full max-w-6xl px-6 py-16 sm:py-20">
-          <Reveal>
-            <div className="rounded-2xl border border-slate-warm-200 bg-white p-6 shadow-card sm:p-8">
-              {/* Announce ZIP results to screen readers */}
-              {result && (
-                <div className="sr-only" role="status" aria-live="polite">
-                  {highlightAnnouncement}
-                </div>
-              )}
-              <UsMap map={map} result={result} />
-            </div>
-          </Reveal>
+        {/* Full-bleed on mobile (cancel the parent px-6), a framed card on ≥sm. */}
+        <div className="-mx-6 border-y border-slate-warm-200 bg-white p-3 shadow-sm sm:mx-0 sm:rounded-2xl sm:border sm:p-6 sm:shadow-card">
+          <UsMap map={map} />
         </div>
-      </section>
-    </>
+      </div>
+    </section>
   );
 }

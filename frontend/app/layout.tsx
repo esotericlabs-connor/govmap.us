@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { Inter, Space_Grotesk } from "next/font/google";
 import "./globals.css";
 
+import { ZipProvider } from "@/lib/zip-context";
+
 const inter = Inter({
   subsets: ["latin"],
   variable: "--font-sans",
@@ -52,7 +54,9 @@ export default function RootLayout({
       className={`${inter.variable} ${spaceGrotesk.variable} scroll-smooth`}
     >
       {/* Base background/text colors are now in globals.css */}
-      <body>{children}</body>
+      <body>
+        <ZipProvider>{children}</ZipProvider>
+      </body>
     </html>
   );
 }
