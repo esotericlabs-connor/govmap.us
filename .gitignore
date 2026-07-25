@@ -247,6 +247,12 @@ backend/data/staging/*
 !backend/data/staging/.gitkeep
 backend/data/pipeline_status.json
 
+# --- GovMap: local runtime data, never committed ---
+# The operator log + bug-report files live on the `govmap-logs` Docker volume,
+# not here; this is just a safety net for any local ./data scratch (and *.log
+# above already ignores stray log files).
+/data/
+
 # --- GovMap: local Postgres / Alembic ---
 *.sqlite3
 postgres-data/

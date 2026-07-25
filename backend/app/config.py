@@ -54,6 +54,12 @@ class Settings(BaseSettings):
     # Empty = the zip_crosswalk pipeline is skipped (non-fatal), like the others.
     hud_api_token: str = ""
 
+    # Directory for the on-server operator files — app.log (runtime logs) and
+    # bug_reports.log (submitted reports). Bind-mounted to the host at
+    # /opt/govmap/data/logs so they're grabbable off the box and survive
+    # redeploys. See app/logging_setup.py and app/routers/report.py.
+    log_dir: str = "/app/logs"
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
     @property

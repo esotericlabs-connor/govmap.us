@@ -61,6 +61,14 @@ services:
       # Loopback only — for host-side tooling and the deploy health check.
       # The tunnel reaches this over the compose network at http://backend:8000.
       - "127.0.0.1:8000:8000"
+    volumes:
+      # Operator log + bug-report files (app.log, bug_reports.log). A NAMED
+      # volume (not a bind mount): the backend runs as a non-root user, and a
+      # named volume inherits /app/logs' appuser ownership from the image so it
+      # stays writable — a root-owned bind mount would silently fail. Persists
+      # across redeploys. Grab the files with `docker cp` or
+      # `docker compose exec backend cat` (see docs/logs-and-bug-reports.md).
+      - govmap-logs:/app/logs
 
   frontend:
     build:
@@ -104,3 +112,4 @@ services:
 
 volumes:
   postgres-data:
+  govmap-logs:

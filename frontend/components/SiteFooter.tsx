@@ -2,6 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 
 import { BrandIcon } from "@/components/BrandIcon";
+import { BugReport } from "@/components/BugReport";
 import { siteConfig } from "@/lib/site-config";
 
 type FooterLink = { label: string; href: string; external?: boolean };
@@ -90,7 +91,10 @@ export function SiteFooter() {
 
         <div className="mt-16 flex flex-col gap-3 border-t border-white/10 pt-8 text-white/50 sm:flex-row sm:items-center sm:justify-between">
           <p>© {new Date().getFullYear()} GovMap.us — a nonprofit, nonpartisan civic project.</p>
-          <p>Data only, always sourced.</p>
+          <div className="flex items-center gap-5">
+            <BugReport triggerClassName="transition-colors hover:text-white" />
+            <p>Data only, always sourced.</p>
+          </div>
         </div>
       </div>
     </footer>
