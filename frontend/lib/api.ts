@@ -337,7 +337,18 @@ export interface MapEntry {
   party: string;
 }
 
+/** Curated, sourced context for a vacant seat (see backend app/vacancies.py). */
+export interface VacancyInfo {
+  special_election_date?: string;
+  note?: string;
+  source_url?: string;
+}
+
 export interface CongressMap {
   house: Record<string, MapEntry>;
   senate: Record<string, MapEntry[]>;
+  /** ISO timestamp the roster (congress-legislators) was last refreshed. */
+  roster_updated?: string | null;
+  /** STATE-DISTRICT -> curated special-election context for vacant seats. */
+  vacancies?: Record<string, VacancyInfo>;
 }

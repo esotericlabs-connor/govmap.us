@@ -71,7 +71,8 @@ type Shape = {
   x1: number;
   y1: number;
   fill: string;
-  hover: { title: string; rows: { name: string; party: Party; sub?: string }[] };
+  vacant?: boolean; // a House district (or Senate seat) with no current holder
+  hover: { title: string; rows: { name: string; party: Party; sub?: string; vacant?: boolean }[] };
   href?: string;
 };
 
@@ -97,6 +98,16 @@ function senateFill(seats: { party: string }[]): string {
   if (hasR) return "fill-govred";
   if (hasD) return "fill-govblue";
   return "fill-slate-400";
+}
+
+// ISO date/timestamp -> "Jul 26, 2026" (or null). Date-only strings are parsed
+// as local so a UTC midnight can't shift the label back a day.
+function formatDay(iso?: string | null): string | null {
+  if (!iso) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  const d = m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
 }
 
 function clamp(v: number, lo: number, hi: number): number {
@@ -132,11 +143,54 @@ export function UsMap({ map, result = null }: { map: CongressMap; result?: Looku
   const [geo, setGeo] = useState<{ districts: any[]; states: any[] } | null>(null);
   const [failed, setFailed] = useState(false);
   const [zoom, setZoom] = useState({ k: 1, x: 0, y: 0 });
-  const [animate, setAnimate] = useState(false); // ease the transform only for programmatic fly-to
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom; // latest committed zoom, for rAF tweens to read as their start
+  const rafRef = useRef<number | null>(null); // in-flight fly-to animation frame
   const [hover, setHover] = useState<{ shape: Shape; x: number; y: number } | null>(null);
   const [popover, setPopover] = useState<Shape | null>(null);
   const drag = useRef<{ x: number; y: number; moved: boolean } | null>(null);
   const flownHome = useRef<LookupResult | null>(null); // fly to a home area at most once per value
+
+  // Curated context for the open popover's seat (special-election date/source),
+  // plus when the roster was last refreshed — both surfaced in the vacant popover.
+  const popoverVacancy = popover ? map.vacancies?.[popover.key] : undefined;
+  const rosterUpdatedLabel = formatDay(map.roster_updated);
+
+  // Programmatic fly-to eases the SVG viewBox with a rAF tween rather than a CSS
+  // transform transition: driving zoom through the viewBox (see the <svg> below)
+  // re-renders the vector borders crisply every frame, where a CSS `scale()`
+  // rasterizes the group and blurs the lines until the animation settles. Direct
+  // manipulation (wheel/drag) cancels any tween and sets the zoom immediately.
+  const cancelAnim = useCallback(() => {
+    if (rafRef.current !== null) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
+  }, []);
+
+  const animateZoomTo = useCallback(
+    (target: { k: number; x: number; y: number }, duration = 500) => {
+      cancelAnim();
+      const start = zoomRef.current;
+      const t0 = performance.now();
+      const easeOutCubic = (t: number) => 1 - (1 - t) ** 3;
+      const step = (now: number) => {
+        const t = Math.min(1, (now - t0) / duration);
+        const e = easeOutCubic(t);
+        setZoom({
+          k: start.k + (target.k - start.k) * e,
+          x: start.x + (target.x - start.x) * e,
+          y: start.y + (target.y - start.y) * e,
+        });
+        rafRef.current = t < 1 ? requestAnimationFrame(step) : null;
+      };
+      rafRef.current = requestAnimationFrame(step);
+    },
+    [cancelAnim],
+  );
+
+  // Stop any in-flight fly-to if the component unmounts mid-animation.
+  useEffect(() => cancelAnim, [cancelAnim]);
 
   // Load bundled geometry once. Fall back to the seat chart if it isn't there.
   useEffect(() => {
@@ -208,17 +262,26 @@ export function UsMap({ map, result = null }: { map: CongressMap; result?: Looku
           x1,
           y1,
           fill: entry ? PARTY_FILL[party] : "fill-slate-200",
+          vacant: !entry,
           hover: {
             title: key,
             rows: entry
               ? [{ name: entry.last_name, party, sub: "Representative" }]
-              : [{ name: "Vacant / no data", party: "I" }],
+              : [{ name: "Vacant seat", party: "I", sub: "No current representative", vacant: true }],
           },
           href: entry ? `/members/${entry.bioguide}` : undefined,
         });
       }
       if (out.length && matched === 0) {
         console.warn("UsMap: districts drew but none matched /api/map keys — check GEOID→key mapping");
+        // Nothing matched at all is a data-load problem, not 435 real vacancies —
+        // don't mislabel the whole map as "vacant".
+        for (const s of out) {
+          if (s.vacant) {
+            s.vacant = false;
+            s.hover.rows = [{ name: "No data", party: "I" }];
+          }
+        }
       }
       return out;
     }
@@ -260,7 +323,7 @@ export function UsMap({ map, result = null }: { map: CongressMap; result?: Looku
     if (!geo || !el) return;
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      setAnimate(false); // direct manipulation should track the cursor, not ease
+      cancelAnim(); // direct manipulation should track the cursor, not ease
       setPopover(null);
       const rect = el.getBoundingClientRect();
       const cx = ((e.clientX - rect.left) / rect.width) * WIDTH;
@@ -274,12 +337,12 @@ export function UsMap({ map, result = null }: { map: CongressMap; result?: Looku
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
-  }, [geo]);
+  }, [geo, cancelAnim]);
 
-  // Smoothly ease the {k,x,y} transform to *fit* a shape to the viewport, scaling
-  // by its bounding box so tiny districts zoom in far and big ones don't — every
-  // selection lands as large as it can. `animate` gates the CSS transition so
-  // drag/wheel stay instant. Guards NaN bounds (AK/HI off-projection edges).
+  // Ease the {k,x,y} view to *fit* a shape to the viewport, scaling by its
+  // bounding box so tiny districts zoom in far and big ones don't — every
+  // selection lands as large as it can. Uses the rAF viewBox tween so the fly-in
+  // stays crisp. Guards NaN bounds (AK/HI off-projection edges).
   const fitTo = useCallback((s: Shape) => {
     const bw = s.x1 - s.x0;
     const bh = s.y1 - s.y0;
@@ -287,34 +350,27 @@ export function UsMap({ map, result = null }: { map: CongressMap; result?: Looku
     const k = clamp(Math.min(WIDTH / (bw * FIT_PAD), HEIGHT / (bh * FIT_PAD)), MIN_K, MAX_K);
     const cx = (s.x0 + s.x1) / 2;
     const cy = (s.y0 + s.y1) / 2;
-    setAnimate(true);
-    setZoom(clampXY({ k, x: WIDTH / 2 - k * cx, y: HEIGHT / 2 - k * cy }));
-    window.setTimeout(() => setAnimate(false), 600);
-  }, []);
+    animateZoomTo(clampXY({ k, x: WIDTH / 2 - k * cx, y: HEIGHT / 2 - k * cy }));
+  }, [animateZoomTo]);
 
   // Smooth step zoom toward the viewport center (the +/- buttons).
   const zoomBy = useCallback((factor: number) => {
     setPopover(null);
-    setAnimate(true);
-    setZoom((z) => {
-      const k = clamp(z.k * factor, MIN_K, MAX_K);
-      const cx = WIDTH / 2;
-      const cy = HEIGHT / 2;
-      const px = (cx - z.x) / z.k;
-      const py = (cy - z.y) / z.k;
-      return clampXY({ k, x: cx - px * k, y: cy - py * k });
-    });
-    window.setTimeout(() => setAnimate(false), 400);
-  }, []);
+    const z = zoomRef.current;
+    const k = clamp(z.k * factor, MIN_K, MAX_K);
+    const cx = WIDTH / 2;
+    const cy = HEIGHT / 2;
+    const px = (cx - z.x) / z.k;
+    const py = (cy - z.y) / z.k;
+    animateZoomTo(clampXY({ k, x: cx - px * k, y: cy - py * k }));
+  }, [animateZoomTo]);
 
   // Ease all the way back out to the whole country.
   const resetView = useCallback(() => {
     setPopover(null);
     flownHome.current = homeResult; // don't immediately re-fly home after a manual reset
-    setAnimate(true);
-    setZoom({ k: 1, x: 0, y: 0 });
-    window.setTimeout(() => setAnimate(false), 600);
-  }, [homeResult]);
+    animateZoomTo({ k: 1, x: 0, y: 0 });
+  }, [homeResult, animateZoomTo]);
 
   // When a home area is set (or hydrated from storage), fly to that district/
   // state once. The ref keys off the result value so toggling chambers or
@@ -341,7 +397,7 @@ export function UsMap({ map, result = null }: { map: CongressMap; result?: Looku
     const dy = ((e.clientY - drag.current.y) / rect.height) * HEIGHT;
     if (Math.abs(e.clientX - drag.current.x) + Math.abs(e.clientY - drag.current.y) > 3) {
       drag.current.moved = true;
-      setAnimate(false); // a pan is direct manipulation — no easing
+      cancelAnim(); // a pan is direct manipulation — no easing
       setPopover(null);
     }
     drag.current.x = e.clientX;
@@ -364,6 +420,13 @@ export function UsMap({ map, result = null }: { map: CongressMap; result?: Looku
     return <CongressCartogram map={map} highlight={bioguideHighlight} />;
   }
 
+  // Pan/zoom drives the SVG viewBox (not a CSS transform on the <g>), so the
+  // browser re-rasterizes the vector borders at full resolution every frame —
+  // they stay crisp while moving instead of blurring and snapping sharp. Derived
+  // from the same {k,x,y} the handlers maintain: a translate(x,y) scale(k) of the
+  // WIDTH×HEIGHT frame is the viewBox [-x/k, -y/k, W/k, H/k].
+  const viewBox = `${-zoom.x / zoom.k} ${-zoom.y / zoom.k} ${WIDTH / zoom.k} ${HEIGHT / zoom.k}`;
+
   return (
     <div className="relative h-full w-full overflow-hidden bg-slate-warm-50">
       {!geo ? (
@@ -374,7 +437,7 @@ export function UsMap({ map, result = null }: { map: CongressMap; result?: Looku
         <>
           <svg
             ref={svgRef}
-            viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
+            viewBox={viewBox}
             preserveAspectRatio="xMidYMid meet"
             className="h-full w-full cursor-grab touch-none select-none active:cursor-grabbing"
             role="img"
@@ -387,17 +450,29 @@ export function UsMap({ map, result = null }: { map: CongressMap; result?: Looku
               setHover(null);
             }}
           >
-            <g
-              className={animate ? "transition-transform duration-500 ease-out" : ""}
-              style={{ transform: `translate(${zoom.x}px, ${zoom.y}px) scale(${zoom.k})`, transformOrigin: "0 0" }}
-            >
+            <defs>
+              {/* Vacant seats: a soft diagonal hatch so an empty district reads
+                  as "no current holder / election pending", not a data error. */}
+              <pattern
+                id="vacant-hatch"
+                width={6}
+                height={6}
+                patternUnits="userSpaceOnUse"
+                patternTransform="rotate(45)"
+              >
+                <rect width={6} height={6} className="fill-slate-100" />
+                <line x1={0} y1={0} x2={0} y2={6} className="stroke-slate-300" strokeWidth={2} />
+              </pattern>
+            </defs>
+            <g>
               {shapes.map((s) => {
                 const isHi = highlight.has(s.key);
                 return (
                   <path
                     key={s.key}
                     d={s.d}
-                    className={`${s.fill} ${s.href ? "cursor-pointer" : ""} stroke-white transition-[fill,opacity] duration-150 hover:opacity-80`}
+                    className={`${s.vacant ? "" : s.fill} ${s.href ? "cursor-pointer" : ""} stroke-white transition-[fill,opacity] duration-150 hover:opacity-80`}
+                    fill={s.vacant ? "url(#vacant-hatch)" : undefined}
                     strokeWidth={isHi ? 1.6 : 0.3}
                     stroke={isHi ? "#0b1220" : "#ffffff"}
                     vectorEffect="non-scaling-stroke"
@@ -445,13 +520,17 @@ export function UsMap({ map, result = null }: { map: CongressMap; result?: Looku
               {hover.shape.hover.rows.map((r, i) => (
                 <p key={i} className="whitespace-nowrap text-sm font-semibold">
                   {r.name}
-                  <span
-                    className={
-                      r.party === "D" ? "text-govblue-400" : r.party === "R" ? "text-red-400" : "text-slate-400"
-                    }
-                  >
-                    {" "}· {r.party}
-                  </span>
+                  {r.vacant ? (
+                    r.sub && <span className="font-normal text-white/60"> · {r.sub}</span>
+                  ) : (
+                    <span
+                      className={
+                        r.party === "D" ? "text-govblue-400" : r.party === "R" ? "text-red-400" : "text-slate-400"
+                      }
+                    >
+                      {" "}· {r.party}
+                    </span>
+                  )}
                 </p>
               ))}
             </div>
@@ -496,14 +575,50 @@ export function UsMap({ map, result = null }: { map: CongressMap; result?: Looku
                   </li>
                 ))}
               </ul>
-              {popover.href && (
-                <Link
-                  href={popover.href}
-                  className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-govblue transition-colors hover:text-govnavy"
-                >
-                  View profile
-                  <span aria-hidden="true">→</span>
-                </Link>
+              {popover.vacant ? (
+                <div className="mt-3">
+                  <p className="text-xs leading-relaxed text-slate-warm-500">
+                    This seat is currently vacant.{" "}
+                    {popoverVacancy?.special_election_date && formatDay(popoverVacancy.special_election_date) ? (
+                      <>
+                        A special election is scheduled for{" "}
+                        <span className="font-semibold text-govnavy">
+                          {formatDay(popoverVacancy.special_election_date)}
+                        </span>
+                        . GovMap updates automatically once a new representative is seated.
+                      </>
+                    ) : (
+                      <>A special election will fill it — GovMap updates automatically once a new representative is seated.</>
+                    )}
+                  </p>
+                  {popoverVacancy?.note && (
+                    <p className="mt-1 text-xs leading-relaxed text-slate-warm-500">{popoverVacancy.note}</p>
+                  )}
+                  {popoverVacancy?.source_url && (
+                    <a
+                      href={popoverVacancy.source_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-govblue transition-colors hover:text-govnavy"
+                    >
+                      Election details
+                      <span aria-hidden="true">↗</span>
+                    </a>
+                  )}
+                  {rosterUpdatedLabel && (
+                    <p className="mt-2 text-[11px] text-slate-warm-400">Roster current as of {rosterUpdatedLabel}</p>
+                  )}
+                </div>
+              ) : (
+                popover.href && (
+                  <Link
+                    href={popover.href}
+                    className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-govblue transition-colors hover:text-govnavy"
+                  >
+                    View profile
+                    <span aria-hidden="true">→</span>
+                  </Link>
+                )
               )}
             </div>
           )}

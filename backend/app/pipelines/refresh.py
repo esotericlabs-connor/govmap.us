@@ -13,7 +13,11 @@ from __future__ import annotations
 import asyncio
 import logging
 
+from sqlalchemy import select
+
 from app.config import settings
+from app.db import async_session_factory
+from app.models.member import Member
 from app.normalize.bills import normalize_and_load as normalize_bills
 from app.normalize.committee_meetings import load_committee_meetings
 from app.normalize.committees import load_committees
@@ -33,10 +37,44 @@ from app.pipelines import (
     senate_lis_votes,
     zip_crosswalk,
 )
-from app.pipelines.status import record_run
+from app.pipelines.status import record_run, send_alert
 from app.services.bill_enrich import backfill_unenriched
 
 logger = logging.getLogger(__name__)
+
+_SEAT_CHANGE_LIST_CAP = 12
+
+
+async def _held_house_districts() -> set[str]:
+    """The set of currently-held House seats, keyed like the map (STATE-DISTRICT,
+    at-large = STATE-0). A district absent from this set is vacant."""
+    async with async_session_factory() as session:
+        rows = (
+            await session.execute(
+                select(Member.state, Member.district).where(Member.chamber == "house")
+            )
+        ).all()
+    return {f"{state}-{district if district is not None else 0}" for state, district in rows}
+
+
+async def _alert_seat_changes(before: set[str], after: set[str]) -> None:
+    """Notify (log + webhook) when House seats flip vacant<->filled between roster
+    refreshes — e.g. a special-election winner being seated. Skips the very first
+    load (empty `before`) so we don't alert on all 435 seats at once."""
+    if not before:
+        return
+    for label, changed in (
+        ("newly filled", sorted(after - before)),
+        ("newly vacant", sorted(before - after)),
+    ):
+        if not changed:
+            continue
+        shown = ", ".join(changed[:_SEAT_CHANGE_LIST_CAP])
+        overflow = len(changed) - _SEAT_CHANGE_LIST_CAP
+        extra = f" (+{overflow} more)" if overflow > 0 else ""
+        msg = f"GovMap: {len(changed)} House seat(s) {label} — {shown}{extra}"
+        logger.info(msg)
+        await send_alert(msg)
 
 
 async def refresh_members() -> None:
@@ -46,6 +84,7 @@ async def refresh_members() -> None:
     (crosswalk + memberships FK it), then committees (memberships FK them)."""
     source = "congress_legislators"
     try:
+        held_before = await _held_house_districts()
         # The pull is synchronous (requests) — run it off the event loop.
         await asyncio.to_thread(congress_legislators.run)
         count = await normalize_and_load()
@@ -57,6 +96,12 @@ async def refresh_members() -> None:
         await record_run(source, 0, "error", str(exc))
         logger.exception("refresh %s failed", source)
         raise
+    # Roster refreshed + status recorded. Surface any seat that flipped vacant<->
+    # filled. Best-effort: a hiccup here must never fail an otherwise-good refresh.
+    try:
+        await _alert_seat_changes(held_before, await _held_house_districts())
+    except Exception:
+        logger.warning("refresh %s: seat-change check failed", source, exc_info=True)
 
 
 async def refresh_bills() -> None:

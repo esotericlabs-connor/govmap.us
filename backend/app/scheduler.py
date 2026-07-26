@@ -33,12 +33,14 @@ scheduler = AsyncIOScheduler(timezone="UTC")
 
 # (job id, coroutine, APScheduler trigger kwargs).
 JOBS: list[tuple[str, Callable[[], Awaitable[None]], dict]] = [
-    # Members change rarely (new member sworn in, resignation) — weekly is
-    # plenty; Sunday 07:00 UTC.
+    # Members change rarely, but special elections fill vacant House seats
+    # mid-cycle and we want those reflected within a day, not up to a week —
+    # daily at 07:00 UTC. It's a single cheap GitHub raw-file fetch, so daily is
+    # nearly free; the deploy-time core refresh keeps it warm on top of this.
     (
         "refresh_members",
         refresh_members,
-        {"trigger": "cron", "day_of_week": "sun", "hour": 7},
+        {"trigger": "cron", "hour": 7},
     ),
     # Bills move constantly while Congress is in session. Every 30 min keeps the
     # "what's moving" view fresh; upserts are idempotent when nothing changed.

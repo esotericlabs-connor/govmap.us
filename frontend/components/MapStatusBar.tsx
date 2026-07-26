@@ -38,6 +38,16 @@ export function MapStatusBar({ summary }: { summary: ChamberSummary | null }) {
           <span className="h-2 w-2 rounded-full bg-govred" />
           Republican
         </span>
+        <span className="flex shrink-0 items-center gap-1.5">
+          <span
+            className="h-2.5 w-2.5 rounded-sm ring-1 ring-inset ring-white/25"
+            style={{
+              backgroundImage:
+                "repeating-linear-gradient(45deg, #cbd5e1 0, #cbd5e1 1px, #f1f5f9 1px, #f1f5f9 3px)",
+            }}
+          />
+          Vacant
+        </span>
         {summary && (
           <>
             <span className="hidden text-white/20 md:inline">|</span>

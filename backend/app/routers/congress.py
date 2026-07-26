@@ -16,7 +16,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
 from app.models.member import Member
+from app.models.pipeline_status import PipelineStatusRow
 from app.models.zip_district import ZipDistrict
+from app.vacancies import HOUSE_VACANCIES
 
 router = APIRouter(prefix="/api", tags=["congress"])
 
@@ -76,7 +78,23 @@ async def congress_map(db: AsyncSession = Depends(get_db)) -> dict:
         elif r.chamber == "senate":
             senate.setdefault(r.state, []).append(entry)
 
-    return {"house": house, "senate": senate}
+    # When the roster was last refreshed — so the UI can reassure visitors that a
+    # "vacant" seat reflects current data, not a stale load. Source name is the
+    # congress-legislators family (see refresh_members).
+    roster_updated = (
+        await db.execute(
+            select(PipelineStatusRow.last_success).where(
+                PipelineStatusRow.source == "congress_legislators"
+            )
+        )
+    ).scalar_one_or_none()
+
+    return {
+        "house": house,
+        "senate": senate,
+        "roster_updated": roster_updated.isoformat() if roster_updated else None,
+        "vacancies": HOUSE_VACANCIES,
+    }
 
 
 @router.get("/summary")
