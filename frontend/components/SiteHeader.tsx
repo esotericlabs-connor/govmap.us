@@ -15,8 +15,9 @@ type NavItem = { label: string; href: string; external?: boolean };
 
 const MARKETING_NAV: NavItem[] = [
   { label: "About", href: "/#about" },
-  { label: "Support", href: "/#support" },
   { label: "GitHub", href: siteConfig.githubUrl, external: true },
+  { label: "Privacy Policy", href: "/privacy" },
+  { label: "Support", href: "/#support" },
 ];
 
 const APP_NAV: NavItem[] = [
@@ -149,7 +150,7 @@ export function SiteHeader({
             behind the menu button (right), keeping the bar to logo + search. */}
         {variant === "marketing" && (
           <nav
-            className="absolute left-1/2 top-1/2 hidden -translate-x-1/2 -translate-y-1/2 items-center gap-8 md:flex"
+            className="absolute left-1/2 top-1/2 hidden -translate-x-1/2 -translate-y-1/2 items-center gap-6 md:flex"
             aria-label="Primary"
           >
             {navItems.map((item) => (
