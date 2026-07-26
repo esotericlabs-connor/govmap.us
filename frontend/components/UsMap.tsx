@@ -31,7 +31,7 @@ import { useHomeZip } from "@/lib/zip-context";
 const WIDTH = 960;
 const HEIGHT = 600;
 const MIN_K = 1;
-const MAX_K = 14;
+const MAX_K = 22;
 
 // 2-digit state/territory FIPS -> USPS (mirrors the backend crosswalk map).
 const FIPS_TO_USPS: Record<string, string> = {
@@ -66,6 +66,10 @@ type Shape = {
   d: string;
   cx: number; // projected centroid (viewBox coords) — anchors zoom + popover
   cy: number;
+  x0: number; // projected bounding box (viewBox coords) — drives zoom-to-fit
+  y0: number;
+  x1: number;
+  y1: number;
   fill: string;
   hover: { title: string; rows: { name: string; party: Party; sub?: string }[] };
   href?: string;
@@ -97,6 +101,28 @@ function senateFill(seats: { party: string }[]): string {
 
 function clamp(v: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, v));
+}
+
+const FIT_PAD = 1.35; // extra breathing room around a district/state when fitting
+
+// Keep the map covering the viewport so it can never be dragged into the void.
+// For scale k, the {x,y} translate is bounded so the WIDTH×HEIGHT frame still
+// spans the viewport (x in [WIDTH(1-k), 0], y in [HEIGHT(1-k), 0]).
+function clampXY(z: { k: number; x: number; y: number }): { k: number; x: number; y: number } {
+  return {
+    k: z.k,
+    x: clamp(z.x, WIDTH * (1 - z.k), 0),
+    y: clamp(z.y, HEIGHT * (1 - z.k), 0),
+  };
+}
+
+// Rough continental-US silhouette — the "zoom out to the whole country" glyph.
+function UsShapeIcon() {
+  return (
+    <svg viewBox="0 0 24 14" fill="currentColor" className="h-3.5 w-6" aria-hidden="true">
+      <path d="M1 4.5 6 3.5 12 3.2 18 3.5 23 4.4 22 6 19.5 6.6 18.2 8.4 16.6 8.9 16 11.4 14.4 12 13.7 10 12 10.7 10.4 9.2 7.4 9.8 5.4 8.4 3.8 6.3 1 4.5Z" />
+    </svg>
+  );
 }
 
 export function UsMap({ map, result = null }: { map: CongressMap; result?: LookupResult | null }) {
@@ -168,6 +194,7 @@ export function UsMap({ map, result = null }: { map: CongressMap; result?: Looku
         const d = path(f as any);
         if (!key || !d) continue;
         const [cx, cy] = path.centroid(f as any);
+        const [[x0, y0], [x1, y1]] = path.bounds(f as any);
         const entry = map.house[key];
         if (entry) matched++;
         const party = partyOf(entry?.party);
@@ -176,6 +203,10 @@ export function UsMap({ map, result = null }: { map: CongressMap; result?: Looku
           d,
           cx,
           cy,
+          x0,
+          y0,
+          x1,
+          y1,
           fill: entry ? PARTY_FILL[party] : "fill-slate-200",
           hover: {
             title: key,
@@ -198,12 +229,17 @@ export function UsMap({ map, result = null }: { map: CongressMap; result?: Looku
       const d = path(f as any);
       if (!key || !d) continue;
       const [cx, cy] = path.centroid(f as any);
+      const [[x0, y0], [x1, y1]] = path.bounds(f as any);
       const seats = map.senate[key] ?? [];
       out.push({
         key,
         d,
         cx,
         cy,
+        x0,
+        y0,
+        x1,
+        y1,
         fill: seats.length ? senateFill(seats) : "fill-slate-200",
         hover: {
           title: key,
@@ -233,22 +269,52 @@ export function UsMap({ map, result = null }: { map: CongressMap; result?: Looku
         const k = clamp(z.k * (e.deltaY < 0 ? 1.2 : 1 / 1.2), MIN_K, MAX_K);
         const px = (cx - z.x) / z.k;
         const py = (cy - z.y) / z.k;
-        return { k, x: cx - px * k, y: cy - py * k };
+        return clampXY({ k, x: cx - px * k, y: cy - py * k });
       });
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
   }, [geo]);
 
-  // Ease the {k,x,y} transform to center a shape's centroid in the viewport.
-  // Only used for programmatic moves (click, fly-to-home) — `animate` gates the
-  // CSS transition so drag/wheel stay instant. Guards NaN centroids (AK/HI edges).
-  const flyTo = useCallback((cx: number, cy: number, k: number) => {
-    if (!Number.isFinite(cx) || !Number.isFinite(cy)) return;
+  // Smoothly ease the {k,x,y} transform to *fit* a shape to the viewport, scaling
+  // by its bounding box so tiny districts zoom in far and big ones don't — every
+  // selection lands as large as it can. `animate` gates the CSS transition so
+  // drag/wheel stay instant. Guards NaN bounds (AK/HI off-projection edges).
+  const fitTo = useCallback((s: Shape) => {
+    const bw = s.x1 - s.x0;
+    const bh = s.y1 - s.y0;
+    if (![bw, bh, s.cx, s.cy].every(Number.isFinite) || bw <= 0 || bh <= 0) return;
+    const k = clamp(Math.min(WIDTH / (bw * FIT_PAD), HEIGHT / (bh * FIT_PAD)), MIN_K, MAX_K);
+    const cx = (s.x0 + s.x1) / 2;
+    const cy = (s.y0 + s.y1) / 2;
     setAnimate(true);
-    setZoom({ k, x: WIDTH / 2 - k * cx, y: HEIGHT / 2 - k * cy });
-    window.setTimeout(() => setAnimate(false), 550);
+    setZoom(clampXY({ k, x: WIDTH / 2 - k * cx, y: HEIGHT / 2 - k * cy }));
+    window.setTimeout(() => setAnimate(false), 600);
   }, []);
+
+  // Smooth step zoom toward the viewport center (the +/- buttons).
+  const zoomBy = useCallback((factor: number) => {
+    setPopover(null);
+    setAnimate(true);
+    setZoom((z) => {
+      const k = clamp(z.k * factor, MIN_K, MAX_K);
+      const cx = WIDTH / 2;
+      const cy = HEIGHT / 2;
+      const px = (cx - z.x) / z.k;
+      const py = (cy - z.y) / z.k;
+      return clampXY({ k, x: cx - px * k, y: cy - py * k });
+    });
+    window.setTimeout(() => setAnimate(false), 400);
+  }, []);
+
+  // Ease all the way back out to the whole country.
+  const resetView = useCallback(() => {
+    setPopover(null);
+    flownHome.current = homeResult; // don't immediately re-fly home after a manual reset
+    setAnimate(true);
+    setZoom({ k: 1, x: 0, y: 0 });
+    window.setTimeout(() => setAnimate(false), 600);
+  }, [homeResult]);
 
   // When a home area is set (or hydrated from storage), fly to that district/
   // state once. The ref keys off the result value so toggling chambers or
@@ -262,8 +328,8 @@ export function UsMap({ map, result = null }: { map: CongressMap; result?: Looku
     const shape = shapes.find((s) => s.key === key);
     if (!shape) return;
     flownHome.current = homeResult;
-    flyTo(shape.cx, shape.cy, chamber === "house" ? 5 : 3);
-  }, [homeResult, shapes, chamber, flyTo]);
+    fitTo(shape);
+  }, [homeResult, shapes, chamber, fitTo]);
 
   function onPointerDown(e: ReactPointerEvent<SVGSVGElement>) {
     drag.current = { x: e.clientX, y: e.clientY, moved: false };
@@ -280,7 +346,7 @@ export function UsMap({ map, result = null }: { map: CongressMap; result?: Looku
     }
     drag.current.x = e.clientX;
     drag.current.y = e.clientY;
-    setZoom((z) => ({ ...z, x: z.x + dx, y: z.y + dy }));
+    setZoom((z) => clampXY({ ...z, x: z.x + dx, y: z.y + dy }));
   }
   function endPan() {
     // Keep `moved` readable through the click that fires right after pointerup.
@@ -291,7 +357,7 @@ export function UsMap({ map, result = null }: { map: CongressMap; result?: Looku
     if (drag.current?.moved) return; // it was a pan, not a click
     setHover(null);
     setPopover(shape);
-    flyTo(shape.cx, shape.cy, chamber === "house" ? 5 : 3);
+    fitTo(shape);
   }
 
   if (failed) {
@@ -299,197 +365,188 @@ export function UsMap({ map, result = null }: { map: CongressMap; result?: Looku
   }
 
   return (
-    <div className="relative">
-      <div className="flex flex-wrap items-center justify-between gap-y-3">
-        <div className="relative inline-flex rounded-full border border-slate-warm-200 bg-slate-warm-50 p-1">
-          {(["house", "senate"] as const).map((c) => (
-            <button
-              key={c}
-              type="button"
-              onClick={() => {
-                setHover(null);
-                setPopover(null);
-                setChamber(c);
-              }}
-              className={`relative z-10 rounded-full px-4 py-1.5 text-sm font-semibold capitalize transition-colors ${
-                chamber === c ? "bg-govnavy text-white shadow" : "text-slate-warm-600 hover:text-govnavy"
-              }`}
+    <div className="relative h-full w-full overflow-hidden bg-slate-warm-50">
+      {!geo ? (
+        <div className="flex h-full w-full animate-pulse items-center justify-center text-sm text-slate-warm-400">
+          Loading map…
+        </div>
+      ) : (
+        <>
+          <svg
+            ref={svgRef}
+            viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
+            preserveAspectRatio="xMidYMid meet"
+            className="h-full w-full cursor-grab touch-none select-none active:cursor-grabbing"
+            role="img"
+            aria-label={`Geographic map of the U.S. ${chamber === "house" ? "House by district" : "Senate by state"}`}
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={endPan}
+            onPointerLeave={() => {
+              endPan();
+              setHover(null);
+            }}
+          >
+            <g
+              className={animate ? "transition-transform duration-500 ease-out" : ""}
+              style={{ transform: `translate(${zoom.x}px, ${zoom.y}px) scale(${zoom.k})`, transformOrigin: "0 0" }}
             >
-              {c}
-            </button>
-          ))}
-        </div>
-        <div className="flex items-center gap-4 text-xs text-slate-500">
-          <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-govblue" /> Democrat</span>
-          <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-govred" /> Republican</span>
-          {chamber === "senate" && (
-            <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-violet-500" /> Split</span>
-          )}
-        </div>
-      </div>
+              {shapes.map((s) => {
+                const isHi = highlight.has(s.key);
+                return (
+                  <path
+                    key={s.key}
+                    d={s.d}
+                    className={`${s.fill} ${s.href ? "cursor-pointer" : ""} stroke-white transition-[fill,opacity] duration-150 hover:opacity-80`}
+                    strokeWidth={isHi ? 1.6 : 0.3}
+                    stroke={isHi ? "#0b1220" : "#ffffff"}
+                    vectorEffect="non-scaling-stroke"
+                    onMouseEnter={(e) => {
+                      const rect = svgRef.current?.getBoundingClientRect();
+                      if (rect) setHover({ shape: s, x: e.clientX - rect.left, y: e.clientY - rect.top });
+                    }}
+                    onMouseMove={(e) => {
+                      const rect = svgRef.current?.getBoundingClientRect();
+                      if (rect) setHover({ shape: s, x: e.clientX - rect.left, y: e.clientY - rect.top });
+                    }}
+                    onClick={() => onShapeClick(s)}
+                  />
+                );
+              })}
+            </g>
+          </svg>
 
-      <div className="relative mt-4 h-[55vh] min-h-[340px] overflow-hidden rounded-xl border border-slate-warm-200 bg-slate-warm-50 sm:h-[560px]">
-        {!geo ? (
-          <div className="flex h-full w-full animate-pulse items-center justify-center text-sm text-slate-warm-400">
-            Loading map…
+          {/* HUD — chamber toggle (top-left) */}
+          <div className="absolute left-3 top-3 z-20 inline-flex rounded-full border border-slate-warm-200 bg-white/90 p-1 shadow-lg backdrop-blur">
+            {(["house", "senate"] as const).map((c) => (
+              <button
+                key={c}
+                type="button"
+                onClick={() => {
+                  setHover(null);
+                  setPopover(null);
+                  setChamber(c);
+                }}
+                className={`rounded-full px-4 py-1.5 text-sm font-semibold capitalize transition-colors ${
+                  chamber === c ? "bg-govnavy text-white shadow" : "text-slate-warm-600 hover:text-govnavy"
+                }`}
+              >
+                {c}
+              </button>
+            ))}
           </div>
-        ) : (
-          <>
-            <svg
-              ref={svgRef}
-              viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-              preserveAspectRatio="xMidYMid meet"
-              className="h-full w-full cursor-grab touch-none select-none active:cursor-grabbing"
-              role="img"
-              aria-label={`Geographic map of the U.S. ${chamber === "house" ? "House by district" : "Senate by state"}`}
-              onPointerDown={onPointerDown}
-              onPointerMove={onPointerMove}
-              onPointerUp={endPan}
-              onPointerLeave={() => {
-                endPan();
-                setHover(null);
-              }}
-            >
-              <g
-                className={animate ? "transition-transform duration-500 ease-out" : ""}
-                style={{ transform: `translate(${zoom.x}px, ${zoom.y}px) scale(${zoom.k})`, transformOrigin: "0 0" }}
-              >
-                {shapes.map((s) => {
-                  const isHi = highlight.has(s.key);
-                  return (
-                    <path
-                      key={s.key}
-                      d={s.d}
-                      className={`${s.fill} ${s.href ? "cursor-pointer" : ""} stroke-white transition-[fill,opacity] duration-150 hover:opacity-80`}
-                      strokeWidth={isHi ? 1.6 : 0.3}
-                      stroke={isHi ? "#0b1220" : "#ffffff"}
-                      vectorEffect="non-scaling-stroke"
-                      onMouseEnter={(e) => {
-                        const rect = svgRef.current?.getBoundingClientRect();
-                        if (rect) setHover({ shape: s, x: e.clientX - rect.left, y: e.clientY - rect.top });
-                      }}
-                      onMouseMove={(e) => {
-                        const rect = svgRef.current?.getBoundingClientRect();
-                        if (rect) setHover({ shape: s, x: e.clientX - rect.left, y: e.clientY - rect.top });
-                      }}
-                      onClick={() => onShapeClick(s)}
-                    />
-                  );
-                })}
-              </g>
-            </svg>
 
-            {hover && (
-              <div
-                className="pointer-events-none absolute z-10 rounded-lg bg-govnavy px-3 py-2 text-white shadow-lg"
-                style={{ left: hover.x, top: hover.y, transform: "translate(-50%, calc(-100% - 10px))" }}
-              >
-                <p className="text-xs font-semibold uppercase tracking-wide text-white/60">{hover.shape.hover.title}</p>
-                {hover.shape.hover.rows.map((r, i) => (
-                  <p key={i} className="whitespace-nowrap text-sm font-semibold">
-                    {r.name}
-                    <span
-                      className={
-                        r.party === "D" ? "text-govblue-400" : r.party === "R" ? "text-red-400" : "text-slate-400"
-                      }
-                    >
-                      {" "}· {r.party}
-                    </span>
-                  </p>
-                ))}
-              </div>
+          {/* HUD — legend (top-right; hidden on narrow screens so it can't
+              collide with the chamber toggle) */}
+          <div className="absolute right-3 top-3 z-20 hidden items-center gap-3 rounded-full border border-slate-warm-200 bg-white/90 px-4 py-2 text-xs font-medium text-slate-600 shadow-lg backdrop-blur sm:flex">
+            <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-govblue" /> Democrat</span>
+            <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-govred" /> Republican</span>
+            {chamber === "senate" && (
+              <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-violet-500" /> Split</span>
             )}
+          </div>
 
-            {/* Click popover — anchored to the top of the stage; the clicked
-                shape flies to center beneath it. */}
-            {popover && (
-              <div className="absolute left-1/2 top-3 z-20 w-[min(20rem,calc(100%-1.5rem))] -translate-x-1/2 rounded-xl border border-slate-warm-200 bg-white p-4 shadow-xl">
+          {hover && (
+            <div
+              className="pointer-events-none absolute z-30 rounded-lg bg-govnavy px-3 py-2 text-white shadow-lg"
+              style={{ left: hover.x, top: hover.y, transform: "translate(-50%, calc(-100% - 10px))" }}
+            >
+              <p className="text-xs font-semibold uppercase tracking-wide text-white/60">{hover.shape.hover.title}</p>
+              {hover.shape.hover.rows.map((r, i) => (
+                <p key={i} className="whitespace-nowrap text-sm font-semibold">
+                  {r.name}
+                  <span
+                    className={
+                      r.party === "D" ? "text-govblue-400" : r.party === "R" ? "text-red-400" : "text-slate-400"
+                    }
+                  >
+                    {" "}· {r.party}
+                  </span>
+                </p>
+              ))}
+            </div>
+          )}
+
+          {/* Click popover — anchored top-center; the clicked shape flies to
+              center beneath it. */}
+          {popover && (
+            <div className="absolute left-1/2 top-20 z-30 w-[min(20rem,calc(100%-1.5rem))] -translate-x-1/2 rounded-xl border border-slate-warm-200 bg-white p-4 shadow-xl">
+              <div className="absolute right-2 top-2 flex items-center gap-0.5">
+                <button
+                  type="button"
+                  aria-label="Zoom out to the whole country"
+                  title="Show the whole country"
+                  onClick={resetView}
+                  className="flex h-6 w-8 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-slate-warm-100 hover:text-govnavy"
+                >
+                  <UsShapeIcon />
+                </button>
                 <button
                   type="button"
                   aria-label="Close"
                   onClick={() => setPopover(null)}
-                  className="absolute right-2.5 top-2.5 flex h-6 w-6 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-slate-warm-100 hover:text-govnavy"
+                  className="flex h-6 w-6 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-slate-warm-100 hover:text-govnavy"
                 >
                   ✕
                 </button>
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-warm-400">
-                  {chamber === "house" ? "District" : "State"} {popover.hover.title}
-                </p>
-                <ul className="mt-2 space-y-1.5">
-                  {popover.hover.rows.map((r, i) => (
-                    <li key={i} className="flex items-center gap-2 text-sm">
-                      <span
-                        className={`h-2.5 w-2.5 shrink-0 rounded-full ${
-                          r.party === "D" ? "bg-govblue" : r.party === "R" ? "bg-govred" : "bg-slate-400"
-                        }`}
-                      />
-                      <span className="font-semibold text-govnavy">{r.name}</span>
-                      {r.sub && <span className="text-xs text-slate-warm-400">{r.sub}</span>}
-                    </li>
-                  ))}
-                </ul>
-                {popover.href && (
-                  <Link
-                    href={popover.href}
-                    className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-govblue transition-colors hover:text-govnavy"
-                  >
-                    View profile
-                    <span aria-hidden="true">→</span>
-                  </Link>
-                )}
               </div>
-            )}
-
-            {/* Zoom controls */}
-            <div className="absolute bottom-3 right-3 flex flex-col overflow-hidden rounded-lg border border-slate-warm-200 bg-white shadow-sm">
-              <button
-                type="button"
-                aria-label="Zoom in"
-                className="px-2.5 py-1.5 text-lg font-semibold text-slate-warm-600 hover:bg-slate-warm-50"
-                onClick={() => {
-                  setAnimate(false);
-                  setPopover(null);
-                  setZoom((z) => ({ ...z, k: clamp(z.k * 1.3, MIN_K, MAX_K) }));
-                }}
-              >
-                +
-              </button>
-              <button
-                type="button"
-                aria-label="Zoom out"
-                className="border-t border-slate-warm-200 px-2.5 py-1.5 text-lg font-semibold text-slate-warm-600 hover:bg-slate-warm-50"
-                onClick={() => {
-                  setAnimate(false);
-                  setPopover(null);
-                  setZoom((z) => ({ ...z, k: clamp(z.k / 1.3, MIN_K, MAX_K) }));
-                }}
-              >
-                −
-              </button>
-              <button
-                type="button"
-                aria-label="Reset view"
-                className="border-t border-slate-warm-200 px-2.5 py-1.5 text-xs font-semibold text-slate-warm-600 hover:bg-slate-warm-50"
-                onClick={() => {
-                  setPopover(null);
-                  flownHome.current = homeResult; // don't immediately re-fly home after a manual reset
-                  setAnimate(true);
-                  setZoom({ k: 1, x: 0, y: 0 });
-                  window.setTimeout(() => setAnimate(false), 550);
-                }}
-              >
-                Reset
-              </button>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-warm-400">
+                {chamber === "house" ? "District" : "State"} {popover.hover.title}
+              </p>
+              <ul className="mt-2 space-y-1.5">
+                {popover.hover.rows.map((r, i) => (
+                  <li key={i} className="flex items-center gap-2 text-sm">
+                    <span
+                      className={`h-2.5 w-2.5 shrink-0 rounded-full ${
+                        r.party === "D" ? "bg-govblue" : r.party === "R" ? "bg-govred" : "bg-slate-400"
+                      }`}
+                    />
+                    <span className="font-semibold text-govnavy">{r.name}</span>
+                    {r.sub && <span className="text-xs text-slate-warm-400">{r.sub}</span>}
+                  </li>
+                ))}
+              </ul>
+              {popover.href && (
+                <Link
+                  href={popover.href}
+                  className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-govblue transition-colors hover:text-govnavy"
+                >
+                  View profile
+                  <span aria-hidden="true">→</span>
+                </Link>
+              )}
             </div>
-          </>
-        )}
-      </div>
+          )}
 
-      <p className="mt-3 text-center text-sm text-slate-warm-400">
-        {chamber === "house"
-          ? "Each district colored by its representative's party · tap a district for its rep · pinch/scroll to zoom, drag to pan"
-          : "Each state colored by its two Senate seats · tap a state for its senators · pinch/scroll to zoom, drag to pan"}
-      </p>
+          {/* HUD — zoom controls (bottom-right) */}
+          <div className="absolute bottom-3 right-3 z-20 flex flex-col overflow-hidden rounded-lg border border-slate-warm-200 bg-white/95 shadow-lg backdrop-blur">
+            <button
+              type="button"
+              aria-label="Zoom in"
+              className="px-2.5 py-1.5 text-lg font-semibold text-slate-warm-600 hover:bg-slate-warm-50"
+              onClick={() => zoomBy(1.5)}
+            >
+              +
+            </button>
+            <button
+              type="button"
+              aria-label="Zoom out"
+              className="border-t border-slate-warm-200 px-2.5 py-1.5 text-lg font-semibold text-slate-warm-600 hover:bg-slate-warm-50"
+              onClick={() => zoomBy(1 / 1.5)}
+            >
+              −
+            </button>
+            <button
+              type="button"
+              aria-label="Reset view"
+              className="border-t border-slate-warm-200 px-2.5 py-1.5 text-xs font-semibold text-slate-warm-600 hover:bg-slate-warm-50"
+              onClick={resetView}
+            >
+              Reset
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }

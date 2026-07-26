@@ -1,6 +1,3 @@
-import Link from "next/link";
-
-import { ChamberSplit } from "@/components/ChamberSplit";
 import { CongressExplorer } from "@/components/CongressExplorer";
 import { SiteHeader } from "@/components/SiteHeader";
 import { serverApiBase, type ChamberSummary, type CongressMap } from "@/lib/api";
@@ -61,34 +58,7 @@ export default async function CongressPage() {
     <>
       <SiteHeader variant="app" />
       <main>
-        <CongressExplorer map={map} />
-
-        {/* Chamber balance — a compact status strip directly under the map, on the
-            same surface as the map section so /congress reads as one pane. */}
-        <section className="bg-slate-warm-50 pb-16 sm:pb-20">
-          <div className="mx-auto w-full max-w-6xl px-6">
-            <div className="mb-4 flex items-baseline justify-between gap-4">
-              <h2 className="font-display text-lg font-bold text-govnavy">Party balance</h2>
-              <Link
-                href="/members"
-                className="group inline-flex items-center gap-1 text-sm font-semibold text-govblue transition-colors hover:text-govnavy"
-              >
-                Browse all members
-                <span aria-hidden="true" className="transition-transform group-hover:translate-x-0.5">
-                  →
-                </span>
-              </Link>
-            </div>
-            {summary ? (
-              <ChamberSplit summary={summary} />
-            ) : (
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div className="h-32 w-full animate-pulse rounded-2xl bg-slate-200" />
-                <div className="h-32 w-full animate-pulse rounded-2xl bg-slate-200" />
-              </div>
-            )}
-          </div>
-        </section>
+        <CongressExplorer map={map} summary={summary} />
       </main>
     </>
   );
