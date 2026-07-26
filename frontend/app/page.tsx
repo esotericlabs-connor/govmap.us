@@ -79,7 +79,7 @@ export default function MarketingHomePage() {
                   </span>{" "}
                   <span className="text-govred">with clarity</span>
                 </h1>
-                <p className="mt-6 max-w-xl text-lg leading-relaxed text-black sm:text-xl">
+                <p className="mt-6 max-w-xl text-lg leading-relaxed sm:text-xl" style={{ color: "#000000" }}>
                   GovMap is a nonpartisan, end-to-end live-synced view of the
                   entire US federal government — who represents you, how they
                   vote, who runs the agencies that govern you, where the money
