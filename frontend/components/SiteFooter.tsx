@@ -53,8 +53,8 @@ export function SiteFooter() {
       {/* Capitol backdrop — the photo is meant to show here; the scrim only
           dims it enough to keep the light text readable. Dial the /70 to taste. */}
       <div
-        className="absolute inset-0 -z-10 bg-cover bg-bottom"
-        style={{ backgroundImage: "url('/capitol-hero.jpg')" }}
+        className="absolute inset-0 -z-10 bg-cover"
+        style={{ backgroundImage: "url('/capitol-hero.jpg')", backgroundPosition: "center 25%" }}
         aria-hidden="true"
       />
       <div className="absolute inset-0 -z-10 bg-govnavy/70" aria-hidden="true" />

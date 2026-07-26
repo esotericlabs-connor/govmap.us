@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { BugReport } from "@/components/BugReport";
+import { GovmapWord } from "@/components/GovmapWord";
 import { HomeZipChip } from "@/components/HomeZipChip";
 import { UniversalSearch } from "@/components/UniversalSearch";
 import { siteConfig } from "@/lib/site-config";
@@ -165,7 +166,7 @@ export function SiteHeader({
               href={siteConfig.appUrl}
               className="transform rounded-full bg-white px-5 py-2 text-sm font-semibold text-govnavy shadow-md transition-transform duration-200 hover:-translate-y-0.5 active:translate-y-0"
             >
-              Enter govmap.us
+              Enter <GovmapWord />
             </Link>
           </div>
         )}
@@ -247,9 +248,9 @@ export function SiteHeader({
                     <Link
                       href={siteConfig.appUrl}
                       onClick={() => setMenuOpen(false)}
-                      className="block w-full rounded-full bg-govblue px-5 py-3 text-center text-base font-semibold text-govnavy shadow-lg"
+                      className="block w-full rounded-full bg-white px-5 py-3 text-center text-base font-semibold text-govnavy shadow-lg"
                     >
-                      Enter govmap.us
+                      Enter <GovmapWord />
                     </Link>
                   ) : (
                     <div className="space-y-1">

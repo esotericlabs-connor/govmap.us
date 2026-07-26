@@ -1,6 +1,7 @@
 import Image from "next/image";
 
 import { BrandIcon } from "@/components/BrandIcon";
+import { GovmapWord } from "@/components/GovmapWord";
 import { Reveal } from "@/components/Reveal";
 import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
@@ -64,23 +65,20 @@ export default function MarketingHomePage() {
             sizes="100vw"
             className="-z-10 object-cover object-center"
           />
-          {/* Short top scrim only — keeps the logo/nav legible while letting the
-              Capitol photo show behind the hero text. */}
-          <div className="absolute inset-x-0 top-0 -z-10 h-32 bg-gradient-to-b from-govnavy to-transparent" />
 
           <div className="mx-auto w-full max-w-6xl px-6 pb-24 pt-36 sm:pb-32 sm:pt-48">
             <div className="max-w-3xl">
-              <div className="animate-fade-up" style={{ animationDelay: "100ms" }}>
+              <div className="animate-rise" style={{ animationDelay: "100ms" }}>
                 <h1 className="font-display text-4xl font-bold leading-[1.35] tracking-tight text-govnavy sm:text-6xl lg:text-7xl">
                   See your{" "}
                   {/* Solid, square-cornered highlight — like a text-selection block. */}
-                  <span className="box-decoration-clone bg-govblue px-1.5 text-white [text-shadow:none]">
+                  <span className="highlight-sweep box-decoration-clone px-1.5 text-white [text-shadow:none]">
                     government
                   </span>{" "}
                   <span className="text-govred">with clarity</span>
                 </h1>
                 <p className="mt-6 max-w-xl rounded-2xl bg-white/30 px-5 py-4 text-lg leading-relaxed text-black backdrop-blur-md sm:text-xl">
-                  GovMap is a nonpartisan, end-to-end live-synced view of the
+                  govmap.us is a nonpartisan, end-to-end live-synced view of the
                   entire US federal government — who represents you, how they
                   vote, who runs the agencies that govern you, where the money
                   goes, and how a bill becomes law. Real data, always sourced. No
@@ -88,14 +86,14 @@ export default function MarketingHomePage() {
                 </p>
               </div>
             <div
-              className="mt-10 flex flex-wrap items-center gap-4 animate-fade-up"
+              className="mt-10 flex flex-wrap items-center gap-4 animate-rise"
               style={{ animationDelay: "250ms" }}
             >
               <a
                 href={siteConfig.appUrl}
-                className="transform rounded-full bg-govblue px-7 py-3.5 font-semibold text-govnavy shadow-lg shadow-govblue/30 transition-transform duration-200 hover:-translate-y-0.5 hover:bg-white active:translate-y-0"
+                className="transform rounded-full bg-white px-7 py-3.5 font-semibold text-govnavy shadow-lg shadow-black/10 transition-transform duration-200 hover:-translate-y-0.5 hover:bg-slate-warm-50 active:translate-y-0"
               >
-                Enter govmap.us →
+                Enter <GovmapWord /> →
               </a>
               <a
                 href="#about"

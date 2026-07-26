@@ -38,21 +38,20 @@ export function ThemedSection({ children }: { children: ReactNode }) {
 
   return (
     <div className={`relative ${dark ? "dark" : ""}`}>
-      {/* Toggle pinned to the top-right of the centered content column. The
-          strip is click-through; only the button itself is interactive. */}
-      <div className="pointer-events-none absolute inset-x-0 top-0 z-20">
-        <div className="mx-auto flex max-w-6xl justify-end px-6 pt-6">
-          <button
-            type="button"
-            onClick={() => setDark((d) => !d)}
-            aria-pressed={dark}
-            aria-label={dark ? "Switch this section to light mode" : "Switch this section to dark mode"}
-            title={dark ? "Light mode" : "Dark mode"}
-            className="pointer-events-auto flex h-10 w-10 items-center justify-center rounded-full border border-slate-warm-300 bg-white/80 text-slate-warm-600 shadow-sm backdrop-blur transition-colors hover:text-govnavy dark:border-white/20 dark:bg-white/10 dark:text-white/80 dark:hover:text-white"
-          >
-            {dark ? <SunIcon /> : <MoonIcon />}
-          </button>
-        </div>
+      {/* Toggle sticks to the left edge and rides along while the center
+          sections are in view (top-24 clears the fixed site header). The
+          zero-height strip is click-through; only the button is interactive. */}
+      <div className="pointer-events-none sticky top-24 z-30 flex h-0 items-start justify-end px-4 sm:px-6">
+        <button
+          type="button"
+          onClick={() => setDark((d) => !d)}
+          aria-pressed={dark}
+          aria-label={dark ? "Switch this section to light mode" : "Switch this section to dark mode"}
+          title={dark ? "Light mode" : "Dark mode"}
+          className="pointer-events-auto flex h-10 w-10 items-center justify-center rounded-full border border-slate-warm-300 bg-white/80 text-slate-warm-600 shadow-md backdrop-blur transition-colors hover:text-govnavy dark:border-white/20 dark:bg-white/10 dark:text-white/80 dark:hover:text-white"
+        >
+          {dark ? <SunIcon /> : <MoonIcon />}
+        </button>
       </div>
       {children}
     </div>
