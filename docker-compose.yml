@@ -50,6 +50,11 @@ services:
       # HUD USPS ZIP→CD crosswalk token (must be listed here to reach the
       # container, same as the keys above). Free from huduser.gov.
       HUD_API_TOKEN: ${HUD_API_TOKEN:-}
+      # Cloudflare Turnstile secret key for verifying bug-report submissions.
+      # Must be listed here to reach the container (same as the keys above); a
+      # value in .env alone is only used for ${...} substitution. Unset =
+      # verification disabled (the form still works, origin + rate limits apply).
+      TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY:-}
       # Which Congress/session to track, and per-refresh caps for bills and
       # votes. Defaults are fine; override in .env to roll to the 120th/session 1
       # in Jan 2027 or to widen coverage.
@@ -78,6 +83,10 @@ services:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://api.govmap.us}
         NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-https://app.govmap.us}
         NEXT_PUBLIC_MARKETING_URL: ${NEXT_PUBLIC_MARKETING_URL:-https://govmap.us}
+        # Cloudflare Turnstile site key for the bug-report widget. Baked into
+        # the client bundle at build time; unset = the widget is skipped and
+        # the form still works (the backend verify is disabled to match).
+        NEXT_PUBLIC_TURNSTILE_SITE_KEY: ${NEXT_PUBLIC_TURNSTILE_SITE_KEY:-}
     container_name: govmap-frontend
     restart: unless-stopped
     depends_on:
