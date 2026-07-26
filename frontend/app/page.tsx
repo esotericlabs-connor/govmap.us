@@ -4,6 +4,7 @@ import { BrandIcon } from "@/components/BrandIcon";
 import { Reveal } from "@/components/Reveal";
 import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
+import { ThemedSection } from "@/components/ThemedSection";
 import { siteConfig } from "@/lib/site-config";
 
 const BRANCHES = [
@@ -66,12 +67,11 @@ export default function MarketingHomePage() {
           {/* Short top scrim only — keeps the logo/nav legible while letting the
               Capitol photo show behind the hero text. */}
           <div className="absolute inset-x-0 top-0 -z-10 h-32 bg-gradient-to-b from-govnavy to-transparent" />
-          <div className="absolute inset-x-0 bottom-0 -z-10 h-1/3 bg-gradient-to-t from-govnavy via-govnavy/80 to-transparent" />
 
           <div className="mx-auto w-full max-w-6xl px-6 pb-24 pt-36 sm:pb-32 sm:pt-48">
             <div className="max-w-3xl">
               <div className="animate-fade-up" style={{ animationDelay: "100ms" }}>
-                <h1 className="font-display text-4xl font-bold leading-[1.35] tracking-tight text-govnavy [text-shadow:0_2px_16px_rgba(255,255,255,0.55)] sm:text-6xl lg:text-7xl">
+                <h1 className="font-display text-4xl font-bold leading-[1.35] tracking-tight text-govnavy sm:text-6xl lg:text-7xl">
                   See your{" "}
                   {/* Solid, square-cornered highlight — like a text-selection block. */}
                   <span className="box-decoration-clone bg-govblue px-1.5 text-white [text-shadow:none]">
@@ -79,7 +79,7 @@ export default function MarketingHomePage() {
                   </span>{" "}
                   <span className="text-govred">with clarity</span>
                 </h1>
-                <p className="mt-6 max-w-xl text-lg leading-relaxed sm:text-xl" style={{ color: "#000000" }}>
+                <p className="mt-6 max-w-xl text-lg leading-relaxed text-black sm:text-xl">
                   GovMap is a nonpartisan, end-to-end live-synced view of the
                   entire US federal government — who represents you, how they
                   vote, who runs the agencies that govern you, where the money
@@ -95,7 +95,7 @@ export default function MarketingHomePage() {
                 href={siteConfig.appUrl}
                 className="transform rounded-full bg-govblue px-7 py-3.5 font-semibold text-govnavy shadow-lg shadow-govblue/30 transition-transform duration-200 hover:-translate-y-0.5 hover:bg-white active:translate-y-0"
               >
-                Enter GovMap →
+                Enter govmap.us →
               </a>
               <a
                 href="#about"
@@ -108,112 +108,116 @@ export default function MarketingHomePage() {
           </div>
         </section>
 
-        {/* About */}
-        <section id="about" className="scroll-mt-24 bg-slate-warm-50">
-          <div className="mx-auto max-w-6xl px-6 py-24 sm:py-32">
-            <Reveal>
-              <h2 className="font-display text-3xl font-bold text-govnavy sm:text-4xl">
-                One nonpartisan view of all three branches
-              </h2>
-              <p className="mt-4 max-w-3xl text-lg text-slate-warm-600">
-                Most civic tools stop at Congress. GovMap treats the
-                Legislative, Executive, and Judicial branches as equal pillars
-                and connects them: a bill&apos;s full journey from introduction,
-                through signature or veto, to any judicial challenge, in a
-                single timeline.
-              </p>
-            </Reveal>
+        {/* Center info — the ONLY part with a light/dark toggle (top-right of
+            this block). The Capitol-backed hero + footer sit outside it. */}
+        <ThemedSection>
+          {/* About */}
+          <section id="about" className="scroll-mt-24 bg-slate-warm-50 dark:bg-govnavy">
+            <div className="mx-auto max-w-6xl px-6 py-24 sm:py-32">
+              <Reveal>
+                <h2 className="font-display text-3xl font-bold text-govnavy dark:text-white sm:text-4xl">
+                  One nonpartisan view of all three branches
+                </h2>
+                <p className="mt-4 max-w-3xl text-lg text-slate-warm-600 dark:text-slate-300">
+                  Most civic tools stop at Congress. GovMap treats the
+                  Legislative, Executive, and Judicial branches as equal pillars
+                  and connects them: a bill&apos;s full journey from introduction,
+                  through signature or veto, to any judicial challenge, in a
+                  single timeline.
+                </p>
+              </Reveal>
 
-            <div className="mt-14 grid gap-6 sm:grid-cols-3">
-              {BRANCHES.map((branch, i) => (
-                <Reveal key={branch.name} delay={i * 100} className="h-full">
-                  <div className="h-full rounded-2xl border border-slate-warm-200 bg-white p-6 shadow-card transition-shadow duration-300 hover:shadow-card-hover">
-                    <h3 className="font-display text-lg font-bold text-govnavy">{branch.name}</h3>
-                    <p className="mt-2 text-slate-warm-600">{branch.covers}</p>
-                    <p className="mt-4 text-xs font-semibold uppercase tracking-wider text-govblue">
-                      {branch.cadence}
-                    </p>
-                  </div>
-                </Reveal>
-              ))}
-            </div>
-
-            <Reveal className="mt-20">
-              <div className="rounded-2xl bg-white p-8 shadow-card">
-                <h3 className="font-display text-xl font-bold text-govnavy">
-                  Built on a few rules we don&apos;t bend
-                </h3>
-                <ul className="mt-6 grid gap-x-6 gap-y-4 sm:grid-cols-2">
-                  {PRINCIPLES.map((principle) => (
-                    <li key={principle} className="flex items-start gap-3 text-slate-700">
-                      <CheckIcon />
-                      <span>{principle}</span>
-                    </li>
-                  ))}
-                </ul>
+              <div className="mt-14 grid gap-6 sm:grid-cols-3">
+                {BRANCHES.map((branch, i) => (
+                  <Reveal key={branch.name} delay={i * 100} className="h-full">
+                    <div className="h-full rounded-2xl border border-slate-warm-200 bg-white p-6 shadow-card transition-shadow duration-300 hover:shadow-card-hover dark:border-white/10 dark:bg-white/5">
+                      <h3 className="font-display text-lg font-bold text-govnavy dark:text-white">{branch.name}</h3>
+                      <p className="mt-2 text-slate-warm-600 dark:text-slate-300">{branch.covers}</p>
+                      <p className="mt-4 text-xs font-semibold uppercase tracking-wider text-govblue">
+                        {branch.cadence}
+                      </p>
+                    </div>
+                  </Reveal>
+                ))}
               </div>
-            </Reveal>
-          </div>
-        </section>
 
-        {/* Support */}
-        <section id="support" className="scroll-mt-24 bg-white">
-          <div className="mx-auto max-w-6xl px-6 py-24 sm:py-32">
-            <Reveal>
-              <h2 className="font-display text-3xl font-bold text-govnavy sm:text-4xl">
-                Support GovMap
-              </h2>
-              <p className="mt-4 max-w-3xl text-lg text-slate-warm-600">
-                GovMap is a nonprofit, nonpartisan civic tool — no advertising,
-                no political funding. It runs on donations and the time of
-                people who believe transparent government tooling should exist.
-                If it&apos;s useful to you, chip in.
-              </p>
-            </Reveal>
+              <Reveal className="mt-20">
+                <div className="rounded-2xl bg-white p-8 shadow-card dark:border dark:border-white/10 dark:bg-white/5">
+                  <h3 className="font-display text-xl font-bold text-govnavy dark:text-white">
+                    Built on a few rules we don&apos;t bend
+                  </h3>
+                  <ul className="mt-6 grid gap-x-6 gap-y-4 sm:grid-cols-2">
+                    {PRINCIPLES.map((principle) => (
+                      <li key={principle} className="flex items-start gap-3 text-slate-700 dark:text-slate-300">
+                        <CheckIcon />
+                        <span>{principle}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </Reveal>
+            </div>
+          </section>
 
-            <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {siteConfig.supportLinks.map((link, i) => (
-                <Reveal key={link.href} delay={i * 80}>
+          {/* Support */}
+          <section id="support" className="scroll-mt-24 bg-white dark:bg-govnavy">
+            <div className="mx-auto max-w-6xl px-6 py-24 sm:py-32">
+              <Reveal>
+                <h2 className="font-display text-3xl font-bold text-govnavy dark:text-white sm:text-4xl">
+                  Support GovMap
+                </h2>
+                <p className="mt-4 max-w-3xl text-lg text-slate-warm-600 dark:text-slate-300">
+                  GovMap is a nonprofit, nonpartisan civic tool — no advertising,
+                  no political funding. It runs on donations and the time of
+                  people who believe transparent government tooling should exist.
+                  If it&apos;s useful to you, chip in.
+                </p>
+              </Reveal>
+
+              <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {siteConfig.supportLinks.map((link, i) => (
+                  <Reveal key={link.href} delay={i * 80}>
+                    <a
+                      href={link.href}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="group flex items-center gap-4 rounded-xl border border-slate-warm-200 bg-white p-4 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-govblue-400 hover:shadow-card-hover dark:border-white/10 dark:bg-white/5 dark:hover:border-govblue"
+                    >
+                      <BrandIcon
+                        name={link.icon}
+                        className="h-7 w-7 shrink-0 text-slate-400 transition-colors group-hover:text-govblue"
+                      />
+                      <span className="font-medium text-govnavy dark:text-white">{link.label}</span>
+                    </a>
+                  </Reveal>
+                ))}
+              </div>
+
+              <Reveal className="mt-16">
+                <div className="rounded-2xl border border-dashed border-slate-300 p-6 dark:border-white/15 sm:p-8">
+                  <h3 className="font-display text-xl font-bold text-govnavy dark:text-white">
+                    Seeking Fiscal Sponsorship
+                  </h3>
+                  <p className="mt-2 max-w-2xl text-slate-warm-600 dark:text-slate-300">
+                    GovMap is also looking for a fiscal sponsor — a 501(c)(3) or
+                    civic-tech organization that can host a nonpartisan,
+                    open-source government-transparency project. If that&apos;s you
+                    (or someone you know), we&apos;d love to talk.
+                  </p>
                   <a
-                    href={link.href}
+                    href={siteConfig.githubUrl}
                     target="_blank"
                     rel="noreferrer"
-                    className="group flex items-center gap-4 rounded-xl border border-slate-warm-200 bg-white p-4 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-govblue-400 hover:shadow-card-hover"
+                    className="group mt-6 inline-flex items-center gap-1.5 self-start rounded-full bg-govnavy px-5 py-2.5 text-sm font-semibold text-white transition-all duration-200 hover:-translate-y-px hover:bg-govnavy/90 dark:bg-govblue dark:text-govnavy dark:hover:bg-govblue-400"
                   >
-                    <BrandIcon
-                      name={link.icon}
-                      className="h-7 w-7 shrink-0 text-slate-400 transition-colors group-hover:text-govblue"
-                    />
-                    <span className="font-medium text-govnavy">{link.label}</span>
+                    Get in touch on GitHub
+                    <span className="transition-transform group-hover:translate-x-0.5">→</span>
                   </a>
-                </Reveal>
-              ))}
+                </div>
+              </Reveal>
             </div>
-
-            <Reveal className="mt-16">
-              <div className="rounded-2xl border border-dashed border-slate-300 p-6 sm:p-8">
-                <h3 className="font-display text-xl font-bold text-govnavy">
-                  Seeking Fiscal Sponsorship
-                </h3>
-                <p className="mt-2 max-w-2xl text-slate-warm-600">
-                  GovMap is also looking for a fiscal sponsor — a 501(c)(3) or
-                  civic-tech organization that can host a nonpartisan,
-                  open-source government-transparency project. If that&apos;s you
-                  (or someone you know), we&apos;d love to talk.
-                </p>
-                <a
-                  href={siteConfig.githubUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="group mt-6 inline-flex items-center gap-1.5 self-start rounded-full bg-govnavy px-5 py-2.5 text-sm font-semibold text-white transition-all duration-200 hover:-translate-y-px hover:bg-govnavy/90"
-                >
-                  Get in touch on GitHub
-                  <span className="transition-transform group-hover:translate-x-0.5">→</span>
-                </a>
-              </div>
-            </Reveal>
-          </div>
-        </section>
+          </section>
+        </ThemedSection>
       </main>
 
       <SiteFooter />

@@ -121,7 +121,7 @@ export function SiteHeader({
           : "border-b border-transparent bg-transparent"
       }`}
     >
-      <div className="flex w-full items-center justify-between gap-4 px-6 py-3.5">
+      <div className="relative flex w-full items-center justify-between gap-4 px-6 py-3.5">
         <Link
           href={variant === "app" ? siteConfig.appUrl : "/"}
           className="shrink-0"
@@ -148,7 +148,10 @@ export function SiteHeader({
         {/* Desktop nav — marketing only. On app pages every destination lives
             behind the menu button (right), keeping the bar to logo + search. */}
         {variant === "marketing" && (
-          <nav className="hidden items-center gap-8 md:flex" aria-label="Primary">
+          <nav
+            className="absolute left-1/2 top-1/2 hidden -translate-x-1/2 -translate-y-1/2 items-center gap-8 md:flex"
+            aria-label="Primary"
+          >
             {navItems.map((item) => (
               <NavLink key={item.href} item={item} active={pathname.startsWith(item.href)} />
             ))}
@@ -161,7 +164,7 @@ export function SiteHeader({
               href={siteConfig.appUrl}
               className="transform rounded-full bg-white px-5 py-2 text-sm font-semibold text-govnavy shadow-md transition-transform duration-200 hover:-translate-y-0.5 active:translate-y-0"
             >
-              Enter App
+              Enter govmap.us
             </Link>
           </div>
         )}
@@ -245,7 +248,7 @@ export function SiteHeader({
                       onClick={() => setMenuOpen(false)}
                       className="block w-full rounded-full bg-govblue px-5 py-3 text-center text-base font-semibold text-govnavy shadow-lg"
                     >
-                      Enter GovMap App
+                      Enter govmap.us
                     </Link>
                   ) : (
                     <div className="space-y-1">

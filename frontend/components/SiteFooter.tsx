@@ -50,16 +50,14 @@ function FooterCol({ title, links }: { title: string; links: FooterLink[] }) {
 export function SiteFooter() {
   return (
     <footer className="relative isolate overflow-hidden bg-govnavy-800 text-sm">
-      {/* Capitol backdrop, dimmed and anchored to the bottom edge. */}
+      {/* Capitol backdrop — the photo is meant to show here; the scrim only
+          dims it enough to keep the light text readable. Dial the /70 to taste. */}
       <div
-        className="absolute inset-0 -z-10 bg-cover bg-bottom opacity-20"
+        className="absolute inset-0 -z-10 bg-cover bg-center"
         style={{ backgroundImage: "url('/capitol-hero.jpg')" }}
         aria-hidden="true"
       />
-      <div
-        className="absolute inset-0 -z-10 bg-gradient-to-t from-govnavy via-govnavy/95 to-govnavy"
-        aria-hidden="true"
-      />
+      <div className="absolute inset-0 -z-10 bg-govnavy/70" aria-hidden="true" />
 
       <div className="mx-auto max-w-6xl px-6 pb-10 pt-20">
         <div className="grid gap-12 sm:grid-cols-2 lg:grid-cols-4">
