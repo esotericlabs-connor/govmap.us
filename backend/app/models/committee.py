@@ -53,14 +53,14 @@ class CommitteeMeeting(Base):
 
     __tablename__ = "committee_meetings"
 
-    event_id: Mapped[str] = mapped_column(String(20), primary_key=True)
+    event_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     committee_id: Mapped[str] = mapped_column(
         String(20), ForeignKey("committees.committee_id", ondelete="CASCADE"), primary_key=True
     )
     chamber: Mapped[str | None] = mapped_column(String(10), nullable=True)
     title: Mapped[str | None] = mapped_column(Text, nullable=True)
-    meeting_type: Mapped[str | None] = mapped_column(String(20), nullable=True)  # Meeting/Hearing/Markup
-    status: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    meeting_type: Mapped[str | None] = mapped_column(String(50), nullable=True)  # Meeting/Hearing/Markup
+    status: Mapped[str | None] = mapped_column(String(50), nullable=True)
     meeting_datetime: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     location: Mapped[str | None] = mapped_column(String(300), nullable=True)
     bill_ids: Mapped[list | None] = mapped_column(JSON, nullable=True)

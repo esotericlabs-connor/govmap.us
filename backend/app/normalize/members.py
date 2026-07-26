@@ -72,6 +72,21 @@ def _contact(term: LegislatorTerm) -> dict | None:
     return fields or None
 
 
+def resolve_party(legislator: LegislatorRaw, term: LegislatorTerm) -> str:
+    """Party label for the member, backfilled from history when the current term
+    is missing one. congress-legislators leaves `party` null on a freshly added
+    current-Congress term until its contact scripts fill it in; an incumbent's
+    party carries forward, so fall back to the most recent term that has one.
+    Member.party is NOT NULL, so always return a string ("Unknown" as a last
+    resort for the rare brand-new member with no partied term yet)."""
+    if term.party:
+        return term.party
+    for prev in reversed(legislator.terms):
+        if prev.party:
+            return prev.party
+    return "Unknown"
+
+
 def to_member_row(legislator: LegislatorRaw) -> dict:
     term = current_term(legislator)
     full_name = legislator.name.official_full or f"{legislator.name.first} {legislator.name.last}"
@@ -83,7 +98,7 @@ def to_member_row(legislator: LegislatorRaw) -> dict:
         "chamber": CHAMBER_MAP[term.type],
         "state": term.state,
         "district": term.district,
-        "party": term.party,
+        "party": resolve_party(legislator, term),
         "term_start": term.start,
         "served_since": served_since(legislator),
         "fec_candidate_ids": legislator.id.fec,

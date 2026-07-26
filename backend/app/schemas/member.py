@@ -44,7 +44,13 @@ class LegislatorTerm(BaseModel):
     end: date
     state: str
     district: int | None = None
-    party: str
+    # Optional on purpose: congress-legislators writes `party: null` on a newly
+    # added current-Congress term when its election-results source lacked the
+    # winner's party. Requiring it here made that current term fail validation and
+    # get dropped, which orphaned the member's real seat ("Vacant / no data" on
+    # the map). Kept nullable so the true current term survives; the normalizer
+    # backfills the label from the member's history.
+    party: str | None = None
     # Contact lives on the latest term in legislators-current.yaml.
     office: str | None = None
     phone: str | None = None

@@ -32,6 +32,20 @@ STAGING_PATH = (
 
 _CHUNK = 1000
 
+# DB column widths for committee_meetings (see app.models.committee). Congress.gov
+# occasionally returns a value longer than these; clamp the categorical labels
+# and skip the (rare) row whose key overflows so one bad value can't abort the
+# whole full-replace batch (it once truncated every meeting for the run).
+_MAX_EVENT_ID = 64
+_MAX_MEETING_TYPE = 50
+_MAX_STATUS = 50
+
+
+def _clip(value: str | None, limit: int) -> str | None:
+    if value is None:
+        return None
+    return value[:limit]
+
 
 def _bill_ids(bills: list[dict]) -> list[str]:
     out: list[str] = []
@@ -59,6 +73,12 @@ def meeting_rows(staged: list[dict], known: set[str]) -> list[dict]:
         event_id = m.get("event_id")
         if not event_id:
             continue
+        event_id = str(event_id)
+        if len(event_id) > _MAX_EVENT_ID:
+            # A key can't be safely truncated (would corrupt/collide the PK), so
+            # skip it rather than let it abort the batch.
+            logger.warning("committee_meetings: skipping meeting with over-long event_id %r", event_id)
+            continue
         bill_ids = _bill_ids(m.get("bills") or [])
         meeting_dt = _dt(m.get("date"))
         mapped_any = False
@@ -73,12 +93,12 @@ def meeting_rows(staged: list[dict], known: set[str]) -> list[dict]:
             mapped_any = True
             rows.append(
                 {
-                    "event_id": str(event_id),
+                    "event_id": event_id,
                     "committee_id": cid,
                     "chamber": m.get("chamber"),
                     "title": m.get("title"),
-                    "meeting_type": m.get("meeting_type"),
-                    "status": m.get("status"),
+                    "meeting_type": _clip(m.get("meeting_type"), _MAX_MEETING_TYPE),
+                    "status": _clip(m.get("status"), _MAX_STATUS),
                     "meeting_datetime": meeting_dt,
                     "location": m.get("location"),
                     "bill_ids": bill_ids or None,
