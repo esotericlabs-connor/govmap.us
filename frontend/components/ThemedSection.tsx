@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 function MoonIcon() {
   return (
@@ -33,56 +33,26 @@ function SunIcon() {
  * `dark:` utilities on the sections — while the Capitol-backed hero and footer
  * live outside this wrapper and never change. State is local (resets on reload).
  */
-// Tab motion — tweak these to taste once it's on screen.
-const TAB_START_DEG = 68; // how far the tab is "swung out" at the top of the page
-const TAB_SETTLE = 340; // px of scroll over which it rotates flush + eases down
-const TAB_SLIDE = 44; // px it drifts downward as it settles
-
 export function ThemedSection({ children }: { children: ReactNode }) {
   const [dark, setDark] = useState(false);
-  const [scrollY, setScrollY] = useState(0);
-
-  // Track scroll (rAF-throttled) so the tab's pivot follows the wheel smoothly.
-  useEffect(() => {
-    let raf = 0;
-    const onScroll = () => {
-      if (raf) return;
-      raf = requestAnimationFrame(() => {
-        setScrollY(window.scrollY);
-        raf = 0;
-      });
-    };
-    window.addEventListener("scroll", onScroll, { passive: true });
-    onScroll();
-    return () => {
-      window.removeEventListener("scroll", onScroll);
-      if (raf) cancelAnimationFrame(raf);
-    };
-  }, []);
-
-  // Tactile "page tab": hinged on its right edge against the viewport, it starts
-  // swung out (as if peeling off the hero's bottom-right corner), then rotates
-  // flush and eases downward as you scroll into the page.
-  const progress = Math.min(1, scrollY / TAB_SETTLE);
-  const rotate = TAB_START_DEG * (1 - progress);
-  const slide = TAB_SLIDE * progress;
 
   return (
     <div className={`relative ${dark ? "dark" : ""}`}>
-      <button
-        type="button"
-        onClick={() => setDark((d) => !d)}
-        aria-pressed={dark}
-        aria-label={dark ? "Switch this section to light mode" : "Switch this section to dark mode"}
-        title={dark ? "Light mode" : "Dark mode"}
-        style={{
-          transform: `translateY(${slide}px) rotate(${rotate}deg)`,
-          transformOrigin: "right center",
-        }}
-        className="fixed right-0 top-[22%] z-40 flex h-12 w-11 items-center justify-center rounded-l-2xl border border-r-0 border-slate-warm-300 bg-white/90 pr-1 text-slate-warm-600 shadow-lg backdrop-blur transition-colors hover:text-govnavy dark:border-white/20 dark:bg-govnavy/90 dark:text-white/85 dark:hover:text-white"
-      >
-        {dark ? <SunIcon /> : <MoonIcon />}
-      </button>
+      {/* Page-tab toggle: a bookmark tab flush to the right edge that sticks
+          below the header (top-24) and rides straight down with the center
+          sections — no rotation. The zero-height strip is click-through. */}
+      <div className="pointer-events-none sticky top-24 z-30 flex h-0 justify-end">
+        <button
+          type="button"
+          onClick={() => setDark((d) => !d)}
+          aria-pressed={dark}
+          aria-label={dark ? "Switch this section to light mode" : "Switch this section to dark mode"}
+          title={dark ? "Light mode" : "Dark mode"}
+          className="pointer-events-auto flex h-12 w-11 items-center justify-center rounded-l-2xl border border-r-0 border-slate-warm-300 bg-white/90 pr-1 text-slate-warm-600 shadow-lg backdrop-blur transition-colors hover:text-govnavy dark:border-white/20 dark:bg-govnavy/90 dark:text-white/85 dark:hover:text-white"
+        >
+          {dark ? <SunIcon /> : <MoonIcon />}
+        </button>
+      </div>
       {children}
     </div>
   );

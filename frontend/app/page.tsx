@@ -85,7 +85,7 @@ export default function MarketingHomePage() {
 
           <div className="mx-auto w-full max-w-6xl px-6 pb-24 pt-36 sm:pb-32 sm:pt-48">
             <div className="max-w-3xl">
-              <div className="animate-hero-in" style={{ animationDelay: "100ms" }}>
+              <div className="animate-rise" style={{ animationDelay: "100ms" }}>
                 <h1 className="font-display text-4xl font-bold leading-[1.35] tracking-tight text-govnavy sm:text-6xl lg:text-7xl">
                   See your{" "}
                   {/* Solid, square-cornered highlight — like a text-selection block. */}
@@ -103,7 +103,7 @@ export default function MarketingHomePage() {
                 </p>
               </div>
             <div
-              className="mt-10 flex flex-wrap items-center gap-4 animate-hero-in"
+              className="mt-10 flex flex-wrap items-center gap-4 animate-rise"
               style={{ animationDelay: "250ms" }}
             >
               <a
