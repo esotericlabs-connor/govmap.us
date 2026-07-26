@@ -22,6 +22,7 @@ import re
 import time
 from datetime import UTC, datetime
 
+import requests
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
@@ -52,6 +53,7 @@ class ReportIn(BaseModel):
     subcategory: str = Field(default="Other", max_length=60)
     message: str = Field(min_length=1, max_length=5000)
     url: str = Field(default="", max_length=500)
+    turnstile_token: str | None = Field(default=None, max_length=2048)
 
 
 def _scrub(text: str, max_len: int) -> str:
@@ -102,6 +104,32 @@ def _origin_ok(request: Request) -> bool:
     return any(origin.startswith(a) for a in allowed)
 
 
+_TURNSTILE_VERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
+
+
+def _verify_turnstile(token: str | None, ip: str) -> bool:
+    """Cloudflare Turnstile check. Disabled (always allow) unless
+    TURNSTILE_SECRET_KEY is set; once set, a valid token is required. Fails
+    *closed* on a missing token or an explicit rejection (a bot), but *open* on a
+    network error reaching Cloudflare so a CF outage can't lock out real users
+    (the origin + rate limits still apply)."""
+    secret = os.getenv("TURNSTILE_SECRET_KEY", "").strip()
+    if not secret:
+        return True
+    if not token:
+        return False
+    try:
+        resp = requests.post(
+            _TURNSTILE_VERIFY_URL,
+            data={"secret": secret, "response": token, "remoteip": ip},
+            timeout=10,
+        )
+        return bool(resp.json().get("success"))
+    except Exception as exc:  # noqa: BLE001 — network/parse error must not lock out users
+        logger.warning("turnstile verify unreachable, allowing: %s", exc)
+        return True
+
+
 def _append(block: str) -> None:
     os.makedirs(settings.log_dir, exist_ok=True)
     with open(os.path.join(settings.log_dir, _BUG_LOG), "a", encoding="utf-8") as fh:
@@ -110,10 +138,13 @@ def _append(block: str) -> None:
 
 @router.post("/report")
 async def submit_report(payload: ReportIn, request: Request) -> dict:
+    ip = _client_ip(request)
     if not _origin_ok(request):
         raise HTTPException(status_code=403, detail="forbidden")
-    if not _rate_ok(_client_ip(request)):
+    if not _rate_ok(ip):
         raise HTTPException(status_code=429, detail="too many reports; try again later")
+    if not await asyncio.to_thread(_verify_turnstile, payload.turnstile_token, ip):
+        raise HTTPException(status_code=403, detail="verification failed — please retry")
 
     category, subcategory = normalize(payload.category, payload.subcategory)
     message = _scrub(payload.message, _MSG_MAX)

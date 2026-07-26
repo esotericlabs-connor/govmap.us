@@ -436,16 +436,6 @@ export function UsMap({ map, result = null }: { map: CongressMap; result?: Looku
             ))}
           </div>
 
-          {/* HUD — legend (top-right; hidden on narrow screens so it can't
-              collide with the chamber toggle) */}
-          <div className="absolute right-3 top-3 z-20 hidden items-center gap-3 rounded-full border border-slate-warm-200 bg-white/90 px-4 py-2 text-xs font-medium text-slate-600 shadow-lg backdrop-blur sm:flex">
-            <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-govblue" /> Democrat</span>
-            <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-govred" /> Republican</span>
-            {chamber === "senate" && (
-              <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-violet-500" /> Split</span>
-            )}
-          </div>
-
           {hover && (
             <div
               className="pointer-events-none absolute z-30 rounded-lg bg-govnavy px-3 py-2 text-white shadow-lg"

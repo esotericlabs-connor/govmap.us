@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 
 import { publicApiBase } from "@/lib/api";
@@ -12,6 +12,13 @@ import {
 } from "@/lib/report-categories";
 
 const MSG_MAX = 2000;
+// Optional Cloudflare Turnstile. When this public key is unset the widget +
+// checks are skipped entirely, so the form still works before keys exist.
+const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
+
+type Turnstile = {
+  render: (el: HTMLElement, opts: Record<string, unknown>) => string;
+};
 
 type Prefill = { category?: string; subcategory?: string; message?: string };
 
@@ -36,8 +43,11 @@ export function BugReport({
   const [subcategory, setSubcategory] = useState("Other");
   const [message, setMessage] = useState("");
   const [status, setStatus] = useState<"idle" | "sending" | "done" | "error">("idle");
+  const [token, setToken] = useState<string | null>(null);
+  const widgetRef = useRef<HTMLDivElement>(null);
 
   const subcategories = REPORT_CATEGORIES[category] ?? ["Other"];
+  const needsToken = Boolean(TURNSTILE_SITE_KEY) && !token;
 
   function openModal() {
     const fromPath = defaultCategoryForPath(pathname);
@@ -68,6 +78,50 @@ export function BugReport({
     };
   }, [open]);
 
+  // Render the Cloudflare Turnstile widget when the modal opens (only if a site
+  // key is configured). The widget lives inside the portal, so it unmounts on
+  // close and gets a fresh render each open.
+  useEffect(() => {
+    if (!open || !TURNSTILE_SITE_KEY) return;
+    setToken(null);
+    let cancelled = false;
+    const ts = () => (window as unknown as { turnstile?: Turnstile }).turnstile;
+    const render = () => {
+      if (cancelled || !widgetRef.current || !ts()) return;
+      widgetRef.current.innerHTML = "";
+      ts()!.render(widgetRef.current, {
+        sitekey: TURNSTILE_SITE_KEY,
+        callback: (t: string) => setToken(t),
+        "expired-callback": () => setToken(null),
+        "error-callback": () => setToken(null),
+      });
+    };
+    if (ts()) {
+      render();
+      return () => {
+        cancelled = true;
+      };
+    }
+    const SCRIPT_ID = "cf-turnstile-script";
+    if (!document.getElementById(SCRIPT_ID)) {
+      const script = document.createElement("script");
+      script.id = SCRIPT_ID;
+      script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js";
+      script.async = true;
+      document.head.appendChild(script);
+    }
+    const iv = window.setInterval(() => {
+      if (ts()) {
+        window.clearInterval(iv);
+        render();
+      }
+    }, 150);
+    return () => {
+      cancelled = true;
+      window.clearInterval(iv);
+    };
+  }, [open]);
+
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     const msg = message.trim();
@@ -82,6 +136,7 @@ export function BugReport({
           subcategory,
           message: msg,
           url: typeof window !== "undefined" ? window.location.href : "",
+          turnstile_token: token,
         }),
       });
       setStatus(res.ok ? "done" : "error");
@@ -187,6 +242,10 @@ export function BugReport({
                   </p>
                 )}
 
+                {TURNSTILE_SITE_KEY && (
+                  <div ref={widgetRef} className="min-h-[65px]" aria-label="Human verification" />
+                )}
+
                 <div className="flex justify-end gap-3">
                   <button
                     type="button"
@@ -197,7 +256,7 @@ export function BugReport({
                   </button>
                   <button
                     type="submit"
-                    disabled={status === "sending" || !message.trim()}
+                    disabled={status === "sending" || !message.trim() || needsToken}
                     className="rounded-full bg-govnavy px-5 py-2 text-sm font-semibold text-white transition-opacity disabled:opacity-60"
                   >
                     {status === "sending" ? "Sending…" : "Send report"}

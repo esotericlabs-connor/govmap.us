@@ -47,15 +47,35 @@ def _fetch_yaml(url: str):
     return yaml.safe_load(response.text)
 
 
+def _record_ident(record) -> str:
+    """Best-effort identifier for a skipped record so a dropped member is never a
+    silent mystery — bioguide + name for legislators, else any name/code."""
+    if not isinstance(record, dict):
+        return "<non-dict>"
+    bioguide = (record.get("id") or {}).get("bioguide")
+    if bioguide:
+        name = (record.get("name") or {}).get("official_full") or ""
+        return f"{bioguide} {name}".strip()
+    name = record.get("name")
+    if isinstance(name, str):
+        return name[:60]
+    return str(record.get("thomas_id") or record.get("committee_id") or "<unknown>")
+
+
 def _validate_list(records: list, model: type[BaseModel], label: str) -> list[dict]:
-    """Validate each record; skip and log individually bad ones, but raise if
-    nothing survives (a source-shape change, not a one-off quirk)."""
+    """Validate each record; skip and log individually bad ones (naming the
+    record so a dropped member is diagnosable), but raise if nothing survives (a
+    source-shape change, not a one-off quirk)."""
     valid: list[dict] = []
+    skipped = 0
     for record in records:
         try:
             valid.append(model.model_validate(record).model_dump(mode="json"))
         except ValidationError as exc:
-            logger.warning("skipping invalid %s record: %s", label, exc)
+            skipped += 1
+            logger.warning("skipping invalid %s record [%s]: %s", label, _record_ident(record), exc)
+    if skipped:
+        logger.warning("%s: skipped %d of %d records as invalid", label, skipped, len(records))
     if not valid:
         raise ValueError(f"no {label} records passed validation")
     return valid

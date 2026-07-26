@@ -1,7 +1,7 @@
 from datetime import date
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 # --- Layer 1: raw shape pulled from unitedstates/congress-legislators ---
 # https://github.com/unitedstates/congress-legislators — only the fields
@@ -61,6 +61,26 @@ class LegislatorRaw(BaseModel):
     terms: list[LegislatorTerm]
 
     model_config = ConfigDict(extra="ignore")
+
+    @field_validator("terms", mode="before")
+    @classmethod
+    def keep_parseable_terms(cls, v):
+        """Resilience: drop only the individual terms that fail to parse, so one
+        malformed term (nearly always an old historical one) can never drop an
+        otherwise-valid *sitting* member. If a member's current term is the bad
+        one, they fall back to their prior term — for a sitting rep almost always
+        the same seat. If nothing parses, fall through to `terms_not_empty` and
+        let the whole record be skipped (and logged) as genuinely broken."""
+        if not isinstance(v, list):
+            return v
+        kept = []
+        for term in v:
+            try:
+                LegislatorTerm.model_validate(term)
+                kept.append(term)
+            except ValidationError:
+                pass
+        return kept or v
 
     @field_validator("terms")
     @classmethod
