@@ -54,7 +54,7 @@ export function SiteFooter() {
           dims it enough to keep the light text readable. Dial the /70 to taste. */}
       <div
         className="absolute inset-0 -z-10 bg-cover"
-        style={{ backgroundImage: "url('/capitol-hero.jpg')", backgroundPosition: "center 25%" }}
+        style={{ backgroundImage: "url('/capitol-hero.jpg')", backgroundPosition: "center 40%" }}
         aria-hidden="true"
       />
       <div className="absolute inset-0 -z-10 bg-govnavy/70" aria-hidden="true" />

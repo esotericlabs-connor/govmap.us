@@ -48,6 +48,12 @@ const config: Config = {
           "0%": { transform: "translateY(14px)" },
           "100%": { transform: "translateY(0)" },
         },
+        // Pronounced hero entrance — starts fully transparent and eases in, so
+        // the hero elements are clearly less visible at the start of page load.
+        "hero-in": {
+          "0%": { opacity: "0", transform: "translateY(16px)" },
+          "100%": { opacity: "1", transform: "translateY(0)" },
+        },
         "fade-in": {
           "0%": { opacity: "0" },
           "100%": { opacity: "1" },
@@ -72,6 +78,7 @@ const config: Config = {
         // staggered elements don't flash before their turn.
         "fade-up": "fade-up 0.7s cubic-bezier(0.22, 1, 0.36, 1) both",
         rise: "rise 0.7s cubic-bezier(0.22, 1, 0.36, 1) both",
+        "hero-in": "hero-in 1s cubic-bezier(0.22, 1, 0.36, 1) both",
         "fade-in": "fade-in 0.9s ease-out both",
         "subtle-fade-in": "fade-in 0.5s ease-out both",
         "slide-down-and-fade": "slide-down-and-fade 0.3s cubic-bezier(0.16, 1, 0.3, 1) both",

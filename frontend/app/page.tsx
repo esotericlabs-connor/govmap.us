@@ -1,8 +1,8 @@
 import Image from "next/image";
+import type { ReactNode } from "react";
 
 import { BrandIcon } from "@/components/BrandIcon";
 import { GovmapWord } from "@/components/GovmapWord";
-import { Reveal } from "@/components/Reveal";
 import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
 import { ThemedSection } from "@/components/ThemedSection";
@@ -49,6 +49,23 @@ function CheckIcon() {
   );
 }
 
+/**
+ * Static passthrough — the marketing center sections render with no entrance
+ * animation. Keeps the existing <Reveal> call sites unchanged; `delay` is
+ * accepted but ignored. (The animated scroll-reveal still lives in
+ * components/Reveal.tsx for the detail pages.)
+ */
+function Reveal({
+  className,
+  children,
+}: {
+  className?: string;
+  delay?: number;
+  children: ReactNode;
+}) {
+  return <div className={className}>{children}</div>;
+}
+
 export default function MarketingHomePage() {
   return (
     <>
@@ -68,7 +85,7 @@ export default function MarketingHomePage() {
 
           <div className="mx-auto w-full max-w-6xl px-6 pb-24 pt-36 sm:pb-32 sm:pt-48">
             <div className="max-w-3xl">
-              <div className="animate-rise" style={{ animationDelay: "100ms" }}>
+              <div className="animate-hero-in" style={{ animationDelay: "100ms" }}>
                 <h1 className="font-display text-4xl font-bold leading-[1.35] tracking-tight text-govnavy sm:text-6xl lg:text-7xl">
                   See your{" "}
                   {/* Solid, square-cornered highlight — like a text-selection block. */}
@@ -78,7 +95,7 @@ export default function MarketingHomePage() {
                   <span className="text-govred">with clarity</span>
                 </h1>
                 <p className="mt-6 max-w-xl rounded-2xl bg-white/30 px-5 py-4 text-lg leading-relaxed text-black backdrop-blur-md sm:text-xl">
-                  govmap.us is a nonpartisan, end-to-end live-synced view of the
+                  Govmap.us is a nonpartisan, end-to-end live-synced view of the
                   entire US federal government — who represents you, how they
                   vote, who runs the agencies that govern you, where the money
                   goes, and how a bill becomes law. Real data, always sourced. No
@@ -86,7 +103,7 @@ export default function MarketingHomePage() {
                 </p>
               </div>
             <div
-              className="mt-10 flex flex-wrap items-center gap-4 animate-rise"
+              className="mt-10 flex flex-wrap items-center gap-4 animate-hero-in"
               style={{ animationDelay: "250ms" }}
             >
               <a
