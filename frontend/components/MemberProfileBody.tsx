@@ -120,7 +120,9 @@ export function MemberProfileBody({
         </Section>
 
         {/* Campaign finance (only once the FEC pipeline has data) */}
-        {member.finance && <FinanceCard finance={member.finance} bioguide={member.bioguide_id} />}
+        {member.finance && (
+          <FinanceCard finance={member.finance} bioguide={member.bioguide_id} compact={isBlade} />
+        )}
 
         {/* Data sections */}
         <div className={isBlade ? "space-y-8" : "grid grid-cols-1 gap-10 lg:grid-cols-2"}>

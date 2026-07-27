@@ -1,10 +1,12 @@
 /**
  * API access + shared response types.
  *
- * Two base URLs by design (see docker-compose): server components render inside
- * the frontend container and reach the backend directly over the compose
- * network (API_INTERNAL_URL); the browser uses the public API host baked in at
- * build time (NEXT_PUBLIC_API_URL).
+ * Two base URLs by design: server components render inside the frontend
+ * container and reach the backend directly over the compose network
+ * (API_INTERNAL_URL); the browser calls the frontend's own origin with a
+ * relative "/api/..." path, which a Next.js rewrite (next.config.mjs) proxies
+ * to the backend server-side. That keeps client fetches same-origin so they
+ * don't depend on the api.* host being reachable/unblocked from the device.
  */
 
 export function serverApiBase(): string {
@@ -15,9 +17,12 @@ export function serverApiBase(): string {
   );
 }
 
-// Inlined into the client bundle at build time by Next (NEXT_PUBLIC_*).
-export const publicApiBase =
-  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+// Browser API calls are same-origin and relative ("/api/..."). A Next.js
+// rewrite (see next.config.mjs) proxies them from the frontend origin to the
+// backend server-side, so the client never depends on the api.* hostname being
+// baked in, reachable, or CORS-allowed — which is exactly what broke on mobile
+// (cross-origin request to api.govmap.us blocked/unreachable from the device).
+export const publicApiBase = "";
 
 export class HttpError extends Error {
   constructor(public status: number) {

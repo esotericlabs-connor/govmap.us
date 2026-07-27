@@ -18,8 +18,18 @@ const USD = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 0,
 });
 
-function money(n: number | null | undefined): string {
-  return n === null || n === undefined || Number.isNaN(n) ? "—" : USD.format(n);
+// Abbreviated form ($2.5M / $61.5K / $613) for the narrow blade, where full
+// figures overflow the topline tiles.
+const USD_COMPACT = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+  notation: "compact",
+  maximumFractionDigits: 1,
+});
+
+function money(n: number | null | undefined, compact = false): string {
+  if (n === null || n === undefined || Number.isNaN(n)) return "—";
+  return (compact ? USD_COMPACT : USD).format(n);
 }
 
 function pct(part: number, whole: number): number {
@@ -53,9 +63,11 @@ const SOURCES: { key: keyof MemberFinance; label: string; color: string }[] = [
 export function FinanceCard({
   finance,
   bioguide,
+  compact = false,
 }: {
   finance: MemberFinance;
   bioguide?: string;
+  compact?: boolean;
 }) {
   const parts = SOURCES.map((s) => ({
     ...s,
@@ -72,10 +84,10 @@ export function FinanceCard({
   return (
     <Section title="Campaign Finance">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Tile label="Total Raised" value={money(finance.receipts)} sub="this cycle" />
-        <Tile label="Total Spent" value={money(finance.disbursements)} sub="this cycle" />
-        <Tile label="Cash on Hand" value={money(finance.cash_on_hand)} sub="current balance" />
-        <Tile label="Debts" value={money(finance.debts)} sub="owed by committee" />
+        <Tile label="Total Raised" value={money(finance.receipts, compact)} sub="this cycle" />
+        <Tile label="Total Spent" value={money(finance.disbursements, compact)} sub="this cycle" />
+        <Tile label="Cash on Hand" value={money(finance.cash_on_hand, compact)} sub="current balance" />
+        <Tile label="Debts" value={money(finance.debts, compact)} sub="owed by committee" />
       </div>
 
       {totalSources > 0 && (

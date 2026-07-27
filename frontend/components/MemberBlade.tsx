@@ -118,9 +118,11 @@ export function MemberBlade() {
             <span aria-hidden="true">←</span> Close
           </button>
           {openId && (
+            // Desktop-only: on mobile the blade is the whole experience, so the
+            // full-page escape hatch is hidden (the blade has everything).
             <Link
               href={`/members/${openId}`}
-              className="text-sm font-medium text-govblue transition-colors hover:text-govnavy"
+              className="hidden text-sm font-medium text-govblue transition-colors hover:text-govnavy md:inline"
             >
               Open full page ↗
             </Link>
