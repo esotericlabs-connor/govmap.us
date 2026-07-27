@@ -73,6 +73,7 @@ export function UniversalSearch({
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const { zip: homeZip, setHomeZip } = useHomeZip();
 
   // Debounced + abortable fetch.
@@ -132,12 +133,27 @@ export function UniversalSearch({
 
   return (
     <div ref={containerRef} className={`relative ${className}`}>
-      <div className="group relative flex items-center">
+      <form
+        className="group relative flex items-center"
+        onSubmit={(e) => {
+          // A real form submit is the one reliable way the mobile keyboard's
+          // Go/Search key triggers an action — the desktop Enter-keydown path
+          // below doesn't dispatch consistently on soft keyboards, which is why
+          // entering a ZIP appeared to "do nothing" on mobile.
+          e.preventDefault();
+          if (zipQuery) {
+            void applyZip(zipQuery);
+            inputRef.current?.blur();
+          }
+        }}
+      >
         <span className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-4">
           <SearchIcon />
         </span>
         <input
+          ref={inputRef}
           type="search"
+          enterKeyHint="search"
           value={query}
           onChange={(e) => {
             setQuery(e.target.value);
@@ -160,7 +176,7 @@ export function UniversalSearch({
             homeZip ? "" : "ring-2 ring-govblue/50"
           }`}
         />
-      </div>
+      </form>
 
       {showPanel && (
         <div className="absolute left-0 right-0 top-full z-50 mt-2 max-h-[70vh] overflow-y-auto rounded-xl border border-white/10 bg-govnavy-800/90 text-slate-200 shadow-2xl shadow-black/40 backdrop-blur-xl animate-slide-down-and-fade">

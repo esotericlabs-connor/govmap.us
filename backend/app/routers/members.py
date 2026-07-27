@@ -1,3 +1,4 @@
+from datetime import date, timedelta
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -202,4 +203,55 @@ async def member_detail(bioguide_id: str, db: AsyncSession = Depends(get_db)) ->
             }
             for v in voting
         ],
+    }
+
+
+@router.get("/{bioguide_id}/card")
+async def member_card(
+    bioguide_id: str,
+    days: int = Query(default=90, ge=1, le=365),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Compact card for the map's info panel: identity + tenure + a rolling
+    activity pulse (bills sponsored / votes cast in the last `days`). Kept to a
+    few light queries so it can be fetched on every map selection."""
+    member = (
+        await db.execute(select(Member).where(Member.bioguide_id == bioguide_id))
+    ).scalar_one_or_none()
+    if member is None:
+        raise HTTPException(status_code=404, detail="member not found")
+
+    cutoff = date.today() - timedelta(days=days)
+
+    recent_bills = (
+        await db.execute(
+            select(func.count())
+            .select_from(Bill)
+            .where(Bill.sponsor_bioguide_id == bioguide_id, Bill.introduced_date >= cutoff)
+        )
+    ).scalar_one()
+
+    recent_votes = (
+        await db.execute(
+            select(func.count())
+            .select_from(VotePosition)
+            .join(Vote, Vote.vote_id == VotePosition.vote_id)
+            .where(VotePosition.bioguide_id == bioguide_id, Vote.date >= cutoff)
+        )
+    ).scalar_one()
+
+    return {
+        "bioguide_id": member.bioguide_id,
+        "official_full_name": member.official_full_name,
+        "last_name": member.last_name,
+        "party": member.party,
+        "state": member.state,
+        "district": member.district,
+        "chamber": member.chamber,
+        "photo_url": member.photo_url,
+        "served_since": member.served_since.isoformat() if member.served_since else None,
+        "leadership_role": member.leadership_role,
+        "recent_bills": int(recent_bills),
+        "recent_votes": int(recent_votes),
+        "activity_window_days": days,
     }

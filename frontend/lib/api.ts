@@ -352,3 +352,36 @@ export interface CongressMap {
   /** STATE-DISTRICT -> curated special-election context for vacant seats. */
   vacancies?: Record<string, VacancyInfo>;
 }
+
+/** Compact member card for the map's info panel (/api/members/{id}/card):
+ *  identity + tenure + a rolling activity pulse over `activity_window_days`. */
+export interface MemberCard {
+  bioguide_id: string;
+  official_full_name: string;
+  last_name: string;
+  party: string;
+  state: string;
+  district: number | null;
+  chamber: "house" | "senate";
+  photo_url: string | null;
+  served_since: string | null;
+  leadership_role: string | null;
+  recent_bills: number;
+  recent_votes: number;
+  activity_window_days: number;
+}
+
+/** Client-side fetch for the map info card. Fail-soft: returns null on any
+ *  error so the panel can fall back to the name/party it already has. */
+export async function fetchMemberCard(
+  bioguide: string,
+  days = 90,
+): Promise<MemberCard | null> {
+  try {
+    const res = await fetch(`${publicApiBase}/api/members/${bioguide}/card?days=${days}`);
+    if (!res.ok) return null;
+    return (await res.json()) as MemberCard;
+  } catch {
+    return null;
+  }
+}

@@ -1,18 +1,19 @@
 "use client";
 
 import { geoAlbersUsa, geoPath } from "d3-geo";
-import Link from "next/link";
 import {
   useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
+  type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { feature } from "topojson-client";
 
 import { CongressCartogram } from "@/components/CongressCartogram";
+import { MemberCardBlock } from "@/components/MemberCardBlock";
 import type { CongressMap, LookupResult } from "@/lib/api";
 import { useHomeZip } from "@/lib/zip-context";
 
@@ -61,6 +62,13 @@ const PARTY_FILL: Record<Party, string> = {
   I: "fill-slate-400",
 };
 
+// Selection outline for the clicked shape: a warm gold ring is the one hue that
+// stays distinct against both red and blue districts (and the navy ZIP-home
+// border), so "what's selected" reads at a glance. The dark casing underneath
+// keeps the gold legible on the light-blue fills.
+const SELECT_RING = "#E0A82E";
+const SELECT_CASING = "#070B1A";
+
 type Shape = {
   key: string; // "WA-7" (house) or "WA" (senate)
   d: string;
@@ -72,17 +80,30 @@ type Shape = {
   y1: number;
   fill: string;
   vacant?: boolean; // a House district (or Senate seat) with no current holder
+  // Seat occupant(s) — one rep (house) or the two senators (state); empty when
+  // vacant / no data. Seeds the info card so it renders before its fetch lands.
+  members: { bioguide: string; name: string; party: Party; role: string }[];
   hover: { title: string; rows: { name: string; party: Party; sub?: string; vacant?: boolean }[] };
   href?: string;
 };
+
+// Jurisdictions the House seats with a non-voting delegate / resident
+// commissioner rather than a voting member (DC + the five territories). A
+// constitutional/statutory fact, so it's a constant here, not sourced data.
+const NON_VOTING_DELEGATE = new Set(["DC", "AS", "GU", "MP", "PR", "VI"]);
 
 // GEOID "5307" -> "WA-7"; at-large "5600" -> "WY-0".
 function districtKey(rawId: string): string | null {
   const id = rawId.padStart(4, "0");
   const state = FIPS_TO_USPS[id.slice(0, 2)];
   if (!state) return null;
-  const district = parseInt(id.slice(2, 4), 10);
+  let district = parseInt(id.slice(2, 4), 10);
   if (Number.isNaN(district)) return null;
+  // Census encodes non-voting delegate seats as district 98 (e.g. DC = GEOID
+  // "1198"); the roster (congress-legislators, see backend congress.py) keys
+  // those same seats as district 0. Reconcile to the roster's 0 so the delegate
+  // matches instead of falsely reading as "Vacant".
+  if (district === 98) district = 0;
   return `${state}-${district}`;
 }
 
@@ -252,6 +273,7 @@ export function UsMap({ map, result = null }: { map: CongressMap; result?: Looku
         const entry = map.house[key];
         if (entry) matched++;
         const party = partyOf(entry?.party);
+        const isDelegate = NON_VOTING_DELEGATE.has(key.split("-")[0]);
         out.push({
           key,
           d,
@@ -263,10 +285,13 @@ export function UsMap({ map, result = null }: { map: CongressMap; result?: Looku
           y1,
           fill: entry ? PARTY_FILL[party] : "fill-slate-200",
           vacant: !entry,
+          members: entry
+            ? [{ bioguide: entry.bioguide, name: entry.last_name, party, role: isDelegate ? "Non-voting delegate" : "Representative" }]
+            : [],
           hover: {
             title: key,
             rows: entry
-              ? [{ name: entry.last_name, party, sub: "Representative" }]
+              ? [{ name: entry.last_name, party, sub: isDelegate ? "Non-voting delegate" : "Representative" }]
               : [{ name: "Vacant seat", party: "I", sub: "No current representative", vacant: true }],
           },
           href: entry ? `/members/${entry.bioguide}` : undefined,
@@ -304,6 +329,7 @@ export function UsMap({ map, result = null }: { map: CongressMap; result?: Looku
         x1,
         y1,
         fill: seats.length ? senateFill(seats) : "fill-slate-200",
+        members: seats.map((s) => ({ bioguide: s.bioguide, name: s.last_name, party: partyOf(s.party), role: "Senator" })),
         hover: {
           title: key,
           rows: seats.length
@@ -315,6 +341,12 @@ export function UsMap({ map, result = null }: { map: CongressMap; result?: Looku
     }
     return out;
   }, [geo, chamber, map, path]);
+
+  const shapeByKey = useMemo(() => {
+    const m = new Map<string, Shape>();
+    for (const s of shapes) m.set(s.key, s);
+    return m;
+  }, [shapes]);
 
   // Wheel zoom toward the cursor (native, non-passive so we can preventDefault).
   // Depends on `geo` so it (re)attaches once the <svg> actually mounts.
@@ -373,8 +405,8 @@ export function UsMap({ map, result = null }: { map: CongressMap; result?: Looku
   }, [homeResult, animateZoomTo]);
 
   // When a home area is set (or hydrated from storage), fly to that district/
-  // state once. The ref keys off the result value so toggling chambers or
-  // re-panning doesn't yank the view back.
+  // state once and open its info card. The ref keys off the result value so
+  // toggling chambers or re-panning doesn't yank the view back.
   useEffect(() => {
     if (!homeResult || shapes.length === 0) return;
     if (flownHome.current === homeResult) return;
@@ -384,6 +416,7 @@ export function UsMap({ map, result = null }: { map: CongressMap; result?: Looku
     const shape = shapes.find((s) => s.key === key);
     if (!shape) return;
     flownHome.current = homeResult;
+    setPopover(shape); // surface your rep's card as soon as we land on it
     fitTo(shape);
   }, [homeResult, shapes, chamber, fitTo]);
 
@@ -409,6 +442,26 @@ export function UsMap({ map, result = null }: { map: CongressMap; result?: Looku
     setTimeout(() => (drag.current = null), 0);
   }
 
+  // Hover tooltip via event delegation: show it only while the cursor is directly
+  // over a district/state path, and hide it the instant the cursor is over empty
+  // space (ocean, gaps, the letterboxed margins) or mid-pan — so it never lingers
+  // on a stale shape and "snaps" to the next one.
+  function onHoverMove(e: ReactMouseEvent<SVGSVGElement>) {
+    if (drag.current) {
+      setHover(null);
+      return;
+    }
+    const target = e.target as Element;
+    const key = target instanceof SVGPathElement ? target.dataset.key : undefined;
+    const shape = key ? shapeByKey.get(key) : undefined;
+    if (!shape) {
+      setHover(null);
+      return;
+    }
+    const rect = svgRef.current?.getBoundingClientRect();
+    if (rect) setHover({ shape, x: e.clientX - rect.left, y: e.clientY - rect.top });
+  }
+
   function onShapeClick(shape: Shape) {
     if (drag.current?.moved) return; // it was a pan, not a click
     setHover(null);
@@ -427,6 +480,11 @@ export function UsMap({ map, result = null }: { map: CongressMap; result?: Looku
   // WIDTH×HEIGHT frame is the viewBox [-x/k, -y/k, W/k, H/k].
   const viewBox = `${-zoom.x / zoom.k} ${-zoom.y / zoom.k} ${WIDTH / zoom.k} ${HEIGHT / zoom.k}`;
 
+  // The clicked shape stays outlined on the map (gold ring, drawn on top) so it's
+  // clear which district/state the popover refers to. Re-look-up by key so the
+  // outline tracks the freshest geometry.
+  const selectedShape = popover ? shapeByKey.get(popover.key) ?? popover : null;
+
   return (
     <div className="relative h-full w-full overflow-hidden bg-slate-warm-50">
       {!geo ? (
@@ -444,6 +502,7 @@ export function UsMap({ map, result = null }: { map: CongressMap; result?: Looku
             aria-label={`Geographic map of the U.S. ${chamber === "house" ? "House by district" : "Senate by state"}`}
             onPointerDown={onPointerDown}
             onPointerMove={onPointerMove}
+            onMouseMove={onHoverMove}
             onPointerUp={endPan}
             onPointerLeave={() => {
               endPan();
@@ -470,25 +529,39 @@ export function UsMap({ map, result = null }: { map: CongressMap; result?: Looku
                 return (
                   <path
                     key={s.key}
+                    data-key={s.key}
                     d={s.d}
                     className={`${s.vacant ? "" : s.fill} ${s.href ? "cursor-pointer" : ""} stroke-white transition-[fill,opacity] duration-150 hover:opacity-80`}
                     fill={s.vacant ? "url(#vacant-hatch)" : undefined}
                     strokeWidth={isHi ? 1.6 : 0.3}
                     stroke={isHi ? "#0b1220" : "#ffffff"}
                     vectorEffect="non-scaling-stroke"
-                    onMouseEnter={(e) => {
-                      const rect = svgRef.current?.getBoundingClientRect();
-                      if (rect) setHover({ shape: s, x: e.clientX - rect.left, y: e.clientY - rect.top });
-                    }}
-                    onMouseMove={(e) => {
-                      const rect = svgRef.current?.getBoundingClientRect();
-                      if (rect) setHover({ shape: s, x: e.clientX - rect.left, y: e.clientY - rect.top });
-                    }}
                     onClick={() => onShapeClick(s)}
                   />
                 );
               })}
             </g>
+            {selectedShape && (
+              <g key={selectedShape.key} className="pointer-events-none animate-subtle-fade-in">
+                {/* Dark casing first so the gold ring stays legible on light fills. */}
+                <path
+                  d={selectedShape.d}
+                  fill="none"
+                  stroke={SELECT_CASING}
+                  strokeWidth={4.5}
+                  strokeLinejoin="round"
+                  vectorEffect="non-scaling-stroke"
+                />
+                <path
+                  d={selectedShape.d}
+                  fill="none"
+                  stroke={SELECT_RING}
+                  strokeWidth={2.5}
+                  strokeLinejoin="round"
+                  vectorEffect="non-scaling-stroke"
+                />
+              </g>
+            )}
           </svg>
 
           {/* HUD — chamber toggle (top-left) */}
@@ -536,10 +609,11 @@ export function UsMap({ map, result = null }: { map: CongressMap; result?: Looku
             </div>
           )}
 
-          {/* Click popover — anchored top-center; the clicked shape flies to
-              center beneath it. */}
+          {/* Selection info card — anchored to the map's top-right corner (the
+              gold ring shows which shape it describes). Driven by whatever
+              district/state is selected. */}
           {popover && (
-            <div className="absolute left-1/2 top-20 z-30 w-[min(20rem,calc(100%-1.5rem))] -translate-x-1/2 rounded-xl border border-slate-warm-200 bg-white p-4 shadow-xl">
+            <div className="absolute right-3 top-3 z-30 max-h-[calc(100%-1.5rem)] w-[min(20rem,calc(100%-1.5rem))] overflow-y-auto rounded-xl border border-slate-warm-200 bg-white p-4 shadow-xl">
               <div className="absolute right-2 top-2 flex items-center gap-0.5">
                 <button
                   type="button"
@@ -562,63 +636,69 @@ export function UsMap({ map, result = null }: { map: CongressMap; result?: Looku
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-warm-400">
                 {chamber === "house" ? "District" : "State"} {popover.hover.title}
               </p>
-              <ul className="mt-2 space-y-1.5">
-                {popover.hover.rows.map((r, i) => (
-                  <li key={i} className="flex items-center gap-2 text-sm">
-                    <span
-                      className={`h-2.5 w-2.5 shrink-0 rounded-full ${
-                        r.party === "D" ? "bg-govblue" : r.party === "R" ? "bg-govred" : "bg-slate-400"
-                      }`}
+              {popover.members.length > 0 ? (
+                <div className="mt-2 space-y-2">
+                  {popover.members.map((m) => (
+                    <MemberCardBlock
+                      key={m.bioguide}
+                      bioguide={m.bioguide}
+                      name={m.name}
+                      party={m.party}
+                      role={m.role}
                     />
-                    <span className="font-semibold text-govnavy">{r.name}</span>
-                    {r.sub && <span className="text-xs text-slate-warm-400">{r.sub}</span>}
-                  </li>
-                ))}
-              </ul>
-              {popover.vacant ? (
-                <div className="mt-3">
-                  <p className="text-xs leading-relaxed text-slate-warm-500">
-                    This seat is currently vacant.{" "}
-                    {popoverVacancy?.special_election_date && formatDay(popoverVacancy.special_election_date) ? (
-                      <>
-                        A special election is scheduled for{" "}
-                        <span className="font-semibold text-govnavy">
-                          {formatDay(popoverVacancy.special_election_date)}
-                        </span>
-                        . GovMap updates automatically once a new representative is seated.
-                      </>
-                    ) : (
-                      <>A special election will fill it — GovMap updates automatically once a new representative is seated.</>
-                    )}
-                  </p>
-                  {popoverVacancy?.note && (
-                    <p className="mt-1 text-xs leading-relaxed text-slate-warm-500">{popoverVacancy.note}</p>
-                  )}
-                  {popoverVacancy?.source_url && (
-                    <a
-                      href={popoverVacancy.source_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-govblue transition-colors hover:text-govnavy"
-                    >
-                      Election details
-                      <span aria-hidden="true">↗</span>
-                    </a>
-                  )}
-                  {rosterUpdatedLabel && (
-                    <p className="mt-2 text-[11px] text-slate-warm-400">Roster current as of {rosterUpdatedLabel}</p>
-                  )}
+                  ))}
                 </div>
               ) : (
-                popover.href && (
-                  <Link
-                    href={popover.href}
-                    className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-govblue transition-colors hover:text-govnavy"
-                  >
-                    View profile
-                    <span aria-hidden="true">→</span>
-                  </Link>
-                )
+                <>
+                  <ul className="mt-2 space-y-1.5">
+                    {popover.hover.rows.map((r, i) => (
+                      <li key={i} className="flex items-center gap-2 text-sm">
+                        <span
+                          className={`h-2.5 w-2.5 shrink-0 rounded-full ${
+                            r.party === "D" ? "bg-govblue" : r.party === "R" ? "bg-govred" : "bg-slate-400"
+                          }`}
+                        />
+                        <span className="font-semibold text-govnavy">{r.name}</span>
+                        {r.sub && <span className="text-xs text-slate-warm-400">{r.sub}</span>}
+                      </li>
+                    ))}
+                  </ul>
+                  {popover.vacant && (
+                    <div className="mt-3">
+                      <p className="text-xs leading-relaxed text-slate-warm-500">
+                        This seat is currently vacant.{" "}
+                        {popoverVacancy?.special_election_date && formatDay(popoverVacancy.special_election_date) ? (
+                          <>
+                            A special election is scheduled for{" "}
+                            <span className="font-semibold text-govnavy">
+                              {formatDay(popoverVacancy.special_election_date)}
+                            </span>
+                            . GovMap updates automatically once a new representative is seated.
+                          </>
+                        ) : (
+                          <>A special election will fill it — GovMap updates automatically once a new representative is seated.</>
+                        )}
+                      </p>
+                      {popoverVacancy?.note && (
+                        <p className="mt-1 text-xs leading-relaxed text-slate-warm-500">{popoverVacancy.note}</p>
+                      )}
+                      {popoverVacancy?.source_url && (
+                        <a
+                          href={popoverVacancy.source_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-govblue transition-colors hover:text-govnavy"
+                        >
+                          Election details
+                          <span aria-hidden="true">↗</span>
+                        </a>
+                      )}
+                      {rosterUpdatedLabel && (
+                        <p className="mt-2 text-[11px] text-slate-warm-400">Roster current as of {rosterUpdatedLabel}</p>
+                      )}
+                    </div>
+                  )}
+                </>
               )}
             </div>
           )}
