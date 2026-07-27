@@ -385,3 +385,16 @@ export async function fetchMemberCard(
     return null;
   }
 }
+
+/** Client-side fetch of the full member profile, for the slide-in blade. Same
+ *  shape the SSR profile page uses; fail-soft (null) so the blade can show a
+ *  graceful error with a link out to the full page. */
+export async function fetchMemberDetail(bioguide: string): Promise<MemberDetail | null> {
+  try {
+    const res = await fetch(`${publicApiBase}/api/members/${encodeURIComponent(bioguide)}`);
+    if (!res.ok) return null;
+    return (await res.json()) as MemberDetail;
+  } catch {
+    return null;
+  }
+}

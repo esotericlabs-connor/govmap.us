@@ -1,9 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { MemberAvatar } from "@/components/MemberAvatar";
+import { MemberLink } from "@/components/MemberLink";
 import { fetchMemberCard, type MemberCard } from "@/lib/api";
 
 type Party = "D" | "R" | "I";
@@ -78,8 +78,8 @@ export function MemberCardBlock({
   const windowLabel = `${card?.activity_window_days ?? 90}d`;
 
   return (
-    <Link
-      href={`/members/${bioguide}`}
+    <MemberLink
+      bioguide={bioguide}
       className="group block rounded-xl border border-slate-warm-200 p-3 transition-colors hover:border-govblue/60 hover:bg-slate-warm-50"
     >
       <div className="flex items-center gap-3">
@@ -112,6 +112,6 @@ export function MemberCardBlock({
           →
         </span>
       </span>
-    </Link>
+    </MemberLink>
   );
 }

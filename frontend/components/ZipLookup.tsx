@@ -1,10 +1,10 @@
 "use client";
 
-import Link from "next/link";
 import { useState, type FormEvent } from "react";
 
 import { partyDotClass, partyTextClass } from "@/components/DetailKit";
 import { MemberAvatar } from "@/components/MemberAvatar";
+import { MemberLink } from "@/components/MemberLink";
 import { publicApiBase, type LookupMember, type LookupResult } from "@/lib/api";
 
 /**
@@ -23,8 +23,8 @@ function seatLabel(m: LookupMember): string {
 
 function MemberResultCard({ m }: { m: LookupMember }) {
   return (
-    <Link
-      href={`/members/${m.bioguide_id}`}
+    <MemberLink
+      bioguide={m.bioguide_id}
       className="group flex items-center gap-4 rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-govblue-400 hover:shadow-card-hover"
     >
       <MemberAvatar src={m.photo_url} name={m.official_full_name} size="md" />
@@ -38,7 +38,7 @@ function MemberResultCard({ m }: { m: LookupMember }) {
         </p>
         <p className="mt-0.5 text-xs text-slate-400">{seatLabel(m)}</p>
       </div>
-    </Link>
+    </MemberLink>
   );
 }
 

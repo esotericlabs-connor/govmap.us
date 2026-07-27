@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { Inter, Space_Grotesk } from "next/font/google";
 import "./globals.css";
 
+import { MemberBlade } from "@/components/MemberBlade";
+import { MemberBladeProvider } from "@/lib/member-blade";
 import { ZipProvider } from "@/lib/zip-context";
 
 const inter = Inter({
@@ -55,7 +57,10 @@ export default function RootLayout({
     >
       {/* Base background/text colors are now in globals.css */}
       <body>
-        <ZipProvider>{children}</ZipProvider>
+        <MemberBladeProvider>
+          <ZipProvider>{children}</ZipProvider>
+          <MemberBlade />
+        </MemberBladeProvider>
       </body>
     </html>
   );

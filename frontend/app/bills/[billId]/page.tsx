@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
 
@@ -13,6 +12,7 @@ import {
   Section,
 } from "@/components/DetailKit";
 import { MemberAvatar } from "@/components/MemberAvatar";
+import { MemberLink } from "@/components/MemberLink";
 import { PageSkeleton } from "@/components/PageSkeleton";
 import { Reveal } from "@/components/Reveal";
 import { SiteHeader } from "@/components/SiteHeader";
@@ -212,8 +212,8 @@ async function BillDetailContent({ billId }: { billId: string }) {
         <aside className="space-y-10">
           {bill.sponsor && (
             <Section title="Sponsor">
-              <Link
-                href={`/members/${bill.sponsor.bioguide_id}`}
+              <MemberLink
+                bioguide={bill.sponsor.bioguide_id}
                 className="group -m-3 block rounded-lg p-3 transition-colors hover:bg-slate-warm-50"
               >
                 <div className="flex items-center gap-4">
@@ -237,7 +237,7 @@ async function BillDetailContent({ billId }: { billId: string }) {
                     </p>
                   </div>
                 </div>
-              </Link>
+              </MemberLink>
             </Section>
           )}
 
@@ -248,8 +248,8 @@ async function BillDetailContent({ billId }: { billId: string }) {
               <ul className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2 lg:grid-cols-1">
                 {bill.cosponsors.map((c) => (
                   <li key={c.bioguide_id}>
-                    <Link
-                      href={`/members/${c.bioguide_id}`}
+                    <MemberLink
+                      bioguide={c.bioguide_id}
                       className="group inline-flex items-start gap-2 text-sm"
                     >
                       <span
@@ -260,7 +260,7 @@ async function BillDetailContent({ billId }: { billId: string }) {
                       <span className="font-medium text-slate-warm-700 transition-colors group-hover:text-govblue-600">
                         {c.official_full_name}
                       </span>
-                    </Link>
+                    </MemberLink>
                   </li>
                 ))}
               </ul>

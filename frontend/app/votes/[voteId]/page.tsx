@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { Suspense } from "react";
 
 import { BackLink, chamberLabel, EmptyState, formatDate, partyTextClass, Section } from "@/components/DetailKit";
+import { MemberLink } from "@/components/MemberLink";
 import { PageSkeleton } from "@/components/PageSkeleton";
 import { Reveal } from "@/components/Reveal";
 import { SiteHeader } from "@/components/SiteHeader";
@@ -151,8 +152,8 @@ async function VoteDetailContent({ voteId }: { voteId: string }) {
                 <ul className="grid grid-cols-1 gap-x-8 gap-y-3 pt-2 md:grid-cols-2 xl:grid-cols-3">
                   {positions.map((p) => (
                     <li key={p.bioguide_id}>
-                      <Link
-                        href={`/members/${p.bioguide_id}`}
+                      <MemberLink
+                        bioguide={p.bioguide_id}
                         className="group inline-flex min-w-0 items-baseline gap-2 text-sm"
                       >
                         <span className="font-semibold text-slate-800 transition-colors group-hover:text-govblue">
@@ -163,7 +164,7 @@ async function VoteDetailContent({ voteId }: { voteId: string }) {
                         >
                           ({p.party?.slice(0, 1)}-{p.state})
                         </span>
-                      </Link>
+                      </MemberLink>
                     </li>
                   ))}
                 </ul>

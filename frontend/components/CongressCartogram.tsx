@@ -1,9 +1,9 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useMemo, useState, useRef, type MouseEvent } from "react";
 
 import type { CongressMap } from "@/lib/api";
+import { useMemberBlade } from "@/lib/member-blade";
 
 /**
  * Self-contained seat-chart (hemicycle) of Congress. Every seat is one member,
@@ -170,7 +170,7 @@ export function CongressCartogram({
   map: CongressMap;
   highlight: Set<string>;
 }) {
-  const router = useRouter();
+  const { open } = useMemberBlade();
   const [chamber, setChamber] = useState<"house" | "senate">("house");
   const [hovered, setHovered] = useState<Seat | null>(null);
   const [hoverPos, setHoverPos] = useState({ x: 0, y: 0 });
@@ -255,7 +255,7 @@ export function CongressCartogram({
                   className="cursor-pointer"
                   onMouseEnter={(e) => onSeatEnter(e, seat)}
                   onMouseLeave={() => setHovered(null)}
-                  onClick={() => router.push(`/members/${seat.bioguide}`)}
+                  onClick={() => open(seat.bioguide)}
                 >
                   {isHi && (
                     <circle

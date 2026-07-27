@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
+import { MemberLink } from "@/components/MemberLink";
 import { publicApiBase, type SearchResults } from "@/lib/api";
 import { useHomeZip } from "@/lib/zip-context";
 
@@ -202,12 +203,17 @@ export function UniversalSearch({
               {results!.members.length > 0 && (
                 <Group label="Members">
                   {results!.members.map((m) => (
-                    <Row key={m.bioguide_id} href={`/members/${m.bioguide_id}`} onClick={close}>
+                    <MemberLink
+                      key={m.bioguide_id}
+                      bioguide={m.bioguide_id}
+                      onClick={close}
+                      className="flex items-center justify-between gap-3 px-4 py-3 text-sm transition-colors hover:bg-white/5"
+                    >
                       <span className="font-semibold">{m.official_full_name}</span>
                       <span className="text-xs text-slate-400">
                         {m.party?.slice(0, 1)} · {m.state}
                       </span>
-                    </Row>
+                    </MemberLink>
                   ))}
                 </Group>
               )}

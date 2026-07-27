@@ -11,6 +11,7 @@ import {
   Section,
 } from "@/components/DetailKit";
 import { MemberAvatar } from "@/components/MemberAvatar";
+import { MemberLink } from "@/components/MemberLink";
 import { PageSkeleton } from "@/components/PageSkeleton";
 import { Reveal } from "@/components/Reveal";
 import { SiteHeader } from "@/components/SiteHeader";
@@ -171,8 +172,8 @@ function MemberCard({ member }: { member: CommitteeMember }) {
   const isRanking = member.role?.toLowerCase().includes("ranking");
 
   return (
-    <Link
-      href={`/members/${member.bioguide_id}`}
+    <MemberLink
+      bioguide={member.bioguide_id}
       className="group -m-3 block rounded-lg p-3 transition-colors hover:bg-slate-warm-50"
     >
       <div className="flex items-center gap-4">
@@ -203,7 +204,7 @@ function MemberCard({ member }: { member: CommitteeMember }) {
           </span>
         </div>
       )}
-    </Link>
+    </MemberLink>
   );
 }
 
