@@ -33,9 +33,8 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: "20"
-          cache: "npm"
-          cache-dependency-path: frontend/package-lock.json
-      # Reproducible install from the committed lockfile.
-      - run: npm ci
+      # No npm cache yet -- switch to `npm ci` + setup-node's cache option once a
+      # frontend/package-lock.json is committed (run `npm install --package-lock-only`).
+      - run: npm install
       - run: npm run lint
       - run: npx tsc --noEmit
