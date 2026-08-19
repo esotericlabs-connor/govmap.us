@@ -4,6 +4,7 @@ import { useMemo, useState, useRef, type MouseEvent } from "react";
 
 import type { CongressMap } from "@/lib/api";
 import { useMemberBlade } from "@/lib/member-blade";
+import { getPartyKey, PARTY_COLORS, type PartyKey } from "@/lib/party";
 
 /**
  * Self-contained seat-chart (hemicycle) of Congress. Every seat is one member,
@@ -17,33 +18,6 @@ import { useMemberBlade } from "@/lib/member-blade";
  */
 
 type Seat = { bioguide: string; label: string; name: string; party: string };
-
-type PartyKey = "D" | "R" | "I";
-
-// Party → Tailwind fill/text classes; brand colors come straight from the theme.
-const PARTY_COLORS = {
-  D: {
-    base: "text-govblue",
-    dot: "bg-govblue",
-    fill: "fill-govblue",
-  },
-  R: {
-    base: "text-govred",
-    dot: "bg-govred",
-    fill: "fill-govred",
-  },
-  I: {
-    base: "text-slate-500",
-    dot: "bg-slate-400",
-    fill: "fill-slate-400",
-  },
-};
-
-function partyKey(party: string): PartyKey {
-  if (party.startsWith("Democrat")) return "D";
-  if (party.startsWith("Republican")) return "R";
-  return "I";
-}
 
 // Order seats left→right: Democrats, Independents, Republicans.
 const PARTY_ORDER: Record<PartyKey, number> = { D: 0, I: 1, R: 2 };
@@ -120,7 +94,7 @@ function seatsFor(map: CongressMap, chamber: "house" | "senate"): Seat[] {
         );
   return seats.sort(
     (a, b) =>
-      PARTY_ORDER[partyKey(a.party)] - PARTY_ORDER[partyKey(b.party)] ||
+      PARTY_ORDER[getPartyKey(a.party)] - PARTY_ORDER[getPartyKey(b.party)] ||
       a.label.localeCompare(b.label),
   );
 }
@@ -149,7 +123,7 @@ function CartogramSkeleton() {
 
 function Tooltip({ seat, pos }: { seat: Seat | null; pos: { x: number; y: number } }) {
   if (!seat) return null;
-  const pKey = partyKey(seat.party);
+  const pKey = getPartyKey(seat.party);
   return (
     <div
       className="pointer-events-none absolute z-10 animate-slide-down-and-fade rounded-lg bg-govnavy px-3 py-2 text-sm text-white shadow-lg"
@@ -246,7 +220,7 @@ export function CongressCartogram({
               const seat = seats[idx];
               if (!seat) return null;
               const isHi = highlight.has(seat.bioguide);
-              const pKey = partyKey(seat.party);
+              const pKey = getPartyKey(seat.party);
               const isHovered = hovered?.bioguide === seat.bioguide;
 
               return (

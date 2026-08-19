@@ -16,7 +16,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from datetime import date
 from pathlib import Path
 
 from sqlalchemy import delete, func, select
@@ -25,6 +24,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from app.db import async_session_factory
 from app.models.crosswalk import IdCrosswalk
 from app.models.vote import Vote, VotePosition
+from app.normalize.dates import normalize_date
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +51,7 @@ def _vote_row(v: dict) -> dict:
         "congress": v["congress"],
         "session": v["session"],
         "roll_number": v["roll_number"],
-        "date": date.fromisoformat(v["date"]) if v.get("date") else None,
+        "date": normalize_date(v.get("date")),
         "question": v.get("question"),
         "result": v.get("result"),
         "bill_id": v.get("bill_id"),

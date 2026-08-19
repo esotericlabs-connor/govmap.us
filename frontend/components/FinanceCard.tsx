@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { formatDate, Section } from "@/components/DetailKit";
 import type { MemberFinance } from "@/lib/api";
+import { formatMoney } from "@/lib/format";
 
 /**
  * Campaign-finance snapshot for a member's latest FEC cycle: the topline totals,
@@ -11,26 +12,6 @@ import type { MemberFinance } from "@/lib/api";
  * FEC — no interpretation. Itemized "who gave what, when" lives in the donations
  * ledger (loaded separately).
  */
-
-const USD = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
-  maximumFractionDigits: 0,
-});
-
-// Abbreviated form ($2.5M / $61.5K / $613) for the narrow blade, where full
-// figures overflow the topline tiles.
-const USD_COMPACT = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
-  notation: "compact",
-  maximumFractionDigits: 1,
-});
-
-function money(n: number | null | undefined, compact = false): string {
-  if (n === null || n === undefined || Number.isNaN(n)) return "—";
-  return (compact ? USD_COMPACT : USD).format(n);
-}
 
 function pct(part: number, whole: number): number {
   return whole > 0 ? Math.round((part / whole) * 100) : 0;
@@ -84,10 +65,10 @@ export function FinanceCard({
   return (
     <Section title="Campaign Finance">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Tile label="Total Raised" value={money(finance.receipts, compact)} sub="this cycle" />
-        <Tile label="Total Spent" value={money(finance.disbursements, compact)} sub="this cycle" />
-        <Tile label="Cash on Hand" value={money(finance.cash_on_hand, compact)} sub="current balance" />
-        <Tile label="Debts" value={money(finance.debts, compact)} sub="owed by committee" />
+        <Tile label="Total Raised" value={formatMoney(finance.receipts, compact)} sub="this cycle" />
+        <Tile label="Total Spent" value={formatMoney(finance.disbursements, compact)} sub="this cycle" />
+        <Tile label="Cash on Hand" value={formatMoney(finance.cash_on_hand, compact)} sub="current balance" />
+        <Tile label="Debts" value={formatMoney(finance.debts, compact)} sub="owed by committee" />
       </div>
 
       {totalSources > 0 && (
@@ -107,7 +88,7 @@ export function FinanceCard({
               <div
                 key={p.label}
                 style={{ width: `${(p.amount / totalSources) * 100}%`, background: p.color }}
-                title={`${p.label}: ${money(p.amount)}`}
+                title={`${p.label}: ${formatMoney(p.amount)}`}
               />
             ))}
           </div>
@@ -116,7 +97,7 @@ export function FinanceCard({
               <div key={p.label} className="flex items-center gap-2">
                 <span className="h-2.5 w-2.5 rounded-full" style={{ background: p.color }} />
                 <span className="font-medium text-slate-warm-600">{p.label}</span>
-                <span className="font-semibold text-govnavy">{money(p.amount)}</span>
+                <span className="font-semibold text-govnavy">{formatMoney(p.amount)}</span>
                 <span className="text-slate-warm-400">({pct(p.amount, totalSources)}%)</span>
               </div>
             ))}
@@ -145,11 +126,11 @@ export function FinanceCard({
           <div className="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-sm">
             <span className="text-slate-warm-600">
               <span className="font-semibold text-govnavy">{pct(smallDollar, individual)}%</span>{" "}
-              small-dollar (&lt;&nbsp;$200) · {money(smallDollar)}
+              small-dollar (&lt;&nbsp;$200) · {formatMoney(smallDollar)}
             </span>
             <span className="text-slate-warm-600">
               <span className="font-semibold text-govnavy">
-                {money(finance.individual_itemized)}
+                {formatMoney(finance.individual_itemized)}
               </span>{" "}
               itemized (larger, disclosed donors)
             </span>

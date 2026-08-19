@@ -1,5 +1,4 @@
 from datetime import UTC, datetime
-from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
@@ -10,6 +9,7 @@ from app.models.committee import Committee, CommitteeMeeting, CommitteeMembershi
 from app.models.member import Member
 from app.schemas.committee import CommitteeOut
 from app.services.committees import referred_bills
+from app.types import CommitteeChamber, CommitteeId
 
 router = APIRouter(prefix="/api/committees", tags=["committees"])
 
@@ -17,7 +17,7 @@ router = APIRouter(prefix="/api/committees", tags=["committees"])
 @router.get("", response_model=list[CommitteeOut])
 async def list_committees(
     db: AsyncSession = Depends(get_db),
-    chamber: Literal["house", "senate", "joint"] | None = None,
+    chamber: CommitteeChamber | None = None,
 ) -> list[Committee]:
     stmt = select(Committee).order_by(Committee.chamber, Committee.name)
     if chamber:
@@ -27,7 +27,7 @@ async def list_committees(
 
 
 @router.get("/{committee_id}")
-async def committee_detail(committee_id: str, db: AsyncSession = Depends(get_db)) -> dict:
+async def committee_detail(committee_id: CommitteeId, db: AsyncSession = Depends(get_db)) -> dict:
     committee = (
         await db.execute(select(Committee).where(Committee.committee_id == committee_id))
     ).scalar_one_or_none()
@@ -118,7 +118,7 @@ def _meeting_dict(m: CommitteeMeeting) -> dict:
 
 @router.get("/{committee_id}/bills")
 async def committee_referred_bills(
-    committee_id: str, db: AsyncSession = Depends(get_db)
+    committee_id: CommitteeId, db: AsyncSession = Depends(get_db)
 ) -> dict:
     """Recent bills referred to the committee — fetched on demand from
     Congress.gov and joined to our stored titles (fail-soft: empty when a key or

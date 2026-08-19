@@ -1,5 +1,3 @@
-from typing import Literal
-
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import nullslast, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,6 +6,7 @@ from app.db import get_db
 from app.models.member import Member
 from app.models.vote import Vote, VotePosition
 from app.schemas.vote import VoteOut
+from app.types import Chamber, VoteId
 
 router = APIRouter(prefix="/api/votes", tags=["votes"])
 
@@ -15,7 +14,7 @@ router = APIRouter(prefix="/api/votes", tags=["votes"])
 @router.get("", response_model=list[VoteOut])
 async def list_votes(
     db: AsyncSession = Depends(get_db),
-    chamber: Literal["house", "senate"] | None = None,
+    chamber: Chamber | None = None,
     congress: int | None = None,
     session: int | None = None,
     bill_id: str | None = None,
@@ -41,7 +40,7 @@ async def list_votes(
 
 
 @router.get("/{vote_id}")
-async def vote_detail(vote_id: str, db: AsyncSession = Depends(get_db)) -> dict:
+async def vote_detail(vote_id: VoteId, db: AsyncSession = Depends(get_db)) -> dict:
     """Full roll call: metadata + every member's position (names left-joined from
     `members`; a member no longer current shows a null name)."""
     vote = (

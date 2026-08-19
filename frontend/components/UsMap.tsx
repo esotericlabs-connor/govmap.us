@@ -15,6 +15,8 @@ import { feature } from "topojson-client";
 import { CongressCartogram } from "@/components/CongressCartogram";
 import { MemberCardBlock } from "@/components/MemberCardBlock";
 import type { CongressMap, LookupResult } from "@/lib/api";
+import { formatDateLocal } from "@/lib/format";
+import { getPartyKey, PARTY_COLORS, type PartyKey } from "@/lib/party";
 import { useHomeZip } from "@/lib/zip-context";
 
 /**
@@ -47,20 +49,7 @@ const FIPS_TO_USPS: Record<string, string> = {
   "54": "WV", "55": "WI", "56": "WY", "72": "PR",
 };
 
-type Party = "D" | "R" | "I";
-
-function partyOf(p?: string | null): Party {
-  if (!p) return "I";
-  if (p.startsWith("Democrat")) return "D";
-  if (p.startsWith("Republican")) return "R";
-  return "I";
-}
-
-const PARTY_FILL: Record<Party, string> = {
-  D: "fill-govblue",
-  R: "fill-govred",
-  I: "fill-slate-400",
-};
+type Party = PartyKey;
 
 // Selection outline for the clicked shape: a warm gold ring is the one hue that
 // stays distinct against both red and blue districts (and the navy ZIP-home
@@ -112,23 +101,13 @@ function stateKey(rawId: string): string | null {
 }
 
 function senateFill(seats: { party: string }[]): string {
-  const parties = seats.map((s) => partyOf(s.party));
+  const parties = seats.map((s) => getPartyKey(s.party));
   const hasD = parties.includes("D");
   const hasR = parties.includes("R");
   if (hasD && hasR) return "fill-violet-500";
   if (hasR) return "fill-govred";
   if (hasD) return "fill-govblue";
   return "fill-slate-400";
-}
-
-// ISO date/timestamp -> "Jul 26, 2026" (or null). Date-only strings are parsed
-// as local so a UTC midnight can't shift the label back a day.
-function formatDay(iso?: string | null): string | null {
-  if (!iso) return null;
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
-  const d = m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : new Date(iso);
-  if (Number.isNaN(d.getTime())) return null;
-  return d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
 }
 
 function clamp(v: number, lo: number, hi: number): number {
@@ -175,7 +154,7 @@ export function UsMap({ map, result = null }: { map: CongressMap; result?: Looku
   // Curated context for the open popover's seat (special-election date/source),
   // plus when the roster was last refreshed — both surfaced in the vacant popover.
   const popoverVacancy = popover ? map.vacancies?.[popover.key] : undefined;
-  const rosterUpdatedLabel = formatDay(map.roster_updated);
+  const rosterUpdatedLabel = formatDateLocal(map.roster_updated);
 
   // Programmatic fly-to eases the SVG viewBox with a rAF tween rather than a CSS
   // transform transition: driving zoom through the viewBox (see the <svg> below)
@@ -272,7 +251,7 @@ export function UsMap({ map, result = null }: { map: CongressMap; result?: Looku
         const [[x0, y0], [x1, y1]] = path.bounds(f as any);
         const entry = map.house[key];
         if (entry) matched++;
-        const party = partyOf(entry?.party);
+        const party = getPartyKey(entry?.party);
         const isDelegate = NON_VOTING_DELEGATE.has(key.split("-")[0]);
         out.push({
           key,
@@ -283,7 +262,7 @@ export function UsMap({ map, result = null }: { map: CongressMap; result?: Looku
           y0,
           x1,
           y1,
-          fill: entry ? PARTY_FILL[party] : "fill-slate-200",
+          fill: entry ? PARTY_COLORS[party].fill : "fill-slate-200",
           vacant: !entry,
           members: entry
             ? [{ bioguide: entry.bioguide, name: entry.last_name, party, role: isDelegate ? "Non-voting delegate" : "Representative" }]
@@ -329,11 +308,11 @@ export function UsMap({ map, result = null }: { map: CongressMap; result?: Looku
         x1,
         y1,
         fill: seats.length ? senateFill(seats) : "fill-slate-200",
-        members: seats.map((s) => ({ bioguide: s.bioguide, name: s.last_name, party: partyOf(s.party), role: "Senator" })),
+        members: seats.map((s) => ({ bioguide: s.bioguide, name: s.last_name, party: getPartyKey(s.party), role: "Senator" })),
         hover: {
           title: key,
           rows: seats.length
-            ? seats.map((s) => ({ name: s.last_name, party: partyOf(s.party), sub: "Senator" }))
+            ? seats.map((s) => ({ name: s.last_name, party: getPartyKey(s.party), sub: "Senator" }))
             : [{ name: "No data", party: "I" }],
         },
         href: seats.length ? `/members/${seats[0].bioguide}` : undefined,
@@ -667,11 +646,11 @@ export function UsMap({ map, result = null }: { map: CongressMap; result?: Looku
                     <div className="mt-3">
                       <p className="text-xs leading-relaxed text-slate-warm-500">
                         This seat is currently vacant.{" "}
-                        {popoverVacancy?.special_election_date && formatDay(popoverVacancy.special_election_date) ? (
+                        {popoverVacancy?.special_election_date && formatDateLocal(popoverVacancy.special_election_date) ? (
                           <>
                             A special election is scheduled for{" "}
                             <span className="font-semibold text-govnavy">
-                              {formatDay(popoverVacancy.special_election_date)}
+                              {formatDateLocal(popoverVacancy.special_election_date)}
                             </span>
                             . GovMap updates automatically once a new representative is seated.
                           </>

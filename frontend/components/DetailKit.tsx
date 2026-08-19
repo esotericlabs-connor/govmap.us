@@ -8,18 +8,29 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 
+import { formatDateUTC } from "@/lib/format";
+import { getPartyKey } from "@/lib/party";
+
 export function partyTextClass(party: string | null | undefined): string {
-  if (!party) return "text-slate-warm-500";
-  if (party.startsWith("Republican")) return "text-govred";
-  if (party.startsWith("Democrat")) return "text-govblue";
-  return "text-slate-warm-500";
+  switch (getPartyKey(party)) {
+    case "D":
+      return "text-govblue";
+    case "R":
+      return "text-govred";
+    default:
+      return "text-slate-warm-500";
+  }
 }
 
 export function partyDotClass(party: string | null | undefined): string {
-  if (!party) return "bg-slate-400";
-  if (party.startsWith("Republican")) return "bg-govred";
-  if (party.startsWith("Democrat")) return "bg-govblue";
-  return "bg-slate-400";
+  switch (getPartyKey(party)) {
+    case "D":
+      return "bg-govblue";
+    case "R":
+      return "bg-govred";
+    default:
+      return "bg-slate-400";
+  }
 }
 
 export function chamberLabel(chamber: string | null | undefined): string {
@@ -28,19 +39,9 @@ export function chamberLabel(chamber: string | null | undefined): string {
   return chamber ?? "";
 }
 
-/** Human date from an ISO `YYYY-MM-DD` (parsed as UTC to avoid an off-by-one
- *  from the server's local timezone). Returns "" for null. */
-export function formatDate(iso: string | null | undefined): string {
-  if (!iso) return "";
-  const d = new Date(`${iso}T00:00:00Z`);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    timeZone: "UTC",
-  });
-}
+/** Human date from an ISO `YYYY-MM-DD`, parsed as UTC to avoid an off-by-one
+ *  from the server's local timezone. Returns "" for null. See `formatDateUTC`. */
+export const formatDate = formatDateUTC;
 
 /** A titled content card. `count` renders a subtle tally next to the title.
  *  `scroll` caps the body height and scrolls it internally, so long lists don't

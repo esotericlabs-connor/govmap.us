@@ -11,7 +11,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from datetime import date
 from pathlib import Path
 
 from sqlalchemy import func
@@ -19,6 +18,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.db import async_session_factory
 from app.models.finance import MemberFinance
+from app.normalize.dates import normalize_date
 
 logger = logging.getLogger(__name__)
 
@@ -51,14 +51,10 @@ _UPDATE_COLS = (
 )
 
 
-def _d(s: str | None) -> date | None:
-    return date.fromisoformat(s) if s else None
-
-
 def _row(r: dict) -> dict:
     row = dict(r)
-    row["coverage_start"] = _d(r.get("coverage_start"))
-    row["coverage_end"] = _d(r.get("coverage_end"))
+    row["coverage_start"] = normalize_date(r.get("coverage_start"))
+    row["coverage_end"] = normalize_date(r.get("coverage_end"))
     return row
 
 

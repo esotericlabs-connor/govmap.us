@@ -73,6 +73,7 @@ export function UniversalSearch({
   const [results, setResults] = useState<SearchResults | null>(null);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [errored, setErrored] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const { zip: homeZip, setHomeZip } = useHomeZip();
@@ -82,19 +83,24 @@ export function UniversalSearch({
     const term = query.trim();
     if (term.length < 2) {
       setResults(null);
+      setErrored(false);
       setLoading(false);
       return;
     }
     const ctrl = new AbortController();
     const timer = setTimeout(async () => {
       setLoading(true);
+      setErrored(false);
       try {
         const res = await fetch(`${publicApiBase}/api/search?q=${encodeURIComponent(term)}`, {
           signal: ctrl.signal,
         });
         if (res.ok) setResults((await res.json()) as SearchResults);
-      } catch {
-        // aborted or network hiccup — leave prior results, stay quiet
+        else setErrored(true);
+      } catch (err) {
+        // Aborts (new keystroke / unmount) are expected — stay quiet; surface
+        // only real network failures so the panel doesn't read as "no results".
+        if ((err as Error)?.name !== "AbortError") setErrored(true);
       } finally {
         setLoading(false);
       }
@@ -195,7 +201,13 @@ export function UniversalSearch({
           {isEmpty(results) ? (
             zipQuery ? null : (
               <div className="flex flex-col items-center gap-2 px-4 py-16 text-center text-sm text-slate-400">
-                {loading ? <Spinner /> : <p>No results for “{query.trim()}”</p>}
+                {loading ? (
+                  <Spinner />
+                ) : errored ? (
+                  <p>Search is unavailable right now — please try again.</p>
+                ) : (
+                  <p>No results for “{query.trim()}”</p>
+                )}
               </div>
             )
           ) : (

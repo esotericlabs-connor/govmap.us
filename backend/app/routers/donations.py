@@ -6,13 +6,14 @@ from app.config import settings
 from app.db import get_db
 from app.models.finance import MemberFinance
 from app.services.donations import get_donations
+from app.types import BioguideId
 
 router = APIRouter(prefix="/api/members", tags=["donations"])
 
 
 @router.get("/{bioguide_id}/donations")
 async def member_donations(
-    bioguide_id: str,
+    bioguide_id: BioguideId,
     db: AsyncSession = Depends(get_db),
     cycle: int | None = None,
     offset: int = Query(default=0, ge=0),

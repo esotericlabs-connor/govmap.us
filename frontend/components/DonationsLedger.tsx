@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { EmptyState, formatDate, Section } from "@/components/DetailKit";
 import { publicApiBase, type DonationsResponse } from "@/lib/api";
+import { formatMoney } from "@/lib/format";
 
 const PAGE_SIZE = 50;
 
@@ -14,16 +15,6 @@ const SORTS: { value: string; label: string }[] = [
   { value: "date_asc", label: "Oldest first" },
   { value: "name", label: "Name (A–Z)" },
 ];
-
-const USD = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
-  maximumFractionDigits: 0,
-});
-
-function money(n: number | null): string {
-  return n === null || Number.isNaN(n) ? "—" : USD.format(n);
-}
 
 function toTitle(s: string | null): string | null {
   if (!s) return null;
@@ -66,6 +57,7 @@ export function DonationsLedger({
   const [sort, setSort] = useState(initSort);
   const [offset, setOffset] = useState(initOffset);
   const [pending, setPending] = useState(false);
+  const [errored, setErrored] = useState(false);
 
   // We already have `initial` for the initial q/sort/offset, so skip the first
   // fetch the effect would otherwise fire on mount.
@@ -93,6 +85,7 @@ export function DonationsLedger({
     }
     const id = ++reqId.current;
     setPending(true);
+    setErrored(false);
 
     const params = new URLSearchParams({
       offset: String(offset),
@@ -110,7 +103,9 @@ export function DonationsLedger({
       })
       .catch(() => {
         if (id !== reqId.current) return;
-        setPending(false); // fail-soft: keep the last good page on screen
+        // Fail-soft: keep the last good page on screen, but tell the user.
+        setPending(false);
+        setErrored(true);
       });
 
     // Mirror state to the URL so it's shareable — replaceState, so Next never
@@ -161,6 +156,15 @@ export function DonationsLedger({
         </label>
       </div>
 
+      {errored && (
+        <p
+          role="alert"
+          className="mb-6 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-govred"
+        >
+          Couldn’t load contributions — showing the last results. Please try again.
+        </p>
+      )}
+
       {items.length === 0 ? (
         <EmptyState>
           {q
@@ -185,7 +189,7 @@ export function DonationsLedger({
                     </p>
                   </div>
                   <div className="flex-shrink-0 text-right">
-                    <p className="font-display text-lg font-bold text-govnavy">{money(c.amount)}</p>
+                    <p className="font-display text-lg font-bold text-govnavy">{formatMoney(c.amount)}</p>
                     {c.date && (
                       <p className="mt-0.5 text-sm text-slate-warm-400">{formatDate(c.date)}</p>
                     )}

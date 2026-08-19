@@ -23,6 +23,7 @@ import {
   type CommitteeMember,
   type CommitteeReferredBills,
 } from "@/lib/api";
+import { formatMeetingTime } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -40,31 +41,13 @@ export async function generateMetadata({ params }: { params: { committeeId: stri
   return { title: committee?.name ?? "Committee" };
 }
 
-// Committee meetings run on Eastern time; format the UTC datetime in ET so the
-// date/time read as scheduled.
-const MEETING_FMT = new Intl.DateTimeFormat("en-US", {
-  month: "short",
-  day: "numeric",
-  year: "numeric",
-  hour: "numeric",
-  minute: "2-digit",
-  timeZone: "America/New_York",
-  timeZoneName: "short",
-});
-
-function meetingWhen(iso: string | null): string | null {
-  if (!iso) return null;
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? null : MEETING_FMT.format(d);
-}
-
 function billLabel(billId: string): string {
   const m = billId.match(/^([a-z]+)(\d+)-/i);
   return m ? `${m[1].toUpperCase()} ${m[2]}` : billId;
 }
 
 function MeetingCard({ meeting, upcoming = false }: { meeting: CommitteeMeeting; upcoming?: boolean }) {
-  const when = meetingWhen(meeting.datetime);
+  const when = formatMeetingTime(meeting.datetime);
   const off = meeting.status ? /cancel|postpon/i.test(meeting.status) : false;
   return (
     <div className="rounded-lg border border-slate-warm-200 bg-white p-4 shadow-sm">

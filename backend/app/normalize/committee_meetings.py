@@ -14,7 +14,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from datetime import datetime
 from pathlib import Path
 
 from sqlalchemy import delete, select
@@ -23,6 +22,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from app.committee_codes import to_committee_id
 from app.db import async_session_factory
 from app.models.committee import Committee, CommitteeMeeting
+from app.normalize.dates import normalize_datetime
 
 logger = logging.getLogger(__name__)
 
@@ -56,15 +56,6 @@ def _bill_ids(bills: list[dict]) -> list[str]:
     return out
 
 
-def _dt(s: str | None) -> datetime | None:
-    if not s:
-        return None
-    try:
-        return datetime.fromisoformat(s)
-    except ValueError:
-        return None
-
-
 def meeting_rows(staged: list[dict], known: set[str]) -> list[dict]:
     rows: list[dict] = []
     seen: set[tuple[str, str]] = set()
@@ -80,7 +71,7 @@ def meeting_rows(staged: list[dict], known: set[str]) -> list[dict]:
             logger.warning("committee_meetings: skipping meeting with over-long event_id %r", event_id)
             continue
         bill_ids = _bill_ids(m.get("bills") or [])
-        meeting_dt = _dt(m.get("date"))
+        meeting_dt = normalize_datetime(m.get("date"))
         mapped_any = False
         for sc in m.get("system_codes") or []:
             cid = to_committee_id(sc)

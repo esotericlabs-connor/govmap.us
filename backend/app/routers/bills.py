@@ -9,6 +9,7 @@ from app.models.bill import Bill, BillAction, Cosponsor
 from app.models.member import Member
 from app.schemas.bill import BillOut
 from app.services.bill_enrich import enrich_bill, get_bill_text
+from app.types import BillId
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +44,7 @@ async def list_bills(
 
 
 @router.get("/{bill_id}")
-async def bill_detail(bill_id: str, db: AsyncSession = Depends(get_db)) -> dict:
+async def bill_detail(bill_id: BillId, db: AsyncSession = Depends(get_db)) -> dict:
     """Full bill: core fields + sponsor name + action timeline + cosponsors.
     Cosponsor/sponsor names are left-joined from `members` and may be null for
     an actor no longer in the current-members table.
@@ -150,7 +151,7 @@ async def bill_detail(bill_id: str, db: AsyncSession = Depends(get_db)) -> dict:
 
 
 @router.get("/{bill_id}/text")
-async def bill_full_text(bill_id: str, db: AsyncSession = Depends(get_db)) -> dict:
+async def bill_full_text(bill_id: BillId, db: AsyncSession = Depends(get_db)) -> dict:
     """The bill's full legislative text as plain text for in-platform rendering,
     fetched from the official GPO/govinfo 'Formatted Text' version on first view
     and cached. 404 when the bill is unknown or has no readable text version yet

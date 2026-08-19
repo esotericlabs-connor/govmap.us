@@ -1,5 +1,4 @@
 from datetime import date, timedelta
-from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, nullslast, select
@@ -13,6 +12,7 @@ from app.models.finance import MemberFinance
 from app.models.member import Member
 from app.models.vote import Vote, VotePosition
 from app.schemas.member import MemberOut
+from app.types import BioguideId, Chamber
 
 router = APIRouter(prefix="/api/members", tags=["members"])
 
@@ -20,9 +20,9 @@ router = APIRouter(prefix="/api/members", tags=["members"])
 @router.get("", response_model=list[MemberOut])
 async def list_members(
     db: AsyncSession = Depends(get_db),
-    chamber: Literal["house", "senate"] | None = None,
+    chamber: Chamber | None = None,
     state: str | None = Query(default=None, min_length=2, max_length=2),
-    party: str | None = None,
+    party: str | None = Query(default=None, max_length=40),
     # Cap comfortably above the ~535 voting members + non-voting delegates so
     # the full roster is returnable in one request without silently dropping
     # records (the House delegates + PR resident commissioner push the real
@@ -44,7 +44,7 @@ async def list_members(
 
 
 @router.get("/{bioguide_id}")
-async def member_detail(bioguide_id: str, db: AsyncSession = Depends(get_db)) -> dict:
+async def member_detail(bioguide_id: BioguideId, db: AsyncSession = Depends(get_db)) -> dict:
     """Full member profile: core fields + cross-source IDs + committee seats.
     The backing endpoint for the member detail page (Increment 5); bills/votes/
     finance/disclosures get folded in as those tables land."""
@@ -208,7 +208,7 @@ async def member_detail(bioguide_id: str, db: AsyncSession = Depends(get_db)) ->
 
 @router.get("/{bioguide_id}/card")
 async def member_card(
-    bioguide_id: str,
+    bioguide_id: BioguideId,
     days: int = Query(default=90, ge=1, le=365),
     db: AsyncSession = Depends(get_db),
 ) -> dict:

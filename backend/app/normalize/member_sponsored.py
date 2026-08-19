@@ -15,7 +15,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from datetime import date
 from pathlib import Path
 
 from sqlalchemy import func
@@ -23,6 +22,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.db import async_session_factory
 from app.models.bill import Bill
+from app.normalize.dates import normalize_date
 
 logger = logging.getLogger(__name__)
 
@@ -44,10 +44,6 @@ _UPDATE_COLS = (
 )
 
 
-def _d(s: str | None) -> date | None:
-    return date.fromisoformat(s) if s else None
-
-
 def _bill_row(r: dict) -> dict:
     btype = str(r["type"]).lower()
     return {
@@ -57,9 +53,9 @@ def _bill_row(r: dict) -> dict:
         "number": r["number"],
         "title": r.get("title"),
         "sponsor_bioguide_id": r.get("sponsor_bioguide_id"),
-        "introduced_date": _d(r.get("introduced_date")),
+        "introduced_date": normalize_date(r.get("introduced_date")),
         "latest_action": r.get("latest_action"),
-        "latest_action_date": _d(r.get("latest_action_date")),
+        "latest_action_date": normalize_date(r.get("latest_action_date")),
         "policy_area": r.get("policy_area"),
     }
 
