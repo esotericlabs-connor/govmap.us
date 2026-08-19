@@ -5,10 +5,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.db import get_db
 from app.models.finance import MemberFinance
-from app.services.donations import get_donations
+from app.services.donations import get_donation_cycles, get_donations
 from app.types import BioguideId
 
 router = APIRouter(prefix="/api/members", tags=["donations"])
+
+
+@router.get("/{bioguide_id}/donations/cycles")
+async def member_donation_cycles(
+    bioguide_id: BioguideId,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """The election cycles a member's itemized donations can be browsed for
+    (newest first), backing the ledger's cycle picker."""
+    cycles = await get_donation_cycles(db, bioguide_id)
+    return {"cycles": cycles, "default": cycles[0] if cycles else settings.fec_cycle}
+
 
 
 @router.get("/{bioguide_id}/donations")

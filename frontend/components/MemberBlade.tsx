@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
+import { BladeDonations } from "@/components/BladeDonations";
 import { MemberProfileBody } from "@/components/MemberProfileBody";
 import { fetchMemberDetail, type MemberDetail } from "@/lib/api";
 import { useMemberBlade } from "@/lib/member-blade";
@@ -56,6 +57,11 @@ export function MemberBlade() {
   const { openId, close } = useMemberBlade();
   const [member, setMember] = useState<MemberDetail | null>(null);
   const [errored, setErrored] = useState(false);
+  // Sub-view *inside* the blade: the profile, or the itemized-donations ledger.
+  // Rendering donations here (rather than at /members/[id]/donations) keeps the
+  // /congress map mounted underneath, so returning never snaps it back home.
+  const [view, setView] = useState<"profile" | "donations">("profile");
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   // Fetch the full profile whenever the open member changes.
   useEffect(() => {
@@ -72,6 +78,16 @@ export function MemberBlade() {
       alive = false;
     };
   }, [openId]);
+
+  // Always land on the profile when a (different) member opens.
+  useEffect(() => {
+    setView("profile");
+  }, [openId]);
+
+  // Reset the blade's scroll position when switching sub-views.
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: 0 });
+  }, [view]);
 
   // Lock body scroll + wire Escape while open.
   useEffect(() => {
@@ -121,7 +137,7 @@ export function MemberBlade() {
             // Desktop-only: on mobile the blade is the whole experience, so the
             // full-page escape hatch is hidden (the blade has everything).
             <Link
-              href={`/members/${openId}`}
+              href={view === "donations" ? `/members/${openId}/donations` : `/members/${openId}`}
               className="hidden text-sm font-medium text-govblue transition-colors hover:text-govnavy md:inline"
             >
               Open full page ↗
@@ -129,11 +145,19 @@ export function MemberBlade() {
           )}
         </div>
 
-        <div className="flex-1 overflow-y-auto px-5 py-6 sm:px-6">
+        <div ref={scrollRef} className="flex-1 overflow-y-auto px-5 py-6 sm:px-6">
           {errored && openId ? (
             <BladeError bioguide={openId} />
           ) : member ? (
-            <MemberProfileBody member={member} variant="blade" />
+            view === "donations" ? (
+              <BladeDonations member={member} onBack={() => setView("profile")} />
+            ) : (
+              <MemberProfileBody
+                member={member}
+                variant="blade"
+                onViewDonations={() => setView("donations")}
+              />
+            )
           ) : (
             <BladeSkeleton />
           )}

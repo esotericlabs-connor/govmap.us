@@ -28,6 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.models.contribution import Contribution, DonationFetch
 from app.models.crosswalk import IdCrosswalk
+from app.models.finance import MemberFinance
 from app.models.member import Member
 from app.schemas.finance import ScheduleAItemRaw
 
@@ -79,10 +80,9 @@ def _trunc(s: str | None, n: int) -> str | None:
     return s[:n] if s else None
 
 
-async def _resolve_committee_id(db: AsyncSession, bioguide: str, cycle: int) -> str | None:
-    """Resolve a member's principal campaign committee (designation P) via the
-    FEC candidate→committees endpoint, using the FEC candidate id from the id
-    crosswalk (picked by chamber prefix). Prefers a committee active in `cycle`."""
+async def _resolve_candidate_id(db: AsyncSession, bioguide: str) -> str | None:
+    """The member's current-office FEC candidate id (S… senators / H… reps), read
+    from the id crosswalk and picked by chamber prefix."""
     member = (
         await db.execute(select(Member.chamber).where(Member.bioguide_id == bioguide))
     ).first()
@@ -93,7 +93,13 @@ async def _resolve_committee_id(db: AsyncSession, bioguide: str, cycle: int) -> 
     ).first()
     fec_ids = (ids.fec_ids if ids else None) or []
     prefix = _CHAMBER_PREFIX.get(member.chamber)
-    candidate_id = next((f for f in fec_ids if prefix and f.startswith(prefix)), None)
+    return next((f for f in fec_ids if prefix and f.startswith(prefix)), None)
+
+
+async def _resolve_committee_id(db: AsyncSession, bioguide: str, cycle: int) -> str | None:
+    """Resolve a member's principal campaign committee (designation P) via the
+    FEC candidate→committees endpoint. Prefers a committee active in `cycle`."""
+    candidate_id = await _resolve_candidate_id(db, bioguide)
     if not candidate_id:
         return None
 
@@ -113,6 +119,37 @@ async def _resolve_committee_id(db: AsyncSession, bioguide: str, cycle: int) -> 
         if mx > best_cycle:
             best_cycle, best = mx, cid
     return best
+
+
+async def get_donation_cycles(db: AsyncSession, bioguide: str) -> list[int]:
+    """The two-year cycles a member's itemized donations can be browsed for, newest
+    first — the union of every principal committee's `cycles` on the FEC, plus any
+    cycle we already hold a finance summary for and the configured current cycle
+    (so the picker always offers 'now'). Fail-soft: with no FEC key / no candidate
+    / an FEC error it returns just what we can derive locally."""
+    cycles: set[int] = set(
+        (
+            await db.execute(
+                select(MemberFinance.cycle).where(MemberFinance.bioguide_id == bioguide)
+            )
+        ).scalars().all()
+    )
+    cycles.add(settings.fec_cycle)
+
+    candidate_id = await _resolve_candidate_id(db, bioguide) if settings.fec_api_key else None
+    if candidate_id:
+        try:
+            data = await asyncio.to_thread(
+                _fec_get, f"candidate/{candidate_id}/committees", designation="P", per_page=20
+            )
+            for c in data.get("results") or []:
+                for cy in c.get("cycles") or []:
+                    if isinstance(cy, int):
+                        cycles.add(cy)
+        except Exception as exc:
+            logger.warning("donations: cycle list fetch failed for %s: %s", bioguide, exc)
+
+    return sorted(cycles, reverse=True)
 
 
 async def _fetch_more(db: AsyncSession, state: DonationFetch, cycle: int, until: int) -> None:

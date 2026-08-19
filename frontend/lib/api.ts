@@ -126,6 +126,11 @@ export interface DonationsResponse {
   items: Contribution[];
 }
 
+export interface DonationCyclesResponse {
+  cycles: number[];
+  default: number;
+}
+
 export interface MemberDetail {
   bioguide_id: string;
   first_name: string;
@@ -401,5 +406,21 @@ export async function fetchMemberDetail(bioguide: string): Promise<MemberDetail 
     return (await res.json()) as MemberDetail;
   } catch {
     return null;
+  }
+}
+
+/** Client-side fetch of the election cycles a member's itemized donations can be
+ *  browsed for (newest first), for the ledger's cycle picker. Fail-soft: [] on
+ *  any error, which just hides the picker. */
+export async function fetchDonationCycles(bioguide: string): Promise<number[]> {
+  try {
+    const res = await fetch(
+      `${publicApiBase}/api/members/${encodeURIComponent(bioguide)}/donations/cycles`,
+    );
+    if (!res.ok) return [];
+    const data = (await res.json()) as DonationCyclesResponse;
+    return Array.isArray(data.cycles) ? data.cycles : [];
+  } catch {
+    return [];
   }
 }

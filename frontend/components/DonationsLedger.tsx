@@ -38,20 +38,25 @@ function toTitle(s: string | null): string | null {
  */
 export function DonationsLedger({
   bioguide,
-  cycle,
+  initialCycle,
+  cycles = [],
   initial,
   initSort,
   initQ,
   initOffset,
+  urlSync = true,
 }: {
   bioguide: string;
-  cycle: number;
+  initialCycle: number;
+  cycles?: number[];
   initial: DonationsResponse;
   initSort: string;
   initQ: string;
   initOffset: number;
+  urlSync?: boolean;
 }) {
   const [data, setData] = useState<DonationsResponse>(initial);
+  const [cycle, setCycle] = useState(initialCycle);
   const [term, setTerm] = useState(initQ); // live input value
   const [q, setQ] = useState(initQ); // applied (debounced) query
   const [sort, setSort] = useState(initSort);
@@ -59,14 +64,14 @@ export function DonationsLedger({
   const [pending, setPending] = useState(false);
   const [errored, setErrored] = useState(false);
 
-  // We already have `initial` for the initial q/sort/offset, so skip the first
-  // fetch the effect would otherwise fire on mount.
+  // We already have `initial` for the initial cycle/q/sort/offset, so skip the
+  // first fetch the effect would otherwise fire on mount.
   const skipInitialFetch = useRef(true);
   // Monotonic request id so a slow earlier response can't overwrite a newer one.
   const reqId = useRef(0);
 
   // Debounce the search box → applied query (typing shouldn't fire a request per
-  // keystroke). Sort/offset apply immediately via their handlers.
+  // keystroke). Cycle/sort/offset apply immediately via their handlers.
   useEffect(() => {
     if (term === q) return;
     const t = setTimeout(() => {
@@ -77,7 +82,7 @@ export function DonationsLedger({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [term]);
 
-  // Refetch whenever the applied query/sort/offset changes.
+  // Refetch whenever the applied cycle/query/sort/offset changes.
   useEffect(() => {
     if (skipInitialFetch.current) {
       skipInitialFetch.current = false;
@@ -88,6 +93,7 @@ export function DonationsLedger({
     setErrored(false);
 
     const params = new URLSearchParams({
+      cycle: String(cycle),
       offset: String(offset),
       limit: String(PAGE_SIZE),
       sort,
@@ -109,15 +115,18 @@ export function DonationsLedger({
       });
 
     // Mirror state to the URL so it's shareable — replaceState, so Next never
-    // re-runs the server component (that's what used to cause the blink).
-    const share = new URLSearchParams();
-    if (offset > 0) share.set("offset", String(offset));
-    if (sort && sort !== "amount") share.set("sort", sort);
-    if (q) share.set("q", q);
-    const qs = share.toString();
-    window.history.replaceState(null, "", qs ? `?${qs}` : window.location.pathname);
+    // re-runs the server component (that's what used to cause the blink). Skipped
+    // in the blade (urlSync=false), where the blade owns the ?member= URL.
+    if (urlSync) {
+      const share = new URLSearchParams();
+      share.set("cycle", String(cycle));
+      if (offset > 0) share.set("offset", String(offset));
+      if (sort && sort !== "amount") share.set("sort", sort);
+      if (q) share.set("q", q);
+      window.history.replaceState(null, "", `?${share.toString()}`);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q, sort, offset]);
+  }, [cycle, q, sort, offset]);
 
   const items = data.items;
   const total = data.total;
@@ -125,6 +134,9 @@ export function DonationsLedger({
   const shownTo = offset + items.length;
   const hasPrev = offset > 0;
   const hasNext = total !== null ? offset + PAGE_SIZE < total : items.length === PAGE_SIZE;
+  // Always keep the selected cycle in the list (even if the FEC cycles fetch
+  // failed or lags), newest first.
+  const cycleOptions = Array.from(new Set([cycle, ...cycles])).sort((a, b) => b - a);
 
   return (
     <Section title="Contributions" count={total ?? undefined}>
@@ -137,23 +149,45 @@ export function DonationsLedger({
           aria-label="Search contributions"
           className="w-full rounded-full border border-slate-warm-200 bg-white px-4 py-2.5 text-sm text-slate-800 outline-none focus:border-govblue focus:ring-2 focus:ring-govblue/30 sm:max-w-sm"
         />
-        <label className="flex items-center gap-2 whitespace-nowrap text-sm text-slate-warm-500">
-          Sort
-          <select
-            value={sort}
-            onChange={(e) => {
-              setOffset(0);
-              setSort(e.target.value);
-            }}
-            className="rounded-full border border-slate-warm-200 bg-white px-3 py-2 text-sm font-medium text-slate-800 outline-none focus:border-govblue"
-          >
-            {SORTS.map((s) => (
-              <option key={s.value} value={s.value}>
-                {s.label}
-              </option>
-            ))}
-          </select>
-        </label>
+        <div className="flex flex-wrap items-center gap-3">
+          {cycleOptions.length > 1 && (
+            <label className="flex items-center gap-2 whitespace-nowrap text-sm text-slate-warm-500">
+              Cycle
+              <select
+                value={cycle}
+                onChange={(e) => {
+                  setOffset(0);
+                  setCycle(Number(e.target.value));
+                }}
+                aria-label="Election cycle"
+                className="rounded-full border border-slate-warm-200 bg-white px-3 py-2 text-sm font-medium text-slate-800 outline-none focus:border-govblue"
+              >
+                {cycleOptions.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          <label className="flex items-center gap-2 whitespace-nowrap text-sm text-slate-warm-500">
+            Sort
+            <select
+              value={sort}
+              onChange={(e) => {
+                setOffset(0);
+                setSort(e.target.value);
+              }}
+              className="rounded-full border border-slate-warm-200 bg-white px-3 py-2 text-sm font-medium text-slate-800 outline-none focus:border-govblue"
+            >
+              {SORTS.map((s) => (
+                <option key={s.value} value={s.value}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
       </div>
 
       {errored && (

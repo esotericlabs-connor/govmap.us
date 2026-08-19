@@ -14,6 +14,7 @@ import { Reveal } from "@/components/Reveal";
 import { SiteHeader } from "@/components/SiteHeader";
 import {
   apiGet,
+  type DonationCyclesResponse,
   type DonationsResponse,
   HttpError,
   type MemberDetail,
@@ -42,19 +43,25 @@ async function DonationsContent({
   offset,
   sort,
   q,
+  cycle,
 }: {
   bioguide: string;
   offset: number;
   sort: string;
   q: string;
+  cycle?: number;
 }) {
   const query = new URLSearchParams({ offset: String(offset), limit: String(PAGE_SIZE), sort });
   if (q) query.set("q", q);
-  const [member, data] = await Promise.all([
+  if (cycle) query.set("cycle", String(cycle));
+  const [member, data, cyclesResp] = await Promise.all([
     getMember(bioguide),
     apiGet<DonationsResponse>(
       `/api/members/${encodeURIComponent(bioguide)}/donations?${query.toString()}`,
     ),
+    apiGet<DonationCyclesResponse>(
+      `/api/members/${encodeURIComponent(bioguide)}/donations/cycles`,
+    ).catch(() => ({ cycles: [], default: 0 }) as DonationCyclesResponse),
   ]);
   if (!member) notFound();
 
@@ -75,9 +82,7 @@ async function DonationsContent({
             <h1 className="mt-1 font-display text-3xl font-bold tracking-tight text-govnavy sm:text-4xl">
               {member.official_full_name}
             </h1>
-            <p className="mt-1 text-lg text-slate-warm-500">
-              Itemized campaign donations · {data.cycle} cycle
-            </p>
+            <p className="mt-1 text-lg text-slate-warm-500">Itemized campaign donations</p>
           </div>
         </div>
       </header>
@@ -85,7 +90,8 @@ async function DonationsContent({
       <div className="mt-10">
         <DonationsLedger
           bioguide={bioguide}
-          cycle={data.cycle}
+          initialCycle={data.cycle}
+          cycles={cyclesResp.cycles}
           initial={data}
           initSort={sort}
           initQ={q}
@@ -101,12 +107,14 @@ export default function DonationsPage({
   searchParams,
 }: {
   params: { bioguide: string };
-  searchParams: { offset?: string; sort?: string; q?: string };
+  searchParams: { offset?: string; sort?: string; q?: string; cycle?: string };
 }) {
   const parsed = Number.parseInt(searchParams.offset ?? "0", 10);
   const offset = Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
   const sort = searchParams.sort ?? "amount";
   const q = searchParams.q ?? "";
+  const cycleParsed = Number.parseInt(searchParams.cycle ?? "", 10);
+  const cycle = Number.isFinite(cycleParsed) && cycleParsed > 0 ? cycleParsed : undefined;
 
   return (
     <>
@@ -115,7 +123,7 @@ export default function DonationsPage({
         <div className="mx-auto max-w-4xl px-6">
           <BackLink href={`/members/${params.bioguide}`}>Back to member</BackLink>
           <Suspense fallback={<PageSkeleton />}>
-            <DonationsContent bioguide={params.bioguide} offset={offset} sort={sort} q={q} />
+            <DonationsContent bioguide={params.bioguide} offset={offset} sort={sort} q={q} cycle={cycle} />
           </Suspense>
         </div>
       </main>

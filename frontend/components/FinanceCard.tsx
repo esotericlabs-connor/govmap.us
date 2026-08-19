@@ -13,6 +13,9 @@ import { formatMoney } from "@/lib/format";
  * ledger (loaded separately).
  */
 
+const CTA_CLASS =
+  "group mt-6 inline-flex items-center gap-1.5 rounded-full bg-govnavy px-5 py-2.5 text-sm font-semibold text-white transition-all duration-200 hover:-translate-y-px hover:bg-govnavy/90";
+
 function pct(part: number, whole: number): number {
   return whole > 0 ? Math.round((part / whole) * 100) : 0;
 }
@@ -45,10 +48,12 @@ export function FinanceCard({
   finance,
   bioguide,
   compact = false,
+  onViewDonations,
 }: {
   finance: MemberFinance;
   bioguide?: string;
   compact?: boolean;
+  onViewDonations?: () => void;
 }) {
   const parts = SOURCES.map((s) => ({
     ...s,
@@ -138,15 +143,20 @@ export function FinanceCard({
         </div>
       )}
 
-      {bioguide && (
-        <Link
-          href={`/members/${bioguide}/donations`}
-          className="group mt-6 inline-flex items-center gap-1.5 rounded-full bg-govnavy px-5 py-2.5 text-sm font-semibold text-white transition-all duration-200 hover:-translate-y-px hover:bg-govnavy/90"
-        >
-          See who gave — itemized donations
-          <span className="transition-transform group-hover:translate-x-0.5">→</span>
-        </Link>
-      )}
+      {bioguide &&
+        (onViewDonations ? (
+          // In the blade: swap to the in-blade ledger instead of navigating away,
+          // so the map underneath is never torn down.
+          <button type="button" onClick={onViewDonations} className={CTA_CLASS}>
+            See who gave — itemized donations
+            <span className="transition-transform group-hover:translate-x-0.5">→</span>
+          </button>
+        ) : (
+          <Link href={`/members/${bioguide}/donations`} className={CTA_CLASS}>
+            See who gave — itemized donations
+            <span className="transition-transform group-hover:translate-x-0.5">→</span>
+          </Link>
+        ))}
 
       <p className="mt-6 border-t border-slate-warm-200 pt-4 text-xs leading-relaxed text-slate-warm-400">
         <span className="font-semibold text-slate-warm-500">Raised</span> and{" "}

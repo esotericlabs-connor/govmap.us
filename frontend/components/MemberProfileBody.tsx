@@ -32,9 +32,11 @@ function seatLabel(m: MemberDetail): string {
 export function MemberProfileBody({
   member,
   variant = "page",
+  onViewDonations,
 }: {
   member: MemberDetail;
   variant?: "page" | "blade";
+  onViewDonations?: () => void;
 }) {
   const isBlade = variant === "blade";
   const contact: Record<string, string> = member.contact ?? {};
@@ -121,7 +123,12 @@ export function MemberProfileBody({
 
         {/* Campaign finance (only once the FEC pipeline has data) */}
         {member.finance && (
-          <FinanceCard finance={member.finance} bioguide={member.bioguide_id} compact={isBlade} />
+          <FinanceCard
+            finance={member.finance}
+            bioguide={member.bioguide_id}
+            compact={isBlade}
+            onViewDonations={onViewDonations}
+          />
         )}
 
         {/* Data sections */}
