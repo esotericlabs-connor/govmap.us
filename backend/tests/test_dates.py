@@ -3,7 +3,7 @@
 its parsing + fail-soft behavior is pinned down here.
 """
 
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 
 from app.normalize.dates import normalize_date, normalize_datetime
 
@@ -34,7 +34,7 @@ def test_normalize_date_unparseable_is_none():
 
 def test_normalize_datetime_tolerates_z():
     assert normalize_datetime("2026-07-22T08:09:17Z") == datetime(
-        2026, 7, 22, 8, 9, 17, tzinfo=timezone.utc
+        2026, 7, 22, 8, 9, 17, tzinfo=UTC
     )
 
 
