@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 
 from sqlalchemy import select
 
@@ -237,7 +238,7 @@ async def refresh_zip_districts() -> None:
 
 # Fast / essential sources refreshed on EVERY deploy (the CLI default). Each is
 # a modest, well-behaved pull, so the deploy stays quick.
-CORE_REFRESHERS: dict[str, callable] = {
+CORE_REFRESHERS: dict[str, Callable[[], Awaitable[None]]] = {
     "members": refresh_members,
     "bills": refresh_bills,
     "votes": refresh_votes,
@@ -250,7 +251,7 @@ CORE_REFRESHERS: dict[str, callable] = {
 # demand, e.g.:  docker compose exec backend python -m app.pipelines.refresh finance
 # (member_sponsored reads the legislators staging that refresh_members writes, so
 # a members refresh must have run first — it does, on every deploy.)
-EXTRA_REFRESHERS: dict[str, callable] = {
+EXTRA_REFRESHERS: dict[str, Callable[[], Awaitable[None]]] = {
     "sponsored_bills": refresh_sponsored_bills,
     "finance": refresh_finance,
     "zip_districts": refresh_zip_districts,
@@ -259,10 +260,12 @@ EXTRA_REFRESHERS: dict[str, callable] = {
 }
 
 # Full registry (deploy core + extras) — the target for a manual `refresh all`.
-REFRESHERS: dict[str, callable] = {**CORE_REFRESHERS, **EXTRA_REFRESHERS}
+REFRESHERS: dict[str, Callable[[], Awaitable[None]]] = {**CORE_REFRESHERS, **EXTRA_REFRESHERS}
 
 
-async def _run_with_retry(name: str, fn, retries: int = 2, delay: float = 5.0) -> bool:
+async def _run_with_retry(
+    name: str, fn: Callable[[], Awaitable[None]], retries: int = 2, delay: float = 5.0
+) -> bool:
     """Run one source, retrying transient failures (a DB/connection blip right
     after a migration is the likely culprit behind a partial deploy load).
     Returns True on success."""
@@ -279,7 +282,7 @@ async def _run_with_retry(name: str, fn, retries: int = 2, delay: float = 5.0) -
     return False
 
 
-async def run_refreshers(targets: dict[str, callable]) -> list[str]:
+async def run_refreshers(targets: dict[str, Callable[[], Awaitable[None]]]) -> list[str]:
     """Run the given sources. One failing doesn't stop the rest — each records
     its own status. Returns the failed source names so the CLI can exit non-zero
     (a partial load must never pass silently)."""

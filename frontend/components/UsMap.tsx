@@ -140,6 +140,7 @@ export function UsMap({ map, result = null }: { map: CongressMap; result?: Looku
   const { result: homeResult } = useHomeZip();
   const svgRef = useRef<SVGSVGElement>(null);
   const [chamber, setChamber] = useState<"house" | "senate">("house");
+  // GeoJSON features from topojson are loosely typed and d3-geo's path types don't match them, hence any.
   const [geo, setGeo] = useState<{ districts: any[]; states: any[] } | null>(null);
   const [failed, setFailed] = useState(false);
   const [zoom, setZoom] = useState({ k: 1, x: 0, y: 0 });
@@ -201,6 +202,7 @@ export function UsMap({ map, result = null }: { map: CongressMap; result?: Looku
           fetch("/geo/districts-119.topo.json").then((r) => (r.ok ? r.json() : Promise.reject(r.status))),
           fetch("/geo/states-119.topo.json").then((r) => (r.ok ? r.json() : Promise.reject(r.status))),
         ]);
+        // topojson-client's feature() output is untyped here — we only read .features off it.
         const districts = (feature(dTopo, dTopo.objects.districts) as any).features as any[];
         const states = (feature(sTopo, sTopo.objects.states) as any).features as any[];
         if (alive) setGeo({ districts, states });
@@ -245,6 +247,7 @@ export function UsMap({ map, result = null }: { map: CongressMap; result?: Looku
         // Works whether mapshaper promoted GEOID to the feature id or left it a
         // property — Census cartographic files always carry GEOID.
         const key = districtKey(String(f.id ?? f.properties?.GEOID ?? ""));
+        // topojson Feature vs d3-geo's GeoPermissibleObjects type mismatch (see geo state), so cast.
         const d = path(f as any);
         if (!key || !d) continue;
         const [cx, cy] = path.centroid(f as any);
@@ -293,6 +296,7 @@ export function UsMap({ map, result = null }: { map: CongressMap; result?: Looku
     const out: Shape[] = [];
     for (const f of geo.states) {
       const key = stateKey(String(f.id ?? f.properties?.STATEFP ?? f.properties?.GEOID ?? ""));
+      // topojson Feature vs d3-geo's GeoPermissibleObjects type mismatch (see geo state), so cast.
       const d = path(f as any);
       if (!key || !d) continue;
       const [cx, cy] = path.centroid(f as any);
