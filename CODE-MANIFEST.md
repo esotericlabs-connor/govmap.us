@@ -4,6 +4,26 @@ What's been built, in what order, and what's next. This is a living log — add 
 
 ## Build log
 
+**2026-11-07 — Pre-expansion security guardrails (validation pending)**
+Exact parsed-origin checks replace prefix matching on bug reports. Forwarded
+client addresses are ignored unless the socket peer belongs to explicitly
+configured trusted proxy CIDRs; Uvicorn proxy rewriting is disabled in the
+container. Reports have bounded per-IP and global hourly limits without
+clearing active buckets. Shared process-local Congress.gov/OpenFEC/bill-text
+request budgets cover retries and refresh jobs, with bounded on-demand worker
+admission and explicit HTTP 503 + `Retry-After` on exhaustion. Capacity failures
+are not swallowed by enrichment/pipeline fallbacks; optional frontend bill-text
+and referral sections show unavailable notices. Donation cache creation rejects
+unknown members and invalid cycles. Settings are wired through Compose and the
+environment examples; operational limits and proxy prerequisites are documented
+in [docs/logs-and-bug-reports.md](docs/logs-and-bug-reports.md).
+Regression tests were added for origin spoofing, proxy trust, report quotas,
+outbound concurrency/retries, cancellation and capacity responses. Tests,
+linters and builds have not been run on this static checkout; CI validation
+and verification of production ingress configuration are still required.
+These changes do not resolve the remaining roster/snapshot/paging integrity
+and release-gating findings.
+
 **2026-09-29 — Pre-expansion hardening: Next.js security patch + normalization test harness**
 Bug/error cleanup pass before adding new data sources. **Security:** bumped `next` (and `eslint-config-next`) from **14.2.5 → 14.2.35** (`frontend/package.json`) — the latest stable 14.2.x, closing the advisories that affect 14.2.5 including the CVE-2025-29927 middleware auth-bypass, plus SSRF, cache-poisoning, and DoS fixes; no major-version jump, and there's no lockfile + the Dockerfile uses `npm install` (not `npm ci`), so the version bump alone is sufficient. **First tests in the repo:** a pytest harness (`backend/tests/`, `backend/pytest.ini`, `backend/requirements-dev.txt`) covering the pure Layer-2 normalization logic — exactly where AGENTS.md says a silent regression corrupts data. `test_dates` pins the shared ISO-8601 `normalize_date`/`normalize_datetime` (fail-soft, Z-tolerant); `test_member_schema` locks in the term-resilience validator behind the "Vacant / no data" seat bug (drop only malformed terms, keep the sitting member's current seat, reject a wholly-broken record, allow a null-party current term); `test_member_normalize` covers chamber/district mapping, the `served_since` contiguity walk (gap + chamber-switch breaks), party backfill, and the FEC-ids-as-array rule; `test_crosswalk` guards the Bioguide→LIS/FEC/… join backbone; `test_congress_helpers` the D/R/I party bucket. Tests import the pure helpers only (the async engine is connection-lazy, so no Postgres needed to collect/run). Wired into CI as a `backend-tests` job in `.github/workflows/lint.yml` (`pip install -r requirements.txt -r requirements-dev.txt` → `pytest -q`).
 

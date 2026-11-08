@@ -18,7 +18,6 @@ failure, the stub is left as-is and retried on the next view.
 
 from __future__ import annotations
 
-import asyncio
 import html
 import logging
 import re
@@ -48,6 +47,7 @@ from app.schemas.bill import (
     BillTextVersionRaw,
     CosponsorRaw,
 )
+from app.services.upstream import UpstreamCapacityError, request_slot, run_upstream
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +81,9 @@ async def enrich_bill(db: AsyncSession, bill_id: str) -> bool:
     congress, btype, number = parsed
 
     try:
-        bundle = await asyncio.to_thread(_fetch_one, congress, btype, number)
+        bundle = await run_upstream("congress", _fetch_one, congress, btype, number)
+    except UpstreamCapacityError:
+        raise
     except Exception as exc:
         logger.warning("bill_enrich: detail fetch failed for %s: %s", bill_id, exc)
         return False
@@ -131,7 +133,8 @@ def _formatted_text_url(versions: list[BillTextVersionRaw]) -> tuple[str | None,
 
 def _fetch_url(url: str) -> str:
     """Fetch a public GPO/govinfo text page (no API key needed)."""
-    resp = requests.get(url, timeout=_TEXT_TIMEOUT)
+    with request_slot("govinfo"):
+        resp = requests.get(url, timeout=_TEXT_TIMEOUT)
     resp.raise_for_status()
     return resp.text
 
@@ -182,7 +185,9 @@ async def get_bill_text(db: AsyncSession, bill_id: str) -> dict | None:
     congress, btype, number = parsed
 
     try:
-        data = await asyncio.to_thread(_get, f"bill/{congress}/{btype}/{number}/text")
+        data = await run_upstream("congress", _get, f"bill/{congress}/{btype}/{number}/text")
+    except UpstreamCapacityError:
+        raise
     except Exception as exc:
         logger.warning("bill_enrich: text-versions fetch failed for %s: %s", bill_id, exc)
         return None
@@ -192,7 +197,9 @@ async def get_bill_text(db: AsyncSession, bill_id: str) -> dict | None:
         return None
 
     try:
-        html_doc = await asyncio.to_thread(_fetch_url, url)
+        html_doc = await run_upstream("govinfo", _fetch_url, url)
+    except UpstreamCapacityError:
+        raise
     except Exception as exc:
         logger.warning("bill_enrich: text-body fetch failed for %s (%s): %s", bill_id, url, exc)
         return None
@@ -238,6 +245,8 @@ async def backfill_unenriched(limit: int) -> int:
             try:
                 if await enrich_bill(db, bill_id):
                     enriched += 1
+            except UpstreamCapacityError:
+                raise
             except Exception as exc:  # unexpected DB error — don't sink the batch
                 await db.rollback()
                 logger.warning("bill_enrich: backfill failed for %s: %s", bill_id, exc)

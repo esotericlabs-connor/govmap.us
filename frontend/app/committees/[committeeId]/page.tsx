@@ -90,12 +90,13 @@ function MeetingCard({ meeting, upcoming = false }: { meeting: CommitteeMeeting;
 }
 
 async function getReferredBills(committeeId: string): Promise<CommitteeReferredBills | null> {
-  // Fail-soft: on any error the section is simply omitted.
+  // Capacity failures get an unavailable notice; other failures omit this section.
   try {
     return await apiGet<CommitteeReferredBills>(
       `/api/committees/${encodeURIComponent(committeeId)}/bills`,
     );
-  } catch {
+  } catch (err) {
+    if (err instanceof HttpError && err.status === 503) throw err;
     return null;
   }
 }
@@ -115,7 +116,17 @@ function ReferredBillsSkeleton() {
 // Streamed in its own Suspense boundary — the first request fetches referrals
 // from Congress.gov, so the rest of the committee page never waits on it.
 async function ReferredBills({ committeeId }: { committeeId: string }) {
-  const data = await getReferredBills(committeeId);
+  let data: CommitteeReferredBills | null;
+  try {
+    data = await getReferredBills(committeeId);
+  } catch (err) {
+    if (!(err instanceof HttpError) || err.status !== 503) throw err;
+    return (
+      <Section title="Recent bills before this committee">
+        <EmptyState>Referred bills are temporarily unavailable. Please try again later.</EmptyState>
+      </Section>
+    );
+  }
   if (!data || data.bills.length === 0) return null;
   return (
     <Section title="Recent bills before this committee" count={data.bills.length} scroll>

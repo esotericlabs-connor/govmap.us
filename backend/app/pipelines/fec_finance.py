@@ -35,6 +35,7 @@ from pydantic import ValidationError
 from app.config import settings
 from app.pipelines.congress_legislators import STAGING_LEGISLATORS
 from app.schemas.finance import CandidateTotalRaw
+from app.services.upstream import UpstreamCapacityError, request_slot
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +77,8 @@ def _fec_get(path: str, **params: Any) -> dict:
     headers = {"X-Api-Key": settings.fec_api_key}
     last_status = 0
     for attempt in range(1, _MAX_RETRIES + 1):
-        resp = _session.get(url, params=params, headers=headers, timeout=_TIMEOUT)
+        with request_slot("fec"):
+            resp = _session.get(url, params=params, headers=headers, timeout=_TIMEOUT)
         last_status = resp.status_code
         if resp.status_code == 429:
             # A couple of short retries cover a per-second burst; beyond that the
@@ -195,6 +197,8 @@ def run() -> int:
     for bioguide, candidate_id in members:
         try:
             raw = _candidate_total(candidate_id, cycles)
+        except UpstreamCapacityError:
+            raise
         except _RateLimited:
             # Budget spent — abort once we've seen a run of consecutive 429s
             # rather than burning minutes on the remaining members. Whatever was

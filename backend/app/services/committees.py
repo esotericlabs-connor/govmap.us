@@ -10,7 +10,6 @@ field-name mismatch is visible in the logs.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 
 from sqlalchemy import select
@@ -21,6 +20,7 @@ from app.config import settings
 from app.models.bill import Bill
 from app.models.committee import Committee
 from app.pipelines.congress_gov_bills import _get
+from app.services.upstream import UpstreamCapacityError, run_upstream
 
 logger = logging.getLogger(__name__)
 
@@ -39,9 +39,11 @@ async def referred_bills(db: AsyncSession, committee_id: str, limit: int = 15) -
     system_code = to_system_code(committee_id)
     congress = settings.congress_number
     try:
-        data = await asyncio.to_thread(
-            _get, f"committee/{congress}/{committee.chamber}/{system_code}/bills", limit=limit
+        data = await run_upstream(
+            "congress", _get, f"committee/{congress}/{committee.chamber}/{system_code}/bills", limit=limit
         )
+    except UpstreamCapacityError:
+        raise
     except Exception as exc:
         logger.warning("referred_bills: fetch failed for %s: %s", committee_id, exc)
         return []

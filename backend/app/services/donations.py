@@ -15,7 +15,6 @@ a resolvable committee) the endpoint degrades gracefully to whatever is cached
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import time
 from typing import Any
@@ -31,6 +30,7 @@ from app.models.crosswalk import IdCrosswalk
 from app.models.finance import MemberFinance
 from app.models.member import Member
 from app.schemas.finance import ScheduleAItemRaw
+from app.services.upstream import UpstreamCapacityError, request_slot, run_upstream
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +64,8 @@ def _fec_get(path: str, **params: Any) -> dict:
     headers = {"X-Api-Key": settings.fec_api_key}
     last_status = 0
     for attempt in range(1, _MAX_RETRIES + 1):
-        resp = _session.get(url, params=params, headers=headers, timeout=_TIMEOUT)
+        with request_slot("fec"):
+            resp = _session.get(url, params=params, headers=headers, timeout=_TIMEOUT)
         last_status = resp.status_code
         if resp.status_code == 429 or resp.status_code >= 500:
             time.sleep(min(2**attempt, 10))
@@ -103,8 +104,8 @@ async def _resolve_committee_id(db: AsyncSession, bioguide: str, cycle: int) -> 
     if not candidate_id:
         return None
 
-    data = await asyncio.to_thread(
-        _fec_get, f"candidate/{candidate_id}/committees", designation="P", per_page=20
+    data = await run_upstream(
+        "fec", _fec_get, f"candidate/{candidate_id}/committees", designation="P", per_page=20
     )
     best: str | None = None
     best_cycle = -1
@@ -139,13 +140,15 @@ async def get_donation_cycles(db: AsyncSession, bioguide: str) -> list[int]:
     candidate_id = await _resolve_candidate_id(db, bioguide) if settings.fec_api_key else None
     if candidate_id:
         try:
-            data = await asyncio.to_thread(
-                _fec_get, f"candidate/{candidate_id}/committees", designation="P", per_page=20
+            data = await run_upstream(
+                "fec", _fec_get, f"candidate/{candidate_id}/committees", designation="P", per_page=20
             )
             for c in data.get("results") or []:
                 for cy in c.get("cycles") or []:
                     if isinstance(cy, int):
                         cycles.add(cy)
+        except UpstreamCapacityError:
+            raise
         except Exception as exc:
             logger.warning("donations: cycle list fetch failed for %s: %s", bioguide, exc)
 
@@ -171,7 +174,9 @@ async def _fetch_more(db: AsyncSession, state: DonationFetch, cycle: int, until:
             params["last_index"] = state.cursor_index
             params["last_contribution_receipt_amount"] = state.cursor_amount
         try:
-            data = await asyncio.to_thread(_fec_get, "schedules/schedule_a", **params)
+            data = await run_upstream("fec", _fec_get, "schedules/schedule_a", **params)
+        except UpstreamCapacityError:
+            raise
         except Exception as exc:
             logger.warning("donations: schedule_a fetch failed for %s: %s", committee_id, exc)
             break
@@ -264,6 +269,8 @@ async def get_donations(
             state.committee_id = await _resolve_committee_id(db, bioguide, cycle)
             state.resolved = True
             await db.commit()
+        except UpstreamCapacityError:
+            raise
         except Exception as exc:
             logger.warning("donations: committee resolve failed for %s/%s: %s", bioguide, cycle, exc)
 

@@ -35,6 +35,11 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://govmap:${POSTGRES_PASSWORD:-govmap}@postgres:5432/govmap
       CORS_ORIGINS: ${CORS_ORIGINS:-https://govmap.us,https://app.govmap.us}
+      TRUSTED_PROXY_CIDRS: ${TRUSTED_PROXY_CIDRS:-}
+      UPSTREAM_MAX_CONCURRENT_REQUESTS: ${UPSTREAM_MAX_CONCURRENT_REQUESTS:-4}
+      CONGRESS_REQUESTS_PER_HOUR: ${CONGRESS_REQUESTS_PER_HOUR:-4500}
+      FEC_REQUESTS_PER_HOUR: ${FEC_REQUESTS_PER_HOUR:-900}
+      GOVINFO_REQUESTS_PER_HOUR: ${GOVINFO_REQUESTS_PER_HOUR:-600}
       # Optional: set these in the .env next to this file to unlock the
       # /internal/* ops endpoints. Left unset = those endpoints stay locked.
       INTERNAL_USER: ${INTERNAL_USER:-}

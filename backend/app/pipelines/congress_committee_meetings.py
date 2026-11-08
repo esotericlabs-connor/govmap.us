@@ -22,6 +22,7 @@ from pydantic import ValidationError
 from app.config import settings
 from app.pipelines.congress_gov_bills import _PAGE, _get
 from app.schemas.committee import CommitteeMeetingRaw
+from app.services.upstream import UpstreamCapacityError
 
 logger = logging.getLogger(__name__)
 
@@ -118,6 +119,8 @@ def run() -> int:
     for chamber in _CHAMBERS:
         try:
             ids = _event_ids(congress, chamber, cap)
+        except UpstreamCapacityError:
+            raise
         except Exception as exc:
             logger.warning("committee_meetings: list failed for %s: %s", chamber, exc)
             continue
@@ -126,6 +129,8 @@ def run() -> int:
                 row = _meeting_row(congress, chamber, ev, logged)
                 if row:
                     rows.append(row)
+            except UpstreamCapacityError:
+                raise
             except Exception as exc:
                 logger.warning("committee_meetings: detail failed for %s/%s: %s", chamber, ev, exc)
 

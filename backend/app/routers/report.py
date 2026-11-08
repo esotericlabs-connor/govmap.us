@@ -20,7 +20,10 @@ import logging
 import os
 import re
 import time
+from collections import deque
 from datetime import UTC, datetime
+from ipaddress import ip_address
+from urllib.parse import urlsplit
 
 import requests
 from fastapi import APIRouter, HTTPException, Request
@@ -41,7 +44,10 @@ _UA_MAX = 300
 # Best-effort in-memory per-IP rate limit (resets on restart).
 _RATE_WINDOW = 3600  # seconds
 _RATE_MAX = 20       # reports per IP per window
-_rate: dict[str, list[float]] = {}
+_GLOBAL_RATE_MAX = 200
+_MAX_RATE_IPS = 10000
+_rate: dict[str, deque[float]] = {}
+_global_rate: deque[float] = deque()
 
 _TAG_RE = re.compile(r"<[^>]*>")
 _CTRL_RE = re.compile(r"[\x00-\x1f\x7f]+")     # includes \r \n \t — collapse to space
@@ -74,26 +80,56 @@ def _scrub_url(url: str) -> str:
 
 
 def _client_ip(request: Request) -> str:
-    # Behind the Cloudflare tunnel the socket peer is cloudflared; the real
-    # client IP is in CF-Connecting-IP / X-Forwarded-For.
-    return (
-        request.headers.get("cf-connecting-ip")
-        or request.headers.get("x-forwarded-for", "").split(",")[0].strip()
-        or (request.client.host if request.client else "unknown")
-    )
+    peer = request.client.host if request.client else "unknown"
+    try:
+        peer_ip = ip_address(peer)
+    except ValueError:
+        return "unknown"
+    if any(peer_ip in network for network in settings.trusted_proxy_networks):
+        forwarded = request.headers.get("cf-connecting-ip")
+        if forwarded:
+            try:
+                return str(ip_address(forwarded.strip()))
+            except ValueError:
+                logger.warning("ignoring malformed client IP from trusted proxy")
+    return str(peer_ip)
 
 
 def _rate_ok(ip: str) -> bool:
-    now = time.time()
-    recent = [t for t in _rate.get(ip, []) if now - t < _RATE_WINDOW]
+    now = time.monotonic()
+    while _global_rate and now - _global_rate[0] >= _RATE_WINDOW:
+        _global_rate.popleft()
+    if len(_global_rate) >= _GLOBAL_RATE_MAX:
+        return False
+    if ip not in _rate and len(_rate) >= _MAX_RATE_IPS:
+        expired = [key for key, times in _rate.items() if now - times[-1] >= _RATE_WINDOW]
+        for key in expired:
+            del _rate[key]
+        if len(_rate) >= _MAX_RATE_IPS:
+            return False
+    recent = _rate.setdefault(ip, deque())
+    while recent and now - recent[0] >= _RATE_WINDOW:
+        recent.popleft()
     if len(recent) >= _RATE_MAX:
-        _rate[ip] = recent
         return False
     recent.append(now)
-    _rate[ip] = recent
-    if len(_rate) > 10000:  # bound memory
-        _rate.clear()
+    _global_rate.append(now)
     return True
+
+
+def _origin(url: str) -> tuple[str, str, int] | None:
+    try:
+        parsed = urlsplit(url)
+        if parsed.scheme not in ("http", "https") or not parsed.hostname:
+            return None
+        if parsed.username is not None or parsed.password is not None:
+            return None
+        port = parsed.port
+        return parsed.scheme, parsed.hostname, port if port is not None else (
+            443 if parsed.scheme == "https" else 80
+        )
+    except ValueError:
+        return None
 
 
 def _origin_ok(request: Request) -> bool:
@@ -101,7 +137,8 @@ def _origin_ok(request: Request) -> bool:
     if not allowed:
         return True  # origins unset (dev) — don't block
     origin = request.headers.get("origin") or request.headers.get("referer") or ""
-    return any(origin.startswith(a) for a in allowed)
+    incoming = _origin(origin)
+    return incoming is not None and any(incoming == _origin(a) for a in allowed)
 
 
 _TURNSTILE_VERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify"

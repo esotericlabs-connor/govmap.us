@@ -1,9 +1,17 @@
+from ipaddress import IPv4Network, IPv6Network, ip_network
+
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://govmap:govmap@localhost:5432/govmap"
     cors_origins: str = "http://localhost:3000"
+    trusted_proxy_cidrs: str = ""
+    upstream_max_concurrent_requests: int = Field(default=4, ge=1, le=32)
+    congress_requests_per_hour: int = Field(default=4500, ge=1)
+    fec_requests_per_hour: int = Field(default=900, ge=1)
+    govinfo_requests_per_hour: int = Field(default=600, ge=1)
 
     # Credentials for the /internal/* ops endpoints. Left empty by default,
     # which keeps those endpoints locked (every request 401s) until real
@@ -61,6 +69,24 @@ class Settings(BaseSettings):
     log_dir: str = "/app/logs"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+
+    @field_validator("trusted_proxy_cidrs")
+    @classmethod
+    def validate_trusted_proxy_cidrs(cls, value: str) -> str:
+        for cidr in value.split(","):
+            if cidr.strip():
+                network = ip_network(cidr.strip(), strict=False)
+                if network.prefixlen == 0:
+                    raise ValueError("trusted proxy CIDRs must not trust the entire internet")
+        return value
+
+    @property
+    def trusted_proxy_networks(self) -> tuple[IPv4Network | IPv6Network, ...]:
+        return tuple(
+            ip_network(cidr.strip(), strict=False)
+            for cidr in self.trusted_proxy_cidrs.split(",")
+            if cidr.strip()
+        )
 
     @property
     def cors_origin_list(self) -> list[str]:

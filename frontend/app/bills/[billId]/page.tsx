@@ -30,11 +30,11 @@ async function getBill(billId: string): Promise<BillDetail | null> {
 }
 
 async function getBillText(billId: string): Promise<BillText | null> {
-  // Fail-soft: 404 = no readable text version yet; any other error just omits
-  // this non-critical section rather than erroring the whole bill page.
+  // Capacity failures get an unavailable notice; other failures omit this section.
   try {
     return await apiGet<BillText>(`/api/bills/${encodeURIComponent(billId)}/text`);
-  } catch {
+  } catch (err) {
+    if (err instanceof HttpError && err.status === 503) throw err;
     return null;
   }
 }
@@ -53,7 +53,17 @@ function BillTextSkeleton() {
 // Streamed in its own Suspense boundary — the first request fetches the text
 // from GPO/govinfo (a few seconds), so the rest of the page never waits on it.
 async function BillFullText({ billId }: { billId: string }) {
-  const text = await getBillText(billId);
+  let text: BillText | null;
+  try {
+    text = await getBillText(billId);
+  } catch (err) {
+    if (!(err instanceof HttpError) || err.status !== 503) throw err;
+    return (
+      <Section title="Full text">
+        <EmptyState>Full text is temporarily unavailable. Please try again later.</EmptyState>
+      </Section>
+    );
+  }
   if (!text?.plain) return null;
 
   return (

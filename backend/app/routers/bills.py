@@ -9,6 +9,7 @@ from app.models.bill import Bill, BillAction, Cosponsor
 from app.models.member import Member
 from app.schemas.bill import BillOut
 from app.services.bill_enrich import enrich_bill, get_bill_text
+from app.services.upstream import UpstreamCapacityError
 from app.types import BillId
 
 logger = logging.getLogger(__name__)
@@ -56,6 +57,8 @@ async def bill_detail(bill_id: BillId, db: AsyncSession = Depends(get_db)) -> di
     # Fail-soft: a transient enrichment error must never block viewing the stub.
     try:
         await enrich_bill(db, bill_id)  # no-op if already enriched / missing / no key
+    except UpstreamCapacityError:
+        raise
     except Exception:
         await db.rollback()
         logger.warning("bill_detail: enrichment failed for %s (showing stub)", bill_id)

@@ -411,16 +411,18 @@ export async function fetchMemberDetail(bioguide: string): Promise<MemberDetail 
 
 /** Client-side fetch of the election cycles a member's itemized donations can be
  *  browsed for (newest first), for the ledger's cycle picker. Fail-soft: [] on
- *  any error, which just hides the picker. */
+ *  ordinary errors, which hides the picker; capacity errors remain explicit. */
 export async function fetchDonationCycles(bioguide: string): Promise<number[]> {
   try {
     const res = await fetch(
       `${publicApiBase}/api/members/${encodeURIComponent(bioguide)}/donations/cycles`,
     );
+    if (res.status === 503) throw new HttpError(res.status);
     if (!res.ok) return [];
     const data = (await res.json()) as DonationCyclesResponse;
     return Array.isArray(data.cycles) ? data.cycles : [];
-  } catch {
+  } catch (err) {
+    if (err instanceof HttpError && err.status === 503) throw err;
     return [];
   }
 }

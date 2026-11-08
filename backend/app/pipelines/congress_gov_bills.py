@@ -29,6 +29,7 @@ import requests
 from pydantic import BaseModel, ValidationError
 
 from app.config import settings
+from app.services.upstream import UpstreamCapacityError, request_slot
 from app.schemas.bill import (
     BillActionRaw,
     BillDetailRaw,
@@ -63,7 +64,8 @@ def _get(path: str, **params: Any) -> dict:
     headers = {"X-Api-Key": settings.congress_gov_api_key}
     last_status = 0
     for attempt in range(1, _MAX_RETRIES + 1):
-        resp = _session.get(url, params=params, headers=headers, timeout=30)
+        with request_slot("congress"):
+            resp = _session.get(url, params=params, headers=headers, timeout=30)
         last_status = resp.status_code
         if resp.status_code == 429 or resp.status_code >= 500:
             wait = min(2**attempt, 30)
@@ -180,6 +182,8 @@ def run() -> int:
             bundle = _fetch_one(congress, item.type, item.number)
             if bundle:
                 staged.append(bundle)
+        except UpstreamCapacityError:
+            raise
         except Exception as exc:
             # One bad bill shouldn't sink the batch; a systemic failure (bad
             # key, source down) already surfaces on the very first list call.

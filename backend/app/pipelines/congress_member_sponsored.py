@@ -29,6 +29,7 @@ from app.config import settings
 from app.pipelines.congress_gov_bills import _PAGE, _get
 from app.pipelines.congress_legislators import STAGING_LEGISLATORS
 from app.schemas.bill import SponsoredLegislationItemRaw
+from app.services.upstream import UpstreamCapacityError
 
 logger = logging.getLogger(__name__)
 
@@ -118,6 +119,8 @@ def run() -> int:
     for bid in bioguides:
         try:
             rows.extend(_sponsored_for(bid, congress))
+        except UpstreamCapacityError:
+            raise
         except Exception as exc:
             failures += 1
             logger.warning("sponsored pull failed for %s: %s", bid, exc)

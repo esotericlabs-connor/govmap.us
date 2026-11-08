@@ -61,7 +61,10 @@ async function DonationsContent({
     ),
     apiGet<DonationCyclesResponse>(
       `/api/members/${encodeURIComponent(bioguide)}/donations/cycles`,
-    ).catch(() => ({ cycles: [], default: 0 }) as DonationCyclesResponse),
+    ).catch((err: unknown) => {
+      if (err instanceof HttpError && err.status === 503) throw err;
+      return { cycles: [], default: 0 };
+    }),
   ]);
   if (!member) notFound();
 

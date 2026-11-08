@@ -20,6 +20,7 @@ from app.routers import (
     votes,
 )
 from app.scheduler import start_scheduler, stop_scheduler
+from app.services.upstream import UpstreamCapacityError
 
 logger = logging.getLogger("app.main")
 
@@ -56,6 +57,17 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
         "unhandled error on %s %s", request.method, request.url.path, exc_info=exc
     )
     return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+
+
+@app.exception_handler(UpstreamCapacityError)
+async def upstream_capacity_handler(
+    request: Request, exc: UpstreamCapacityError
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=503,
+        content={"detail": "Upstream request capacity exhausted; try again later"},
+        headers={"Retry-After": str(exc.retry_after)},
+    )
 
 
 app.include_router(members.router)
