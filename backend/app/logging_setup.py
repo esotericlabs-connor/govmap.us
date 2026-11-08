@@ -5,7 +5,7 @@ every module uses via ``logging.getLogger(__name__)``), so all our runtime
 output — the pipeline self-diagnostics (HUD page keys, committee-meeting keys,
 finance rate-limit aborts) plus every warning/error — lands in
 ``<log_dir>/app.log``. Records still propagate to stdout, so ``docker logs``
-keeps working too; this just adds a durable file on the bind-mounted volume.
+keeps working too; this just adds a durable file on the named Docker volume.
 
 Framework noise (uvicorn, SQLAlchemy) is excluded by attaching to ``app`` rather
 than the root logger. Fail-soft: if the log dir isn't writable, the app runs on

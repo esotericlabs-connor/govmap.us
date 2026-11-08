@@ -4,7 +4,30 @@ What's been built, in what order, and what's next. This is a living log — add 
 
 ## Build log
 
-**2026-11-07 — Pre-expansion security guardrails (validation pending)**
+**2026-11-08 — Group 0 baseline and recovery tooling (verification pending)**
+GitHub Actions reported successful backend tests/lint and frontend lint/type
+checking for commit `f6b0d8f85e981052280349882320b54093c15e7b` in
+[Lint run 72](https://github.com/esotericlabs-connor/govmap.us/actions/runs/42450393548);
+the [deployment run](https://github.com/esotericlabs-connor/govmap.us/actions/runs/42450393617)
+for that trigger also reported success. The deployment script fetches `main`,
+so the running SHA is not established by the trigger SHA alone. GitHub's branch
+listing reported `main` as unprotected; separate rulesets were not checked.
+The operator reported that no backups are in place. Production migration
+revision, pipeline freshness, and proxy trust remain unverified.
+
+Added inert operator tooling for an age-encrypted GovMap archive, an encrypted
+database dump and required Duplicati pre-backup hook, and an empty-target
+database restore. The archive includes `.env`, repository files, and the
+persistent log volume. Nothing is scheduled or installed, and no backup or
+restore has been performed. Synthetic regression cases were added but not run
+on this static checkout; CI and a real isolated restore rehearsal are still
+required. See [backups and recovery](docs/backups-and-recovery.md).
+Group 0 remains blocked until a backup exists separately and a restore is
+verified. Pipeline status currently lives in PostgreSQL; the JSON reference in
+`AGENTS.md` and the earlier Group 3 plan need reconciliation before changing
+that contract.
+
+**2026-11-07 — Pre-expansion security guardrails (production verification pending)**
 Exact parsed-origin checks replace prefix matching on bug reports. Forwarded
 client addresses are ignored unless the socket peer belongs to explicitly
 configured trusted proxy CIDRs; Uvicorn proxy rewriting is disabled in the
@@ -19,8 +42,11 @@ environment examples; operational limits and proxy prerequisites are documented
 in [docs/logs-and-bug-reports.md](docs/logs-and-bug-reports.md).
 Regression tests were added for origin spoofing, proxy trust, report quotas,
 outbound concurrency/retries, cancellation and capacity responses. Tests,
-linters and builds have not been run on this static checkout; CI validation
-and verification of production ingress configuration are still required.
+linters and builds were not run on this static checkout. The later
+[Lint run 72](https://github.com/esotericlabs-connor/govmap.us/actions/runs/42450393548)
+passed backend tests/lint and frontend lint/type checking for commit
+`f6b0d8f85e981052280349882320b54093c15e7b`; it did not establish the running
+SHA or verify production ingress configuration.
 These changes do not resolve the remaining roster/snapshot/paging integrity
 and release-gating findings.
 
@@ -89,10 +115,10 @@ Follow-up tweaks: header gained a **Sign in** link → `/account` placeholder ("
 Redesigned the marketing hero with a US Capitol sunset photo (`public/capitol-hero.jpg`) behind a navy gradient for legibility. Fixed the "off-color box" logo: the logo PNG's baked background is `#0A0E1E` but the page navy is `#070B1A`, so it read as a rectangle — generated `logo-dark-transparent.png` (alpha-keyed the dark background out, verified clean) and use it as the home-button logo everywhere on dark surfaces; the opaque `logo-dark.png`/`logo-light.png` are kept as the primary brand assets. Added a Support section with six active donation platforms (Patreon, Ko-fi, Buy Me a Coffee, Liberapay, Open Collective, thanks.dev) rendered with Simple Icons brand glyphs (`components/BrandIcon.tsx`, inlined — no icon dependency), plus a **"seeking a fiscal sponsor"** callout. `site-config` gained `supportLinks[]`; the unused `supportUrl` was removed.
 
 **2026-07-22 — Redeploy hardening + full stack live in production**
-Site live end-to-end at govmap.us through the dashboard-managed tunnel (marketing, `/members` with real portraits + party colors, 537 members). Made redeploy fully reproducible: root `.env.example` documents the two required secrets (`POSTGRES_PASSWORD`, `CLOUDFLARE_TUNNEL_TOKEN`); `deploy.sh` now writes a self-documenting `.env` on a fresh box and flags the missing tunnel token; README gained a "Rebuilding on a fresh box" runbook. **Key operational fact: the tunnel is dashboard-managed, so its routes live in Cloudflare and survive any rebuild — the only per-box state is `.env`.** Reconnecting a rebuilt box = restore `.env` (or re-fetch the token from the CF dashboard) + `bash scripts/deploy.sh`. Tunnel ID `ebdeb681-961d-4321-8beb-2f14b35c6143`.
+Site live end-to-end at govmap.us through the dashboard-managed tunnel (marketing, `/members` with real portraits + party colors, 537 members). Made redeploy fully reproducible: root `.env.example` documents the two required secrets (`POSTGRES_PASSWORD`, `CLOUDFLARE_TUNNEL_TOKEN`); `deploy.sh` now writes a self-documenting `.env` on a fresh box and flags the missing tunnel token; README gained a "Rebuilding on a fresh box" runbook. The dashboard-managed tunnel's routes live in Cloudflare and survive a rebuild; its token is in `.env`. **Correction:** `.env` is not the only per-box state: PostgreSQL and persistent logs require separate recovery, and starting the deploy script is not a substitute for a verified restore. Tunnel ID `ebdeb681-961d-4321-8beb-2f14b35c6143`.
 
 **2026-07-22 — Cloudflare Tunnel as a stack service**
-Moved the tunnel from a per-box systemd unit (fragile: interactive `tunnel login`, on-disk credentials that can't live in the repo, and the source of a rebuild's Error 1033) into the compose stack. New `cloudflared` service runs a **dashboard-managed** tunnel via a token from `.env` (`CLOUDFLARE_TUNNEL_TOKEN`), under a `tunnel` compose profile that `scripts/deploy.sh` enables automatically when the token is present. So `docker compose up` now brings the public site up too, and rebuilding a box is just "restore the token to `.env`." Ingress (public hostnames → `http://frontend:3000` / `http://backend:8000`) is configured once in the Cloudflare Zero Trust dashboard; cloudflared shares the compose network so those service names resolve. The old CLI/systemd tunnel should be uninstalled (`sudo cloudflared service uninstall`) and its dashboard tunnel deleted.
+Moved the tunnel from a per-box systemd unit (fragile: interactive `tunnel login`, on-disk credentials that can't live in the repo, and the source of a rebuild's Error 1033) into the compose stack. New `cloudflared` service runs a **dashboard-managed** tunnel via a token from `.env` (`CLOUDFLARE_TUNNEL_TOKEN`), under a `tunnel` compose profile that `scripts/deploy.sh` enables automatically when the token is present. Restoring that token reconnects the tunnel only; it does not recover the database or logs. Ingress (public hostnames → `http://frontend:3000` / `http://backend:8000`) is configured once in the Cloudflare Zero Trust dashboard; cloudflared shares the compose network so those service names resolve. The old CLI/systemd tunnel should be uninstalled (`sudo cloudflared service uninstall`) and its dashboard tunnel deleted.
 
 **2026-07-21 — Single-source deploy script**
 Added `scripts/deploy.sh` as the one deploy path: `git reset --hard origin/main` → ensure `.env` (generates `POSTGRES_PASSWORD` if missing) → `docker compose up -d --build` → poll `/health` (backend migrates on start) → refresh data (pipeline + normalize, non-fatal so a source outage can't fail the deploy) → prune → verify `photo_url` is populated. Idempotent, re-runnable, never touches `.env` or the Postgres volume. Takes `--no-data` for code-only changes. The GitHub Actions runner now just calls `bash /opt/govmap/scripts/deploy.sh`, so manual and automated deploys are literally the same script — no more copy-pasted command sequences, and a reliable manual deploy exists whenever the runner is down.
@@ -103,7 +129,7 @@ Swapped `logo-dark.png`/`logo-light.png` for tight cropped lockups (the original
 Note: `photo_url` was previously left null by the normalizer (it was reserved for a separate images pipeline). Setting it deterministically means an existing DB needs one normalize run to backfill — future weekly scheduler runs handle it automatically.
 
 **2026-07-21 — Closed the operational loop**
-With the pipeline proven live, automated the parts that were manual. (1) **Auto-deploy**: `.github/workflows/deploy.yml` now runs on push to `main` via a self-hosted GitHub Actions runner on the VM — it `git reset --hard`s `/opt/govmap` to `origin/main` and `docker compose up -d --build`s (backend re-applies Alembic migrations on start). No SSH, no exposed ports. Runner install is a one-time server-side step (needs a GitHub registration token). (2) **Scheduler**: `backend/app/scheduler.py` (APScheduler, wired into the FastAPI lifespan) refreshes members weekly (Sun 07:00 UTC) so data no longer depends on a manual run. (3) **Secured `/internal/*`**: HTTP Basic Auth via `INTERNAL_USER`/`INTERNAL_PASSWORD`, locked by default when unset — it was reachable at `api.govmap.us/internal/*` with no auth. (4) **Fixed the roster cap**: the members query was hardcoded to `limit=535`, silently hiding the ~2 non-voting delegates the pipeline loads (537 total); raised to 600 on both API and frontend. Nightly `pg_dump` backups remain a server-side cron (see server hardening notes).
+With the pipeline proven live, automated the parts that were manual. (1) **Auto-deploy**: `.github/workflows/deploy.yml` now runs on push to `main` via a self-hosted GitHub Actions runner on the VM — it `git reset --hard`s `/opt/govmap` to `origin/main` and `docker compose up -d --build`s (backend re-applies Alembic migrations on start). No SSH, no exposed ports. Runner install is a one-time server-side step (needs a GitHub registration token). (2) **Scheduler**: `backend/app/scheduler.py` (APScheduler, wired into the FastAPI lifespan) refreshes members weekly (Sun 07:00 UTC) so data no longer depends on a manual run. (3) **Secured `/internal/*`**: HTTP Basic Auth via `INTERNAL_USER`/`INTERNAL_PASSWORD`, locked by default when unset — it was reachable at `api.govmap.us/internal/*` with no auth. (4) **Fixed the roster cap**: the members query was hardcoded to `limit=535`, silently hiding the ~2 non-voting delegates the pipeline loads (537 total); raised to 600 on both API and frontend. This entry originally assumed a nightly `pg_dump` cron; the operator later reported that no backups are in place, so that cron cannot be assumed.
 
 **2026-07-21 — Flattened frontend routing (fixed blank-page bug)**
 The first deploy rendered blank: every page served HTML with no `<!DOCTYPE html>`/`<html>`/`<body>` (Quirks Mode + React #418/#423 hydration failure → React tore the tree down). Ruled out Cloudflare (Bot Fight Mode / JS Detections injection was a real but secondary red herring) and the middleware (removing it didn't help). Root cause: **the platform routes lived under `app/app/` — a route segment literally named `app` inside the App Router's own `app/` directory — which corrupted route resolution so Next.js used `app/app/layout.tsx` (a bare `<div>`, no `<html>`) as the root and skipped the real `app/layout.tsx` entirely.**
