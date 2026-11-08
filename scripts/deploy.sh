@@ -9,6 +9,9 @@
 #   bash scripts/deploy.sh             # full deploy: sync code, build, up, load data
 #   bash scripts/deploy.sh --no-data   # code-only: skip the data pipeline step
 #
+# The deploy-time refresh is hard-capped at 15m; override with the
+# GOVMAP_REFRESH_TIMEOUT environment variable (a `timeout` duration, e.g. 20m).
+#
 # Safe to run as often as you like. It never touches .env (gitignored) or the
 # Postgres volume.
 
@@ -140,8 +143,20 @@ if [ "$LOAD_DATA" -eq 1 ]; then
   # fail the whole deploy — the app keeps serving whatever is already in the
   # DB. The scheduler retries regardless. `refresh` pulls + normalizes every
   # registered source and records each outcome to the pipeline_status table.
-  if docker compose exec -T backend python -m app.pipelines.refresh; then
+  #
+  # Hard-capped INSIDE the container: the pipelines stop early on their own
+  # (time budget + outage breaker), and this is the backstop. Killing only the
+  # `docker compose exec` client would leave the refresh running in the
+  # container. A Congress.gov timeout storm once held a deploy for 2h12m.
+  refresh_timeout="${GOVMAP_REFRESH_TIMEOUT:-15m}"
+  refresh_status=0
+  docker compose exec -T backend \
+    timeout --kill-after=30s "$refresh_timeout" python -m app.pipelines.refresh \
+    || refresh_status=$?
+  if [ "$refresh_status" -eq 0 ]; then
     echo "data refresh complete"
+  elif [ "$refresh_status" -eq 124 ] || [ "$refresh_status" -eq 137 ]; then
+    echo "WARNING: data refresh hit the $refresh_timeout cap and was stopped — app is up on existing data; the source that was mid-run may still show its previous pipeline_status" >&2
   else
     echo "WARNING: data refresh failed — app is up on existing data; investigate" >&2
   fi

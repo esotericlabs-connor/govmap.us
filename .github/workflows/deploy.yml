@@ -17,6 +17,9 @@ concurrency:
 jobs:
   deploy:
     runs-on: self-hosted
+    # Normal deploys take 2-5 min; the data refresh is capped at 15 min inside
+    # scripts/deploy.sh. Without this, GitHub's default is 6 hours.
+    timeout-minutes: 30
     steps:
       - name: Run deploy script
         run: bash /opt/govmap/scripts/deploy.sh

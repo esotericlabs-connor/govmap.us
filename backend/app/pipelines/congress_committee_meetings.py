@@ -20,9 +20,10 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from app.config import settings
+from app.pipelines.batch import BatchResult, OutageBreaker
 from app.pipelines.congress_gov_bills import _PAGE, _get
 from app.schemas.committee import CommitteeMeetingRaw
-from app.services.upstream import UpstreamCapacityError
+from app.services.upstream import UpstreamCapacityError, UpstreamUnavailableError
 
 logger = logging.getLogger(__name__)
 
@@ -108,39 +109,69 @@ def _meeting_row(congress: int, chamber: str, event_id: str, logged: list[bool])
     }
 
 
-def run() -> int:
+def run() -> BatchResult:
+    """Pull and stage meetings for both chambers. The loader FULL-REPLACES the
+    table, so a degraded pull is never staged: a failed chamber list or an
+    early outage stop raises instead, leaving the current meetings in place."""
     if not settings.congress_gov_api_key:
         raise RuntimeError("CONGRESS_GOV_API_KEY is not set — required for committee meetings")
     congress = settings.congress_number
     cap = settings.committee_meetings_limit
+    breaker = OutageBreaker(settings.congress_max_consecutive_failures)
 
     rows: list[dict] = []
     logged = [False]
+    total = 0
+    succeeded = 0
+    failed = 0
     for chamber in _CHAMBERS:
         try:
             ids = _event_ids(congress, chamber, cap)
-        except UpstreamCapacityError:
-            raise
         except Exception as exc:
-            logger.warning("committee_meetings: list failed for %s: %s", chamber, exc)
-            continue
+            logger.warning(
+                "committee_meetings: %s list failed (%s); not staging, so the "
+                "full-replace load keeps the current meetings",
+                chamber, exc,
+            )
+            raise
+        total += len(ids)
         for ev in ids:
             try:
                 row = _meeting_row(congress, chamber, ev, logged)
-                if row:
-                    rows.append(row)
             except UpstreamCapacityError:
                 raise
             except Exception as exc:
+                failed += 1
                 logger.warning("committee_meetings: detail failed for %s/%s: %s", chamber, ev, exc)
+                if breaker.failure(exc):
+                    result = BatchResult(total=total, succeeded=succeeded, failed=failed, stopped=breaker.reason)
+                    raise UpstreamUnavailableError(
+                        "congress",
+                        f"committee meetings not staged; {result.describe('meetings')} ({chamber})",
+                    ) from None
+                continue
+            breaker.success()
+            succeeded += 1
+            if row:
+                rows.append(row)
 
+    result = BatchResult(total=total, succeeded=succeeded, failed=failed)
+    if result.degraded:
+        raise RuntimeError(
+            f"committee meetings not staged; {result.describe('meetings')} — too many "
+            "failures for a full-replace load"
+        )
     if not rows:
         raise ValueError("no committee meetings fetched — check the API key and source availability")
 
     STAGING_DIR.mkdir(parents=True, exist_ok=True)
     STAGING_PATH.write_text(json.dumps(rows))
-    logger.info("congress_committee_meetings: staged %d meetings (congress %d)", len(rows), congress)
-    return len(rows)
+    detail = result.describe("meetings")
+    logger.info(
+        "congress_committee_meetings: staged %d meetings (congress %d)%s",
+        len(rows), congress, f" — {detail}" if detail else "",
+    )
+    return result
 
 
 if __name__ == "__main__":

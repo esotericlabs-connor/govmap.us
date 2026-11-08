@@ -117,7 +117,7 @@ Production runs the whole stack in Docker on the Ubuntu VM — `postgres`, `back
 cd /opt/govmap && bash scripts/deploy.sh
 ```
 
-`scripts/deploy.sh` is the single deploy path (used by hand and by the GitHub Actions runner): it prereq-checks the box, syncs to `origin/main`, builds, brings up all four containers, runs migrations, refreshes data, and prints a health check. `--no-data` skips the data refresh for code-only changes.
+`scripts/deploy.sh` is the single deploy path (used by hand and by the GitHub Actions runner): it prereq-checks the box, syncs to `origin/main`, builds, brings up all four containers, runs migrations, refreshes data, and prints a health check. The data refresh is capped at 15 minutes (`GOVMAP_REFRESH_TIMEOUT`); if a source is down, the deploy still succeeds on existing data and prints a warning. `--no-data` skips the data refresh for code-only changes.
 
 ### Persistent state and secrets
 

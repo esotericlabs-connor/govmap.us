@@ -4,6 +4,50 @@ What's been built, in what order, and what's next. This is a living log — add 
 
 ## Build log
 
+**2026-11-08 — Bounded deploy refresh during Congress.gov outages (CI pending)**
+[Deploy run 65](https://github.com/esotericlabs-connor/govmap.us/actions/runs/42450393617)
+took 2h12m (earlier deploys took 2–5 min). Congress.gov answered almost every
+bill request with a 30s read timeout. The bills loop had no deadline and no
+outage stop, so it paid one timeout per bill. It staged 69 of 250 bills and
+still recorded `ok`. If every bill had failed, the refresh would have retried
+the whole pull up to three times, and the job had no timeout of its own
+(GitHub's default is 6h). House and Senate votes failed separately in that run
+(no House votes parsed; the Senate menu returned HTTP 403). The deploy only
+printed a warning for that.
+
+Fix:
+- A Congress.gov timeout or connection failure now raises
+  `UpstreamUnavailableError` (`app/services/upstream.py`) at once, without
+  retrying.
+- `app/pipelines/batch.py` adds `OutageBreaker`, which stops a loop after
+  `CONGRESS_MAX_CONSECUTIVE_FAILURES` consecutive outage errors (default 5), and
+  `BatchResult`.
+- The bills, sponsored-legislation and backfill loops use the breaker. The bills
+  pull also has a `CONGRESS_GOV_BILLS_MAX_SECONDS` budget (default 600).
+- These pulls stage what they fetched before stopping (safe because they
+  upsert), and the refresh records them as `partial`, so `last_success` stays
+  honest.
+- Committee meetings full-replace their table. They now refuse to stage after a
+  failed chamber list, a tripped breaker, or more than 10% failed items. The
+  previous code wiped a chamber's meetings when its list call failed.
+- `_run_with_retry` no longer retries upstream outages or exhausted request
+  budgets.
+- Visitor-triggered bill enrichment stays fail-soft.
+- `scripts/deploy.sh` caps the deploy refresh at 15m inside the container
+  (`GOVMAP_REFRESH_TIMEOUT`). `deploy.yml` sets `timeout-minutes: 30`.
+
+Because the runner executes the copy of `deploy.sh` already on disk, the
+in-container cap takes effect on the deploy after the one that ships it. The
+job timeout and the pipeline bounds apply immediately. Regression cases are in
+`backend/tests/test_upstream_outages.py`; they have not been run on this static
+checkout.
+
+Open: the root cause of the timeouts (Congress.gov slowness vs. runner network)
+is unknown. The votes loops have no breaker yet, and the Senate 403 and the
+House parse failure need their own fix. The bills, backfill and deploy pulls
+together approach the 5,000/h Congress.gov key limit, so an incremental
+`fromDateTime` bill pull should replace the 250-bill re-pull.
+
 **2026-11-08 — Group 0 baseline and recovery tooling (verification pending)**
 GitHub Actions reported successful backend tests/lint and frontend lint/type
 checking for commit `f6b0d8f85e981052280349882320b54093c15e7b` in

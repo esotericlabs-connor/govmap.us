@@ -26,10 +26,11 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from app.config import settings
+from app.pipelines.batch import BatchResult, OutageBreaker
 from app.pipelines.congress_gov_bills import _PAGE, _get
 from app.pipelines.congress_legislators import STAGING_LEGISLATORS
 from app.schemas.bill import SponsoredLegislationItemRaw
-from app.services.upstream import UpstreamCapacityError
+from app.services.upstream import UpstreamCapacityError, UpstreamUnavailableError
 
 logger = logging.getLogger(__name__)
 
@@ -106,38 +107,55 @@ def _sponsored_for(bioguide: str, congress: int) -> list[dict]:
     return out
 
 
-def run() -> int:
+def run() -> BatchResult:
+    """Pull and stage sponsored legislation for every current member. Stops early
+    once Congress.gov looks down; rows fetched before that are still staged, which
+    is safe because the loader upserts per bill."""
     if not settings.congress_gov_api_key:
         raise RuntimeError(
             "CONGRESS_GOV_API_KEY is not set — required for sponsored legislation"
         )
     congress = settings.congress_number
     bioguides = _bioguides()
+    breaker = OutageBreaker(settings.congress_max_consecutive_failures)
 
     rows: list[dict] = []
     failures = 0
+    succeeded = 0
+    stopped: str | None = None
     for bid in bioguides:
         try:
-            rows.extend(_sponsored_for(bid, congress))
+            member_rows = _sponsored_for(bid, congress)
         except UpstreamCapacityError:
             raise
         except Exception as exc:
             failures += 1
             logger.warning("sponsored pull failed for %s: %s", bid, exc)
+            if breaker.failure(exc):
+                stopped = breaker.reason
+                break
+            continue
+        breaker.success()
+        succeeded += 1
+        rows.extend(member_rows)
 
+    result = BatchResult(total=len(bioguides), succeeded=succeeded, failed=failures, stopped=stopped)
     # Total wipe-out (bad key/source) must surface; a few member failures don't.
     if not rows and failures:
+        if stopped is not None:
+            raise UpstreamUnavailableError("congress", f"no sponsored bills fetched; {result.describe('members')}")
         raise RuntimeError(f"sponsored-legislation pull failed for all {failures} members")
 
     STAGING_DIR.mkdir(parents=True, exist_ok=True)
     STAGING_PATH.write_text(json.dumps(rows))
     logger.info(
-        "congress_member_sponsored: staged %d sponsored bills across %d members (%d pull failures)",
+        "congress_member_sponsored: staged %d sponsored bills across %d members (%d pull failures)%s",
         len(rows),
         len(bioguides),
         failures,
+        f"; stopped early ({stopped})" if stopped else "",
     )
-    return len(rows)
+    return result
 
 
 if __name__ == "__main__":

@@ -38,8 +38,10 @@ from app.pipelines import (
     senate_lis_votes,
     zip_crosswalk,
 )
+from app.pipelines.batch import BatchResult
 from app.pipelines.status import record_run, send_alert
 from app.services.bill_enrich import backfill_unenriched
+from app.services.upstream import UpstreamCapacityError, UpstreamUnavailableError
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +107,14 @@ async def refresh_members() -> None:
         logger.warning("refresh %s: seat-change check failed", source, exc_info=True)
 
 
+async def _record_batch(source: str, count: int, result: BatchResult, noun: str) -> str:
+    """Record a batch pull: 'partial' when it stopped early or lost too many items
+    (last_success then stays put, so staleness stays visible), else 'ok'."""
+    status = "partial" if result.degraded else "ok"
+    await record_run(source, count, status, result.describe(noun))
+    return status
+
+
 async def refresh_bills() -> None:
     """Congress.gov bills: pull the most-recently-updated current-Congress bills
     (detail + actions + cosponsors) and normalize into bills/bill_actions/
@@ -112,10 +122,10 @@ async def refresh_bills() -> None:
     cosponsor bioguide columns are unenforced), so it can run in any order."""
     source = "congress_gov_bills"
     try:
-        await asyncio.to_thread(congress_gov_bills.run)
+        result = await asyncio.to_thread(congress_gov_bills.run)
         count = await normalize_bills()
-        await record_run(source, count, "ok")
-        logger.info("refresh %s: ok (%d bills + actions + cosponsors)", source, count)
+        status = await _record_batch(source, count, result, "bills")
+        logger.info("refresh %s: %s (%d bills + actions + cosponsors)", source, status, count)
     except Exception as exc:
         await record_run(source, 0, "error", str(exc))
         logger.exception("refresh %s failed", source)
@@ -158,10 +168,10 @@ async def refresh_sponsored_bills() -> None:
     actions/cosponsors."""
     source = "member_sponsored"
     try:
-        await asyncio.to_thread(congress_member_sponsored.run)
+        result = await asyncio.to_thread(congress_member_sponsored.run)
         count = await load_member_sponsored()
-        await record_run(source, count, "ok")
-        logger.info("refresh %s: ok (%d sponsored bills)", source, count)
+        status = await _record_batch(source, count, result, "members")
+        logger.info("refresh %s: %s (%d sponsored bills)", source, status, count)
     except Exception as exc:
         await record_run(source, 0, "error", str(exc))
         logger.exception("refresh %s failed", source)
@@ -191,10 +201,10 @@ async def refresh_committee_meetings() -> None:
     should have run first (it does, on every deploy). Full-replace load."""
     source = "committee_meetings"
     try:
-        await asyncio.to_thread(congress_committee_meetings.run)
+        result = await asyncio.to_thread(congress_committee_meetings.run)
         count = await load_committee_meetings()
-        await record_run(source, count, "ok")
-        logger.info("refresh %s: ok (%d meetings)", source, count)
+        status = await _record_batch(source, count, result, "meetings")
+        logger.info("refresh %s: %s (%d meetings)", source, status, count)
     except Exception as exc:
         await record_run(source, 0, "error", str(exc))
         logger.exception("refresh %s failed", source)
@@ -210,9 +220,9 @@ async def refresh_backfill_bills() -> None:
     per run (bills_backfill_per_run) to stay under the Congress.gov rate limit."""
     source = "backfill_bills"
     try:
-        count = await backfill_unenriched(settings.bills_backfill_per_run)
-        await record_run(source, count, "ok")
-        logger.info("refresh %s: ok (%d bills enriched this run)", source, count)
+        result = await backfill_unenriched(settings.bills_backfill_per_run)
+        status = await _record_batch(source, result.succeeded, result, "bills")
+        logger.info("refresh %s: %s (%d bills enriched this run)", source, status, result.succeeded)
     except Exception as exc:
         await record_run(source, 0, "error", str(exc))
         logger.exception("refresh %s failed", source)
@@ -268,11 +278,15 @@ async def _run_with_retry(
 ) -> bool:
     """Run one source, retrying transient failures (a DB/connection blip right
     after a migration is the likely culprit behind a partial deploy load).
-    Returns True on success."""
+    An upstream outage or exhausted request budget is not retried: a retry 5s
+    later would only repeat the same timeouts. Returns True on success."""
     for attempt in range(1, retries + 2):
         try:
             await fn()
             return True
+        except (UpstreamUnavailableError, UpstreamCapacityError) as exc:
+            logger.error("refresh '%s' failed: %s — not retrying", name, exc)
+            return False
         except Exception:
             if attempt <= retries:
                 logger.warning("refresh '%s' failed (attempt %d) — retrying in %ss", name, attempt, delay)

@@ -39,6 +39,7 @@ from app.normalize.bills import (
     cosponsor_rows,
     to_bill_row,
 )
+from app.pipelines.batch import BatchResult, OutageBreaker
 from app.pipelines.congress_gov_bills import _fetch_one, _get
 from app.schemas.bill import (
     BillActionRaw,
@@ -47,7 +48,12 @@ from app.schemas.bill import (
     BillTextVersionRaw,
     CosponsorRaw,
 )
-from app.services.upstream import UpstreamCapacityError, request_slot, run_upstream
+from app.services.upstream import (
+    UpstreamCapacityError,
+    UpstreamUnavailableError,
+    request_slot,
+    run_upstream,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -64,10 +70,12 @@ def _parse_bill_id(bill_id: str) -> tuple[int, str, int] | None:
     return int(m.group(3)), m.group(1), int(m.group(2))
 
 
-async def enrich_bill(db: AsyncSession, bill_id: str) -> bool:
+async def enrich_bill(db: AsyncSession, bill_id: str, *, raise_unavailable: bool = False) -> bool:
     """Ensure `bill_id` carries full detail. No-op (one cheap read) if already
     enriched. Returns True once the bill is enriched (now or previously), False
-    if it can't be (no key, unknown id, fetch failure — the stub survives)."""
+    if it can't be (no key, unknown id, fetch failure — the stub survives).
+    `raise_unavailable` lets the batch backfill see a Congress.gov outage (to
+    stop early) while visitor requests stay fail-soft."""
     if not settings.congress_gov_api_key:
         return False
     bill = await db.get(Bill, bill_id)
@@ -84,6 +92,11 @@ async def enrich_bill(db: AsyncSession, bill_id: str) -> bool:
         bundle = await run_upstream("congress", _fetch_one, congress, btype, number)
     except UpstreamCapacityError:
         raise
+    except UpstreamUnavailableError:
+        if raise_unavailable:
+            raise
+        logger.warning("bill_enrich: Congress.gov unavailable for %s", bill_id)
+        return False
     except Exception as exc:
         logger.warning("bill_enrich: detail fetch failed for %s: %s", bill_id, exc)
         return False
@@ -225,12 +238,13 @@ async def get_bill_text(db: AsyncSession, bill_id: str) -> dict | None:
     return _text_payload(row) if row else None
 
 
-async def backfill_unenriched(limit: int) -> int:
+async def backfill_unenriched(limit: int) -> BatchResult:
     """Enrich up to `limit` not-yet-enriched bills, most-recently-active first
     (they're likeliest to be viewed next). Drives the rolling backfill refresher:
     on-demand enrichment covers what visitors open now; this walks the long tail
-    of ~17k sponsored-legislation stubs over successive scheduled runs. Returns
-    how many were enriched this run."""
+    of ~17k sponsored-legislation stubs over successive scheduled runs. Stops
+    early once Congress.gov looks down rather than paying a timeout per bill."""
+    breaker = OutageBreaker(settings.congress_max_consecutive_failures)
     async with async_session_factory() as db:
         ids = (
             await db.execute(
@@ -241,13 +255,26 @@ async def backfill_unenriched(limit: int) -> int:
             )
         ).scalars().all()
         enriched = 0
+        failed = 0
+        stopped: str | None = None
         for bill_id in ids:
             try:
-                if await enrich_bill(db, bill_id):
-                    enriched += 1
+                ok = await enrich_bill(db, bill_id, raise_unavailable=True)
             except UpstreamCapacityError:
                 raise
-            except Exception as exc:  # unexpected DB error — don't sink the batch
+            except Exception as exc:  # outage, or an unexpected DB error — don't sink the batch
                 await db.rollback()
+                failed += 1
                 logger.warning("bill_enrich: backfill failed for %s: %s", bill_id, exc)
-        return enriched
+                if breaker.failure(exc):
+                    stopped = breaker.reason
+                    break
+                continue
+            breaker.success()
+            if ok:
+                enriched += 1
+
+    result = BatchResult(total=len(ids), succeeded=enriched, failed=failed, stopped=stopped)
+    if stopped is not None and not enriched:
+        raise UpstreamUnavailableError("congress", f"backfill enriched nothing; {result.describe('bills')}")
+    return result

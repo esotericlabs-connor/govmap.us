@@ -28,6 +28,17 @@ class UpstreamCapacityError(Exception):
         super().__init__(f"{source} request capacity exhausted")
 
 
+class UpstreamUnavailableError(RuntimeError):
+    """The upstream timed out, refused the connection, or kept answering 429/5xx.
+
+    Distinct from a per-item failure (404, bad payload): it says the source itself
+    is unhealthy, so batch loops stop early and refresh runs don't retry it."""
+
+    def __init__(self, source: Source, detail: str) -> None:
+        self.source = source
+        super().__init__(f"{source} unavailable: {detail}")
+
+
 class _Budget:
     def __init__(self, source: Source, hourly_limit: int, concurrent_limit: int) -> None:
         self.source = source

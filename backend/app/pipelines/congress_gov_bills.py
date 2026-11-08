@@ -29,7 +29,12 @@ import requests
 from pydantic import BaseModel, ValidationError
 
 from app.config import settings
-from app.services.upstream import UpstreamCapacityError, request_slot
+from app.pipelines.batch import BatchResult, OutageBreaker
+from app.services.upstream import (
+    UpstreamCapacityError,
+    UpstreamUnavailableError,
+    request_slot,
+)
 from app.schemas.bill import (
     BillActionRaw,
     BillDetailRaw,
@@ -51,6 +56,7 @@ STAGING_BILLS = STAGING_DIR / "bills_raw.json"
 _PAGE = 250  # Congress.gov max page size
 _MAX_RETRIES = 4
 _SUBRESOURCE_MAX_PAGES = 20  # generous safety cap (bills rarely exceed a page)
+_TIMEOUT = (10, 30)  # (connect, read) seconds
 
 _session = requests.Session()
 
@@ -58,14 +64,21 @@ _session = requests.Session()
 def _get(path: str, **params: Any) -> dict:
     """GET one Congress.gov JSON page with backoff on 429/5xx. Errors are raised
     with the path only — never the URL/params — so the API key (sent as a
-    header) and query never reach a log or status row."""
+    header) and query never reach a log or status row.
+
+    A timeout or connection failure raises UpstreamUnavailableError at once:
+    retrying would spend another full timeout while the source is down, and the
+    batch loops' OutageBreaker handles stopping."""
     params.setdefault("format", "json")
     url = f"{API_BASE}/{path}"
     headers = {"X-Api-Key": settings.congress_gov_api_key}
     last_status = 0
     for attempt in range(1, _MAX_RETRIES + 1):
-        with request_slot("congress"):
-            resp = _session.get(url, params=params, headers=headers, timeout=30)
+        try:
+            with request_slot("congress"):
+                resp = _session.get(url, params=params, headers=headers, timeout=_TIMEOUT)
+        except (requests.Timeout, requests.ConnectionError) as exc:
+            raise UpstreamUnavailableError("congress", f"{path}: {type(exc).__name__}") from None
         last_status = resp.status_code
         if resp.status_code == 429 or resp.status_code >= 500:
             wait = min(2**attempt, 30)
@@ -78,8 +91,8 @@ def _get(path: str, **params: Any) -> dict:
         if not resp.ok:
             raise RuntimeError(f"congress.gov {path} -> HTTP {resp.status_code}")
         return resp.json()
-    raise RuntimeError(
-        f"congress.gov {path} still failing after {_MAX_RETRIES} attempts (HTTP {last_status})"
+    raise UpstreamUnavailableError(
+        "congress", f"{path} still failing after {_MAX_RETRIES} attempts (HTTP {last_status})"
     )
 
 
@@ -167,37 +180,56 @@ def _stage(path: Path, data) -> None:
     path.write_text(json.dumps(data, indent=2))
 
 
-def run() -> int:
+def run() -> BatchResult:
+    """Pull, validate, and stage the bill batch. Bounded by a wall-clock budget
+    and an OutageBreaker; whatever was fetched before an early stop is still
+    staged, which is safe because the normalizer upserts per bill."""
     if not settings.congress_gov_api_key:
         raise RuntimeError(
             "CONGRESS_GOV_API_KEY is not set — required for the bills pipeline"
         )
     congress = settings.congress_number
     cap = settings.congress_gov_bill_limit
+    budget = settings.congress_gov_bills_max_seconds
+    deadline = time.monotonic() + budget
+    breaker = OutageBreaker(settings.congress_max_consecutive_failures)
 
     listing = _bill_list(congress, cap)
     staged: list[dict] = []
+    failed = 0
+    stopped: str | None = None
     for item in listing:
+        if time.monotonic() >= deadline:
+            stopped = f"{budget}s time budget reached"
+            break
         try:
             bundle = _fetch_one(congress, item.type, item.number)
-            if bundle:
-                staged.append(bundle)
         except UpstreamCapacityError:
             raise
         except Exception as exc:
-            # One bad bill shouldn't sink the batch; a systemic failure (bad
-            # key, source down) already surfaces on the very first list call.
+            failed += 1
             logger.warning("skipping bill %s%s: %s", item.type, item.number, exc)
+            if breaker.failure(exc):
+                stopped = breaker.reason
+                break
+            continue
+        breaker.success()
+        if bundle:
+            staged.append(bundle)
 
+    result = BatchResult(total=len(listing), succeeded=len(staged), failed=failed, stopped=stopped)
     if not staged:
+        if stopped is not None:
+            raise UpstreamUnavailableError("congress", f"no bills fetched; {result.describe('bills')}")
         raise ValueError("no bills fetched — check the API key and source availability")
 
     _stage(STAGING_BILLS, staged)
+    detail = result.describe("bills")
     logger.info(
-        "congress_gov_bills: staged %d bills (congress %d, cap %d)",
-        len(staged), congress, cap,
+        "congress_gov_bills: staged %d bills (congress %d, cap %d)%s",
+        len(staged), congress, cap, f" — {detail}" if detail else "",
     )
-    return len(staged)
+    return result
 
 
 if __name__ == "__main__":

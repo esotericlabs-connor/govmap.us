@@ -32,6 +32,13 @@ class Settings(BaseSettings):
     # each refresh well under the 5,000 req/hr key limit; raise to widen
     # coverage toward the full corpus.
     congress_gov_bill_limit: int = 250
+    # Wall-clock budget for one bills pull. Stays under the 30-min scheduler
+    # interval and the deploy's 15-min refresh cap, so a slow Congress.gov ends
+    # the run as 'partial' instead of stalling the deploy for hours.
+    congress_gov_bills_max_seconds: int = Field(default=600, ge=60, le=1500)
+    # Consecutive timeouts / connection failures / exhausted 429-5xx retries
+    # after which a Congress.gov batch loop stops early (source is down).
+    congress_max_consecutive_failures: int = Field(default=5, ge=1, le=50)
     # Rolling backfill: how many not-yet-enriched "stub" bills to enrich per
     # scheduled run (each bill ≈ 5 Congress.gov calls). Marches through the ~17k
     # sponsored-legislation stubs over successive runs, well under the hourly cap.

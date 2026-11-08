@@ -66,6 +66,10 @@ services:
       CONGRESS_NUMBER: ${CONGRESS_NUMBER:-119}
       CONGRESS_SESSION: ${CONGRESS_SESSION:-2}
       CONGRESS_GOV_BILL_LIMIT: ${CONGRESS_GOV_BILL_LIMIT:-250}
+      # Outage bounds for the Congress.gov batch pulls: the bills pull's
+      # wall-clock budget, and how many consecutive timeouts end any batch early.
+      CONGRESS_GOV_BILLS_MAX_SECONDS: ${CONGRESS_GOV_BILLS_MAX_SECONDS:-600}
+      CONGRESS_MAX_CONSECUTIVE_FAILURES: ${CONGRESS_MAX_CONSECUTIVE_FAILURES:-5}
       VOTES_LIMIT: ${VOTES_LIMIT:-100}
     ports:
       # Loopback only — for host-side tooling and the deploy health check.
