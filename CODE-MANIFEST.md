@@ -18,7 +18,13 @@ tests but failed frontend lint and the audit gate; build/typecheck were skipped.
   so passing lint in CI is the compatibility evidence. Remove the
   override once typescript-eslint depends on a patched release.
 - Lint: `app/account/page.tsx` used `<a href="/">` for internal navigation;
-  now `next/link`.
+  now `next/link`. The follow-up run (`d0932b5`) passed the audit gate and
+  surfaced one more error, hidden behind the first:
+  `components/UsMap.tsx` wrote `zoomRef.current` during render
+  (`react-hooks/refs`). It's now synced in a `useLayoutEffect` keyed on
+  `zoom`; the ref is only read by event handlers and effects, which run
+  after that sync, so tween start points are unchanged. The remaining
+  `set-state-in-effect` items are warnings by design (see 2026-11-08).
 - `docker-compose.coolify.yml` (previously only on `dev`) added to `main` for
   the Coolify production resource. Root-only topology: only the frontend is
   published, through that environment's own tunnel. `NEXT_PUBLIC_API_URL`

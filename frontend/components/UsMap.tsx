@@ -4,6 +4,7 @@ import { geoAlbersUsa, geoPath } from "d3-geo";
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -145,7 +146,12 @@ export function UsMap({ map, result = null }: { map: CongressMap; result?: Looku
   const [failed, setFailed] = useState(false);
   const [zoom, setZoom] = useState({ k: 1, x: 0, y: 0 });
   const zoomRef = useRef(zoom);
-  zoomRef.current = zoom; // latest committed zoom, for rAF tweens to read as their start
+  // Latest committed zoom, for rAF tweens to read as their start. Synced after
+  // commit (refs can't be written during render) and before passive effects,
+  // so the home fly-to effect and event handlers always see the current value.
+  useLayoutEffect(() => {
+    zoomRef.current = zoom;
+  }, [zoom]);
   const rafRef = useRef<number | null>(null); // in-flight fly-to animation frame
   const [hover, setHover] = useState<{ shape: Shape; x: number; y: number } | null>(null);
   const [popover, setPopover] = useState<Shape | null>(null);
