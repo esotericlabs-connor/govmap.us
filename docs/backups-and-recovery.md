@@ -1,11 +1,14 @@
 # GovMap backups and recovery
 
-**Deployment scope:** the scripts below target the legacy VM's Compose
-deployment, not Coolify-managed resources. Do not run them against Coolify
-unchanged. The manual Coolify backup and scratch-restore verification is
-recorded in the [README](../README.md#migration-and-recovery-verification-2026-11-09);
-it does not validate these scripts for Coolify or establish an automated
-backup schedule.
+**Deployment scope:** `backup-database.sh`, `backup-govmap.sh`,
+`duplicati-database-hook.sh`, and `restore-database.sh` target the legacy VM's
+Compose deployment. Do not run them against Coolify unchanged.
+`backup-coolify-database.sh` is a separate, new operator utility for creating
+an encrypted logical dump from one explicitly selected Coolify Postgres
+resource. It has not yet been run against the production server or validated
+by CI. The manual Coolify backup and scratch-restore verification is recorded
+in the [README](../README.md#migration-and-recovery-verification-2026-11-09);
+it does not validate this utility or establish an automated backup schedule.
 
 These are operator procedures for the Linux server and an **isolated recovery
 host**. The scripts do not configure Duplicati, create a schedule, access a
@@ -123,10 +126,58 @@ copied. For a stable log capture, the operator must quiesce log writers or use
 a suitable filesystem snapshot; stopping the backend affects availability.
 The scripts do not stop or start services.
 
-## Fresh database snapshots for Duplicati
+## Coolify database snapshot for Duplicati
 
-The database-only command is suitable for a required Duplicati pre-backup
-script. It writes one new encrypted `.dump.age` file and prints its path:
+The Coolify **Storage backups** page offers persistent volume or directory
+copies. A copy of the running `postgres-data` volume is not a PostgreSQL-aware,
+consistent database backup. Do not schedule that volume as a substitute for a
+logical dump. The `govmap-logs` volume may be copied as files, but logs contain
+private report information and are already in the planned Duplicati source
+scope; coordinate log handling separately.
+
+The Coolify-specific utility locates exactly one running Postgres container by
+its immutable Coolify resource ID, checks that PostgreSQL is ready, streams
+`pg_dump` custom format through `age`, and atomically publishes a timestamped
+`.dump.age` file. It refuses to proceed if zero or multiple matching containers
+are running. It never writes a plaintext database dump to disk and never
+deletes an existing backup.
+
+After review, green CI, and a successful supervised server run, the command
+shape is:
+
+```bash
+bash /opt/govmap/scripts/backup-coolify-database.sh \
+  --resource-id COOLIFY_RESOURCE_ID \
+  --destination /srv/govmap-backups \
+  --recipients-file /etc/govmap/backup.recipients
+```
+
+The resource ID and path above are placeholders; verify the exact production
+resource ID, destination filesystem, directory permissions, free space,
+recipients, and decryption identity before running. The destination must be
+outside the repository and readable by the host Duplicati process. The backup
+runner needs access to the local Docker daemon, which is administrative access.
+Prefer a separately reviewed host timer/backup identity over granting that
+access to Duplicati. No timer or schedule is installed by this repository.
+
+Configure Duplicati to include the resulting directory, the exact application
+revision/source needed to rebuild, the protected recovery configuration, and
+the chosen log files. Exclude the live PostgreSQL volume. Confirm that Duplicati
+encrypts its backup and that both off-site destinations report success. The
+`age`-encrypted dump adds an independent encryption layer; keep its private
+identity separately recoverable. Do not delete local dump history until the
+two off-site copies and retention behavior are verified.
+
+The existing Duplicati pre-backup hook below invokes the legacy Compose script;
+it is not compatible with Coolify. Do not configure that hook for the
+production resource. A reviewed schedule should create the database dump first,
+then Duplicati should capture it in its own daily run. Avoid overlapping runs
+and alert on missing or stale backups.
+
+## Legacy Compose database snapshots for Duplicati
+
+For the legacy VM only, the database-only command writes one new encrypted
+`.dump.age` file and prints its path:
 
 ```bash
 bash /opt/govmap/scripts/backup-database.sh \

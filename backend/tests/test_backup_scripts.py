@@ -33,6 +33,22 @@ elif args[:1] == ["run"]:
     sys.stdout.buffer.write(b"synthetic log archive")
     if os.environ.get("FAKE_LOG_FAIL") == "1":
         sys.exit(1)
+elif args[:1] == ["ps"]:
+    print(os.environ.get(
+        "FAKE_RUNNING_CONTAINERS",
+        "postgres-testresource-20261109T123048"
+    ))
+elif args[:1] == ["exec"]:
+    command = args[2]
+    if command == "pg_isready":
+        if os.environ.get("FAKE_PG_READY_FAIL") == "1":
+            sys.exit(1)
+    elif command == "pg_dump":
+        sys.stdout.buffer.write(b"synthetic database dump")
+        if os.environ.get("FAKE_DUMP_FAIL") == "1":
+            sys.exit(1)
+    else:
+        sys.exit(1)
 elif args[:1] == ["compose"]:
     if "ps" in args:
         if "--status" in args:
@@ -114,6 +130,7 @@ def backup_context(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> BackupCon
     for name in (
         "backup-common.sh",
         "backup-database.sh",
+        "backup-coolify-database.sh",
         "backup-govmap.sh",
         "duplicati-database-hook.sh",
         "restore-database.sh",
@@ -156,6 +173,8 @@ def backup_context(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> BackupCon
         "FAKE_LOG_FAIL",
         "FAKE_LOG_VOLUME",
         "FAKE_OBJECTS",
+        "FAKE_PG_READY_FAIL",
+        "FAKE_RUNNING_CONTAINERS",
         "FAKE_RESTORE_FAIL",
         "FAKE_ROTATE_RECIPIENTS",
     ):
@@ -174,6 +193,14 @@ def _run(context: BackupContext, script: str, *args: str) -> subprocess.Complete
         text=True,
         check=False,
         timeout=30,
+    )
+
+
+def _coolify_backup_args(context: BackupContext) -> tuple[str, ...]:
+    return (
+        "--resource-id",
+        "testresource",
+        *_backup_args(context),
     )
 
 
@@ -214,6 +241,53 @@ def test_database_backup_publishes_private_encrypted_dump(backup_context: Backup
     assert output.read_bytes() == b"synthetic-age:synthetic database dump"
     assert stat.S_IMODE(output.stat().st_mode) == 0o600
     assert list(backup_context.destination.iterdir()) == [output]
+
+
+def test_coolify_database_backup_selects_resource_and_publishes_encrypted_dump(
+    backup_context: BackupContext,
+) -> None:
+    result = _run(
+        backup_context, "backup-coolify-database.sh", *_coolify_backup_args(backup_context)
+    )
+    assert result.returncode == 0, result.stderr
+    output = Path(result.stdout.strip())
+    assert output.parent == backup_context.destination
+    assert output.name.startswith("govmap-testresource-")
+    assert output.name.endswith(".dump.age")
+    assert output.read_bytes() == b"synthetic-age:synthetic database dump"
+    assert stat.S_IMODE(output.stat().st_mode) == 0o600
+    assert not list(backup_context.destination.glob(".govmap-db-work-*"))
+
+
+@pytest.mark.parametrize(
+    ("environment", "value"),
+    [
+        ("FAKE_RUNNING_CONTAINERS", ""),
+        (
+            "FAKE_RUNNING_CONTAINERS",
+            "postgres-testresource-20261109T123048\npostgres-testresource-20261109T123049",
+        ),
+        ("FAKE_PG_READY_FAIL", "1"),
+        ("FAKE_DUMP_FAIL", "1"),
+        ("FAKE_AGE_FAIL", "1"),
+    ],
+)
+def test_coolify_database_backup_fails_closed_without_replacing_prior_backup(
+    backup_context: BackupContext,
+    monkeypatch: pytest.MonkeyPatch,
+    environment: str,
+    value: str,
+) -> None:
+    previous = backup_context.destination / "previous.dump.age"
+    previous.write_bytes(b"previous backup")
+    monkeypatch.setenv(environment, value)
+    result = _run(
+        backup_context, "backup-coolify-database.sh", *_coolify_backup_args(backup_context)
+    )
+    assert result.returncode != 0
+    assert previous.read_bytes() == b"previous backup"
+    assert not list(backup_context.destination.glob("govmap-testresource-*.dump.age"))
+    assert not list(backup_context.destination.glob(".govmap-db-work-*"))
 
 
 @pytest.mark.parametrize("failure", ["FAKE_DUMP_FAIL", "FAKE_AGE_FAIL"])

@@ -4,7 +4,46 @@ What's been built, in what order, and what's next. This is a living log — add 
 
 ## Build log
 
-**2026-11-09 — Isolated snapshot test setup (prepared; CI/deployment pending)**
+**2026-11-09 — Coolify-aware encrypted database backup utility (validation pending)**
+Added `scripts/backup-coolify-database.sh` for an explicitly selected
+production resource. It requires exactly one running matching Postgres
+container, verifies readiness, streams a custom-format `pg_dump` through `age`,
+and publishes the complete encrypted result without replacing prior files.
+It does not back up the raw live Postgres volume and does not install a timer
+or change production. Synthetic failure-path tests were added for missing or
+ambiguous containers, readiness, dump and encryption failures. No local tests
+were run; the script has not been executed against Coolify. Require CI on the
+exact `dev` commit and a supervised backup plus isolated restore rehearsal
+before configuring Duplicati or a schedule. See
+[backups and recovery](docs/backups-and-recovery.md).
+
+**2026-11-09 — Coolify test verification and scheduler-enabled release**
+The replacement `dev` resource restored a production snapshot into its own
+database: revision `0013`, 539 members, 19,489 bills and 46,012 ZIP rows.
+The test backend logged scheduled refreshes disabled, and an internal
+frontend `/api/summary` check returned 200. Signed-out site and API requests
+redirected to Cloudflare Access; the operator confirmed authorized access
+and displayed data. The old dev resource remains stopped.
+
+The scheduler-switch changes were merged to `main` as
+`118e1ab3fbd01451b5574cc406f8948f813c151c`, which passed
+[CI run 42704119369](https://github.com/esotericlabs-connor/govmap.us/actions/runs/42704119369).
+The operator reported deploying the merged branch to production; the actual
+Coolify deployment SHA still needs to be matched to the CI-tested commit.
+After that deployment, the production backend showed `SCHEDULER_ENABLED=true`
+and logged eight scheduled jobs immediately after startup. This verifies
+registration, not subsequent job completion.
+
+GitHub reports the legacy Deploy workflow disabled and Lint active. The
+operator reported the old VM powered off and no legacy agents running.
+Post-deployment source freshness, automated off-server backups, recurring
+restore rehearsals and alert delivery remain to be verified. See the
+[README deployment record](README.md#production-deployment).
+The selected backup direction is a daily consistent database backup in a
+dedicated server directory, copied with application recovery materials by
+Duplicati to two off-server destinations. It is not yet configured or tested.
+
+**2026-11-09 — Isolated snapshot test setup (initial preparation checkpoint)**
 The approved replacement test environment is a fresh Coolify resource with
 a production database snapshot, independent volumes/network/credentials,
 scheduled refreshes off, and Cloudflare Access on `dev.govmap.us`. Preserve
@@ -14,8 +53,9 @@ Compose files; setting it to `false` skips scheduler startup and shutdown
 and logs the disabled state. It does not disable manual refreshes or
 request-triggered fetches. Regression tests cover the default, environment
 parsing, invalid input and both lifespan modes, including exceptional exit.
-No tests were run locally; green CI on the exact test release is required
-before deployment. Production has not been changed or redeployed.
+No tests were run locally; this checkpoint required green CI on the exact
+test release before deployment. Production had not yet been redeployed at
+this point; the later verification is recorded above.
 
 **2026-11-09 — Coolify production cutover and recovery verification**
 Production is live at `https://govmap.us` on the `main` Coolify resource,
@@ -26,9 +66,9 @@ revision `0013`, 539 members, 19,489 bills and 46,012 ZIP-to-district rows.
 The operator confirmed backup safety; transferred-copy checksums and
 recoverable decryption credentials remain operational requirements.
 Post-redeploy bills, votes, backfill and manual HUD refreshes recorded `ok`;
-zero unenriched bills explain backfill's zero work. Daily-source checks,
-isolated test-environment verification, automated backups and old-VM
-retirement remain pending. The old backend stays stopped. See the
+zero unenriched bills explain backfill's zero work. At that checkpoint,
+daily-source checks, isolated test-environment verification, automated backups
+and old-VM retirement remained pending, and the old backend was stopped. See the
 [README deployment record](README.md#production-deployment) for topology,
 configuration, recovery evidence and the remaining retirement gates.
 
@@ -246,18 +286,20 @@ the [deployment run](https://github.com/esotericlabs-connor/govmap.us/actions/ru
 for that trigger also reported success. The deployment script fetches `main`,
 so the running SHA is not established by the trigger SHA alone. GitHub's branch
 listing reported `main` as unprotected; separate rulesets were not checked.
-The operator reported that no backups are in place. Production migration
-revision, pipeline freshness, and proxy trust remain unverified.
+At that checkpoint, the operator reported that no backups were in place.
+Production migration revision, pipeline freshness, and proxy trust were
+unverified.
 
 Added inert operator tooling for an age-encrypted GovMap archive, an encrypted
 database dump and required Duplicati pre-backup hook, and an empty-target
 database restore. The archive includes `.env`, repository files, and the
-persistent log volume. Nothing is scheduled or installed, and no backup or
-restore has been performed. Synthetic regression cases were added but not run
-on this static checkout; CI and a real isolated restore rehearsal are still
-required. See [backups and recovery](docs/backups-and-recovery.md).
-Group 0 remains blocked until a backup exists separately and a restore is
-verified. Pipeline status currently lives in PostgreSQL; the JSON reference in
+persistent log volume. At that checkpoint, nothing had been scheduled or
+installed, and no backup or restore had been performed. Synthetic regression
+cases were added but not run on this static checkout; CI and a real isolated
+restore rehearsal are still required. See [backups and recovery](docs/backups-and-recovery.md).
+Group 0 remained blocked at that checkpoint until a separate backup and
+restore were verified; later recovery evidence is recorded above. Pipeline
+status currently lives in PostgreSQL; the JSON reference in
 `AGENTS.md` and the earlier Group 3 plan need reconciliation before changing
 that contract.
 

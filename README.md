@@ -74,7 +74,7 @@ GovMap serves the marketing site and platform on one host:
 
 - **govmap.us** — the marketing site (`frontend/app/page.tsx`): what GovMap is, why it exists, and a way in.
 - **govmap.us/congress** — the platform entry point, with members, bills and votes on the same host.
-- **dev.govmap.us** — the intended test hostname; its isolated environment is not yet verified.
+- **dev.govmap.us** — the separate test environment, protected by Cloudflare Access and seeded from a production snapshot.
 
 Navigation uses relative paths defined in `frontend/lib/site-config.ts`. Separate `app.govmap.us` and `api.govmap.us` hosts are not part of the current deployment. Browser `/api/*` requests are forwarded by Next.js to the private backend.
 
@@ -120,9 +120,18 @@ passed for that exact commit, including backend lint/tests, frontend lint,
 route type generation, TypeScript checking, the production build and the
 dependency audit. The frontend installs with `npm ci`.
 
-For subsequent releases, validate the exact commit on `dev` before promotion
-to `main`. The **Lint** workflow audits development dependencies as well as
-runtime dependencies; any vulnerability or audit-service error fails CI.
+On 2026-11-09, the scheduler-switch changes were merged to `main` as
+`118e1ab3fbd01451b5574cc406f8948f813c151c`.
+[CI run 42704119369](https://github.com/esotericlabs-connor/govmap.us/actions/runs/42704119369)
+passed for that merge commit. The operator reported deploying the merged
+branch to production; confirm the SHA in Coolify's deployment log matches the
+CI-tested commit before relying on that release identity.
+
+For subsequent releases, develop and validate on `dev` before promotion to
+`main`. Check CI for both the tested development commit and the resulting
+production commit: a merge can give `main` a different SHA. The **Lint**
+workflow audits development dependencies as well as runtime dependencies;
+any vulnerability or audit-service error fails CI.
 Fix findings rather than using `npm audit fix --force` or ignoring exit codes.
 The **Frontend lockfile** workflow and `frontend-security-<commit SHA>`
 artifacts support deliberate lockfile updates; commit the reviewed lockfile
@@ -132,20 +141,20 @@ ESLint 9 is retained for the current React/import plugins' declared peer
 compatibility. It is end-of-life; the deprecation warning remains a tooling
 support limitation, not evidence that the dependency audit passed.
 
-Keep the legacy GitHub SSH deployment workflow disabled and Coolify
-auto-deploy off during migration and test-environment setup. Deployment is
-not yet automatically gated on CI; require passing checks, recoverable
-off-server backups and an explicit manual deployment.
+The legacy GitHub Deploy workflow is disabled; keep it disabled, keep Coolify
+auto-deploy off, and use manual deployments. Deployment is not yet
+automatically gated on CI; require passing checks for the release SHA,
+recoverable off-server backups and an explicit manual deployment.
 
 ### Coolify topology and configuration
 
 Coolify uses [docker-compose.coolify.yml](docker-compose.coolify.yml), with
 four services: `postgres`, `backend`, `frontend` and `cloudflared`.
 
-| Environment | Git branch | Public hostname | Cloudflare tunnel | State at cutover |
+| Environment | Git branch | Public hostname | Cloudflare tunnel | Current state |
 | --- | --- | --- | --- | --- |
 | Production | `main` | `govmap.us` | `govmap-prod` | Live and checked |
-| Test | `dev` | `dev.govmap.us` | `govmap-dev` | Existing resource requires reconciliation and verification |
+| Test | `dev` | `dev.govmap.us` | `govmap-dev` | Snapshot restored; Access and application checks passed |
 
 Each environment must have its own Coolify resource, private Compose
 network, Postgres volume, log volume, database password and tunnel token.
@@ -197,15 +206,19 @@ scheduler**; keyed jobs record failures and unkeyed jobs can still fetch data.
 This switch controls background scheduling only, not CLI refreshes,
 request-triggered fetches or application writes.
 
-The approved test setup is a **new Coolify resource** seeded from a production
-database snapshot, with its own empty log volume, no production API secrets,
+The test environment is a **separate Coolify resource** seeded from a
+production database snapshot, with its own log volume and credentials,
 `SCHEDULER_ENABLED=false`, and Cloudflare Access restricting `dev.govmap.us`
-to approved identities. It is not deployed or verified yet:
+to approved identities. The old dev resource remains stopped for recovery.
+A production snapshot may contain sensitive operational data; review and
+sanitize it as appropriate before allowing wider test access.
 
-1. Bring `dev` up to the validated production code plus the scheduler
-   switch, preserving its existing history (the superseded early Compose
-   commit is merged with `-s ours`, not deleted). Require green CI on that
-   exact `dev` commit before deployment.
+The following are safeguards for any future replacement or reseeding. Do not
+repeat a restore into the existing environment without verifying backups and
+approving the target and data replacement:
+
+1. Prepare the intended `dev` release without rewriting existing history.
+   Require green CI on that exact commit before deployment.
 2. Verify server capacity before building another stack. Stop the old dev
    resource, but retain its database/log volumes for recovery. Never stop or
    edit production as part of this setup.
@@ -256,6 +269,14 @@ selection. Do not run them against Coolify unchanged. Scheduled encrypted
 backups, off-server retention and recurring restore rehearsals remain to be
 configured and verified.
 
+The selected recovery direction is one consistent database backup per day in
+a dedicated server directory, with Duplicati copying the backup and
+application recovery materials to two off-server destinations. This is a
+goal, not yet a configured or tested schedule. Verify encryption for both
+off-server copies, protect any local plaintext, and keep recovery credentials
+separately. Coolify configuration and application data require separate
+recovery planning; a database dump alone does not recreate the deployment.
+
 ### Migration and recovery verification: 2026-11-09
 
 - Restored the old VM's final custom-format dump into a separate database
@@ -270,7 +291,7 @@ configured and verified.
   page and `/api/summary` returned 200; `/health` on the frontend returned
   404. That 404 is a routing check, not by itself proof of network isolation.
 - Verified production credentials were present without displaying values.
-  The manual HUD refresh succeeded with 46,012 rows. After the latest
+  The manual HUD refresh succeeded with 46,012 rows. After the pre-promotion
   redeploy, bills recorded `ok` at 13:04 UTC (250 records), votes recorded
   `ok` at 13:01 UTC (200 records), and backfill recorded `ok` at 13:15 UTC.
   All 19,489 bills had a non-null enrichment timestamp, explaining the
@@ -285,17 +306,29 @@ configured and verified.
   establishes a permanent site-wide access policy or a permanent recovery.
   Future Voteview fallback runs remain degraded (`partial`), with fallback
   attribution and no advance to the official `last_success`.
+- Restored a production snapshot into the separate test database and verified
+  revision `0013`, 539 members, 19,489 bills and 46,012 ZIP rows before
+  starting the test backend. Its scheduler-disabled log appeared, and an
+  internal frontend `/api/summary` request returned 200. Signed-out requests
+  to the test site and API redirected to Cloudflare Access; the operator
+  confirmed authorized access and the displayed data.
+- After the subsequent production deployment, the backend started at
+  21:42:09 UTC and logged `scheduler started with 8 job(s)` at 21:42:11 UTC.
+  `SCHEDULER_ENABLED=true` was present in the running container. Scheduler
+  startup alone does not establish that each refresh has completed.
+- GitHub reports the legacy Deploy workflow disabled and Lint active. The
+  operator reported the old VM shut down and no legacy agents running.
 
-**Still pending at this checkpoint:** the next post-cutover committee,
-member-roster, sponsored-bill and FEC refreshes; verification of the isolated
-test environment; and automated backup scheduling. A previous `ok` row
-restored from the old database does not verify a job on the new server.
-`partial` is degraded, not an unconditional success.
+**Still pending:** verify the actual production deployment SHA against its CI
+run; confirm source status and freshness after the latest backend start,
+including the daily jobs; and configure and rehearse scheduled off-server
+backups and alerting. A previous `ok` row restored from an older database does
+not verify a job on the new server. `partial` is degraded, not an
+unconditional success.
 
-Keep the old VM's backend stopped to avoid duplicate jobs. Once the remaining
-pipeline checks and off-server recovery requirements pass, power off the old
-VM after confirming it has no other required workloads. Observe production
-for at least a week with the VM off, retain it powered off for 30 days before
+Keep the old VM powered off to avoid duplicate jobs, and confirm any other
+required workloads before starting or deleting it. Observe production for at
+least a week with the VM off, retain it powered off for 30 days before
 deletion, and retain independent backups after deleting its disks and
 snapshots. Shutdown and deletion are separate operator-approved steps.
 
