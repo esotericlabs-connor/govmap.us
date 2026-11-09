@@ -4,7 +4,35 @@ What's been built, in what order, and what's next. This is a living log — add 
 
 ## Build log
 
-**2026-11-09 — Production readiness: audit fix, lint fix, Coolify Compose (lockfile validation pending)**
+**2026-11-09 — Isolated snapshot test setup (prepared; CI/deployment pending)**
+The approved replacement test environment is a fresh Coolify resource with
+a production database snapshot, independent volumes/network/credentials,
+scheduled refreshes off, and Cloudflare Access on `dev.govmap.us`. Preserve
+the old dev resource stopped for recovery; do not delete its data or branch
+history. `SCHEDULER_ENABLED` now defaults to `true` and is passed through both
+Compose files; setting it to `false` skips scheduler startup and shutdown
+and logs the disabled state. It does not disable manual refreshes or
+request-triggered fetches. Regression tests cover the default, environment
+parsing, invalid input and both lifespan modes, including exceptional exit.
+No tests were run locally; green CI on the exact test release is required
+before deployment. Production has not been changed or redeployed.
+
+**2026-11-09 — Coolify production cutover and recovery verification**
+Production is live at `https://govmap.us` on the `main` Coolify resource,
+using the environment's own `govmap-prod` tunnel and private backend/Postgres.
+The final old-VM database was restored and checked before cutover. A fresh
+encrypted production backup subsequently passed a scratch-database restore:
+revision `0013`, 539 members, 19,489 bills and 46,012 ZIP-to-district rows.
+The operator confirmed backup safety; transferred-copy checksums and
+recoverable decryption credentials remain operational requirements.
+Post-redeploy bills, votes, backfill and manual HUD refreshes recorded `ok`;
+zero unenriched bills explain backfill's zero work. Daily-source checks,
+isolated test-environment verification, automated backups and old-VM
+retirement remain pending. The old backend stays stopped. See the
+[README deployment record](README.md#production-deployment) for topology,
+configuration, recovery evidence and the remaining retirement gates.
+
+**2026-11-09 — Production readiness: audit fix, lint fix, Coolify Compose (lockfile validated)**
 CI on `4e30c04` (the push of the 2026-11-08 work) passed backend lint and
 tests but failed frontend lint and the audit gate; build/typecheck were skipped.
 - Audit: 8 moderate findings, all one advisory
@@ -40,8 +68,10 @@ tests but failed frontend lint and the audit gate; build/typecheck were skipped.
   `registry.npmjs.org`.
 - `frontend/package-lock.json` is now committed from that run's CI artifact
   (byte-identical, so integrity hashes are unchanged). The Dockerfile's
-  `npm ci` requires it. Still open: a fully green CI run that installs with
-  `npm ci` from this lockfile, before any deploy.
+  `npm ci` requires it. CI on `e1e082a` subsequently passed with the committed
+  lockfile, including the `npm ci` install, lint/tests, typecheck, production
+  build and audit
+  ([run 42605361712](https://github.com/esotericlabs-connor/govmap.us/actions/runs/42605361712)).
 
 **2026-11-08 — Vote source repair and frontend platform upgrade (CI pending)**
 The first deploy after the refresh bounds (`8630cad`) finished on time, but the

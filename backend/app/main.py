@@ -28,11 +28,16 @@ logger = logging.getLogger("app.main")
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     setup_file_logging()
-    start_scheduler()
+    scheduler_enabled = settings.scheduler_enabled
+    if scheduler_enabled:
+        start_scheduler()
+    else:
+        logger.info("scheduled pipeline refreshes disabled (SCHEDULER_ENABLED=false)")
     try:
         yield
     finally:
-        stop_scheduler()
+        if scheduler_enabled:
+            stop_scheduler()
 
 
 app = FastAPI(title="GovMap API", version="0.1.0", lifespan=lifespan)
