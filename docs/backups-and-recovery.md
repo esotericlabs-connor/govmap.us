@@ -1,5 +1,12 @@
 # GovMap backups and recovery
 
+**Deployment scope:** the scripts below target the legacy VM's Compose
+deployment, not Coolify-managed resources. Do not run them against Coolify
+unchanged. The manual Coolify backup and scratch-restore verification is
+recorded in the [README](../README.md#migration-and-recovery-verification-2026-11-09);
+it does not validate these scripts for Coolify or establish an automated
+backup schedule.
+
 These are operator procedures for the Linux server and an **isolated recovery
 host**. The scripts do not configure Duplicati, create a schedule, access a
 remote host, or remove old backups. They have not yet been exercised against a

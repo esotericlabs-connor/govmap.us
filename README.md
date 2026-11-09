@@ -10,7 +10,7 @@ A mobile-first web app that makes the entire US federal government easy to under
 
 > From City Council to Congress.
 
-**Status:** pre-launch, single-pipeline proof of concept. See [CODE-MANIFEST.md](CODE-MANIFEST.md) for the current build log and phase checklist.
+**Status:** pre-launch. The federal legislative application is running on Coolify at **https://govmap.us**. See [CODE-MANIFEST.md](CODE-MANIFEST.md) for the current build log and phase checklist.
 
 ## Mission
 
@@ -39,7 +39,7 @@ The product's signature feature is the **full bill pipeline**: a single timeline
 
 ## Where things stand right now
 
-The project is deliberately being proven on a **narrow, real slice** before it's widened: one data source, pulled and validated, normalized into Postgres, served over a REST API, and rendered in a minimal web UI. Everything else in the five-pillar plan gets added only after that loop is demonstrated to work reliably.
+The project is deliberately being proven on the **federal legislative slice** before it's widened: members, bills, votes, committees, campaign finance and ZIP-to-district lookup, backed by Postgres and source-specific refresh jobs. Production moved to Coolify on 2026-11-09. Reliability, recovery and environment isolation take priority over expanding the product.
 
 Two things are intentionally **on hold**, not forgotten:
 
@@ -50,7 +50,7 @@ Two things are intentionally **on hold**, not forgotten:
 
 Every pipeline follows the same three-layer contract:
 
-1. **Source pipeline** — one script per source, isolated. Pull, handle that source's auth/pagination/rate limits, validate shape, write raw staging JSON, record the run in `pipeline_status.json`.
+1. **Source pipeline** — one script per source, isolated. Pull, handle that source's auth/pagination/rate limits, validate shape and write raw staging JSON. Refresh orchestration records the outcome in the Postgres `pipeline_status` table.
 2. **Normalization** — map raw fields to the canonical schema, resolve cross-source IDs (Bioguide ID for federal legislative people, OCD ID for state/local, FIPS for geography, CGAC for agencies), enforce ISO 8601 on every date, write to Postgres.
 3. **JSON output** — a database query serialized to the canonical output file/endpoint, consumed by the frontend.
 
@@ -64,18 +64,19 @@ Nothing skips a layer. The full identifier and normalization rules are non-negot
 | Database | PostgreSQL |
 | Frontend | Next.js 16 (App Router), React 19, TypeScript, Tailwind CSS 3, Node.js 24 |
 | Pipelines | Python scripts, one per source, scheduled via APScheduler |
-| Infrastructure | Self-hosted Linux VM, tunneled via Cloudflare (`cloudflared`), no exposed ports; Tailscale-only SSH management; GitHub Actions for CI/CD |
+| Infrastructure | Self-hosted Coolify server; Docker Compose resources reached through Cloudflare Tunnel (`cloudflared`), no application host ports; GitHub Actions for CI, manual Coolify deployment |
 
-The VM is a deliberate low-cost choice for the pre-funding stage — uptime is being knowingly traded for near-zero hosting cost. The plan is to move to paid infrastructure (and a managed Postgres instance) once the project has funding.
+Self-hosting is the current low-cost deployment choice. Application containers and persistent data are managed by Coolify; backups must also exist outside that server.
 
 ## Sites & branding
 
-GovMap is one Next.js deployment serving two logical zones, split by `frontend/middleware.ts` on hostname:
+GovMap serves the marketing site and platform on one host:
 
 - **govmap.us** — the marketing site (`frontend/app/page.tsx`): what GovMap is, why it exists, and a way in.
-- **app.govmap.us** — the platform itself (`frontend/app/app/`): the actual product.
+- **govmap.us/congress** — the platform entry point, with members, bills and votes on the same host.
+- **dev.govmap.us** — the intended test hostname; its isolated environment is not yet verified.
 
-The "Enter GovMap" button on the marketing site crosses from one host to the other, so it's the one link in the frontend that has to be an absolute URL rather than a relative path — see `frontend/lib/site-config.ts`, the single place cross-zone URLs, the GitHub link, and (once they exist) social handles and a support link are defined.
+Navigation uses relative paths defined in `frontend/lib/site-config.ts`. Separate `app.govmap.us` and `api.govmap.us` hosts are not part of the current deployment. Browser `/api/*` requests are forwarded by Next.js to the private backend.
 
 Brand assets live in `frontend/public/` (`logo-dark.png`, `logo-light.png` — full lockups with an opaque background baked in, meant for full-bleed placement, not floating over an arbitrary background color). The favicon (`frontend/app/icon.png`) is a square crop of just the Capitol mark from the dark logo, generated because no standalone icon-only asset existed yet — a proper source mark would give a cleaner result and is a fine thing to swap in later.
 
@@ -103,90 +104,209 @@ uvicorn app.main:app --reload                  # http://localhost:8000
 cd frontend
 cp .env.example .env.local
 npm install
-npm run dev                                    # marketing: http://localhost:3000
-                                                 # platform:  http://app.localhost:3000
+npm run dev                                    # http://localhost:3000
 ```
 
-`*.localhost` resolves to loopback with no hosts-file editing needed, so `app.localhost:3000` exercises the exact same middleware-based host routing as `app.govmap.us` will in production. Visit `http://app.localhost:3000/members` — it should list all current members of Congress, pulled live from the `unitedstates/congress-legislators` GitHub repo, normalized, and served through the API.
+Visit `http://localhost:3000/members` — it should list current members of Congress, pulled from the `unitedstates/congress-legislators` GitHub repo, normalized, and served through the API. Marketing and platform routes use the same local host, just as they do in production.
 
 ## Production deployment
 
 ### Security-update validation
 
-The Next.js 16 / Node.js 24 upgrade is pending CI validation. Do not treat
-passing checks for the previous release as validation of this upgrade.
+The production cutover used `e1e082a`, including the committed frontend
+lockfile and the Next.js 16 / Node.js 24 upgrade.
+[CI run 42605361712](https://github.com/esotericlabs-connor/govmap.us/actions/runs/42605361712)
+passed for that exact commit, including backend lint/tests, frontend lint,
+route type generation, TypeScript checking, the production build and the
+dependency audit. The frontend installs with `npm ci`.
 
-1. Push the changes to `dev`, not `main`. The **Lint** workflow runs backend
-   tests, frontend lint, route type generation, TypeScript checking, a
-   production build, and a full dependency audit (including development
-   dependencies). Any audit vulnerability or audit-service error fails CI.
-2. Download `frontend-security-<commit SHA>` from that run. It contains the
-   resolved `package-lock.json` and `npm-audit.json`, including on a failed
-   audit. Review the report and commit the lockfile as
-   `frontend/package-lock.json`. The Docker build requires this file and uses
-   `npm ci`; it no longer silently resolves a different dependency tree.
-3. Rerun CI on `dev` with the committed lockfile and require all checks to
-   pass for that exact commit before promotion. Fix findings rather than
-   using `npm audit fix --force` or ignoring audit exit codes.
-
-The manual **Frontend lockfile** workflow also generates and validates the
-lockfile. GitHub only exposes manual dispatch after the workflow is present
-on the default branch; the `dev` Lint artifact provides the first bootstrap
-without deploying an unvalidated upgrade.
+For subsequent releases, validate the exact commit on `dev` before promotion
+to `main`. The **Lint** workflow audits development dependencies as well as
+runtime dependencies; any vulnerability or audit-service error fails CI.
+Fix findings rather than using `npm audit fix --force` or ignoring exit codes.
+The **Frontend lockfile** workflow and `frontend-security-<commit SHA>`
+artifacts support deliberate lockfile updates; commit the reviewed lockfile
+and rerun CI before deploying it.
 
 ESLint 9 is retained for the current React/import plugins' declared peer
 compatibility. It is end-of-life; the deprecation warning remains a tooling
 support limitation, not evidence that the dependency audit passed.
 
-The deployment workflow is still independent of CI until Group 1. Do not push
-these changes to `main` before the checks pass and an off-server backup and
-isolated restore have been verified.
+Keep the legacy GitHub SSH deployment workflow disabled and Coolify
+auto-deploy off during migration and test-environment setup. Deployment is
+not yet automatically gated on CI; require passing checks, recoverable
+off-server backups and an explicit manual deployment.
 
-### Deploying a verified release
+### Coolify topology and configuration
 
-Production runs the whole stack in Docker on the Ubuntu VM — `postgres`, `backend`, `frontend`, and `cloudflared` — reached only through a Cloudflare Tunnel (no public inbound ports). Everything is driven by one script:
+Coolify uses [docker-compose.coolify.yml](docker-compose.coolify.yml), with
+four services: `postgres`, `backend`, `frontend` and `cloudflared`.
 
-```bash
-cd /opt/govmap && bash scripts/deploy.sh
-```
+| Environment | Git branch | Public hostname | Cloudflare tunnel | State at cutover |
+| --- | --- | --- | --- | --- |
+| Production | `main` | `govmap.us` | `govmap-prod` | Live and checked |
+| Test | `dev` | `dev.govmap.us` | `govmap-dev` | Existing resource requires reconciliation and verification |
 
-`scripts/deploy.sh` is the single deploy path (used by hand and by the GitHub Actions runner): it prereq-checks the box, syncs to `origin/main`, builds, brings up all four containers, runs migrations, refreshes data, and prints a health check. The data refresh is capped at 15 minutes (`GOVMAP_REFRESH_TIMEOUT`); if a source is down, the deploy still succeeds on existing data and prints a warning. `--no-data` skips the data refresh for code-only changes.
+Each environment must have its own Coolify resource, private Compose
+network, Postgres volume, log volume, database password and tunnel token.
+Do not share production volumes or service-name aliases with the test
+environment. Coolify container names change on redeploy; identify the current
+resource's containers before running operational commands.
+
+- Leave Coolify's **Domains** fields empty for this tunnel-only setup.
+- Publish only the frontend: the tunnel's public application route points
+  to **HTTP `frontend:3000`**, with no path restriction. Do not publish
+  Postgres or add a separate backend hostname.
+- The proxied DNS CNAME for each hostname must target that environment's
+  **current Tunnel ID** followed by `.cfargotunnel.com`. A new route can
+  leave a pre-existing DNS record pointing at a deleted tunnel, causing
+  error 1033 even while the new connector is healthy. Check both the route
+  and DNS target after any tunnel replacement.
+- Use one connector per tunnel for this single-instance deployment. Never
+  reuse the production tunnel token for test; that creates a production
+  replica rather than a separate environment.
+
+Set variables on the appropriate Coolify resource, not in shared
+project/team configuration that could also affect production:
+
+| Variable | Production | Test |
+| --- | --- | --- |
+| `POSTGRES_PASSWORD` | Production-only secret | Separate secret; preserve the password if retaining an existing database |
+| `CLOUDFLARE_TUNNEL_TOKEN` | `govmap-prod` token | `govmap-dev` token |
+| `NEXT_PUBLIC_API_URL` (build) | `http://backend:8000` | `http://backend:8000` |
+| `NEXT_PUBLIC_APP_URL` (build) | `https://govmap.us` | `https://dev.govmap.us` |
+| `NEXT_PUBLIC_MARKETING_URL` (build) | `https://govmap.us` | `https://dev.govmap.us` |
+| `CORS_ORIGINS` | `https://govmap.us` | `https://dev.govmap.us` |
+| `SCHEDULER_ENABLED` (runtime) | `true` (default) | `false` for the approved snapshot-only setup |
+| `NEXT_PUBLIC_TURNSTILE_SITE_KEY` (build) / `TURNSTILE_SECRET_KEY` (runtime) | Paired production widget keys | Separate paired test widget keys, or both empty behind restricted test access |
+| `CONGRESS_GOV_API_KEY`, `FEC_API_KEY`, `HUD_API_TOKEN` | Production credentials | Separate credentials if running keyed refreshes; do not compete for production API quotas |
+
+Build variables require a frontend rebuild, not just a container restart.
+`NEXT_PUBLIC_API_URL` is used by the build-time API rewrite; do not set it to
+the public frontend hostname, which would proxy requests back to themselves.
+The frontend also has `API_INTERNAL_URL=http://backend:8000` at runtime.
+Keep `INTERNAL_USER` and `INTERNAL_PASSWORD` empty unless deliberately
+configuring authenticated internal operations.
+
+The backend runs Alembic migrations before serving. `SCHEDULER_ENABLED`
+defaults to `true`, preserving production's scheduled refreshes. Set it
+explicitly to `false` on snapshot-only test resources before starting the
+backend; startup logs that scheduled refreshes are disabled. Invalid boolean
+values fail settings validation. Missing API keys **do not disable the
+scheduler**; keyed jobs record failures and unkeyed jobs can still fetch data.
+This switch controls background scheduling only, not CLI refreshes,
+request-triggered fetches or application writes.
+
+The approved test setup is a **new Coolify resource** seeded from a production
+database snapshot, with its own empty log volume, no production API secrets,
+`SCHEDULER_ENABLED=false`, and Cloudflare Access restricting `dev.govmap.us`
+to approved identities. It is not deployed or verified yet:
+
+1. Bring `dev` up to the validated production code plus the scheduler
+   switch, preserving its existing history (the superseded early Compose
+   commit is merged with `-s ours`, not deleted). Require green CI on that
+   exact `dev` commit before deployment.
+2. Verify server capacity before building another stack. Stop the old dev
+   resource, but retain its database/log volumes for recovery. Never stop or
+   edit production as part of this setup.
+3. Configure the Access application and an allow policy before publishing
+   the hostname. Do not add a public bypass policy.
+4. Create the replacement resource with separate volumes, network, database
+   password and the dev tunnel token. Keep auto-deploy off and Domains empty.
+5. With the new test backend stopped, restore a trusted snapshot into the
+   new resource's database only. Verify revision and counts before starting
+   the test backend. Never restore production logs or environment secrets.
+   Record the snapshot timestamp; its copied `pipeline_status` rows describe
+   production history, not jobs executed in test.
+6. Publish only `dev.govmap.us` through `govmap-dev`, with the old dev
+   connector stopped. Verify the DNS tunnel target, Access challenge/denial when
+   signed out, authorized browser/API access, scheduler-disabled startup
+   and absence of test writes/jobs against production.
+
+After a manual Coolify deployment, check the internal backend health and
+database revision, then the public frontend and `/api/summary`. HTTP 200 on
+the frontend does not establish pipeline health. Query `pipeline_status`
+for `source`, `status`, `last_run`, `last_success` and `record_count`; do not
+publish its raw `detail` field or application logs. Confirm timestamps
+advance after the new instance starts. Record counts describe the latest
+run, not necessarily the total rows in an entity table.
 
 ### Persistent state and secrets
 
-The server's `/opt/govmap/.env` (gitignored) holds configuration and credentials,
-including:
+Production secrets are configured in Coolify, not committed to the repository.
+Keep a protected recovery copy of the environment configuration and required
+decryption credentials separately from the server. Restoring environment
+variables or reconnecting a tunnel does not restore database or log contents.
 
-- `POSTGRES_PASSWORD` — the DB password. `deploy.sh` generates one if `.env` is absent.
-- `CLOUDFLARE_TUNNEL_TOKEN` — connects the `cloudflared` container to the tunnel. Without it the stack runs but the public site stays down.
-- `INTERNAL_USER` / `INTERNAL_PASSWORD` — optional, unlock the `/internal/*` ops endpoints.
+Postgres persists in the resource's `postgres-data` volume. Application and
+bug-report logs persist in its `govmap-logs` volume and may contain private
+information. Do not copy production logs or secrets into a test environment.
 
-See [.env.example](.env.example) for the template. Keep a protected copy of
-`.env` separately from the server. PostgreSQL also stores data in the
-`postgres-data` Docker volume, and application/bug-report logs are in the
-`govmap-logs` volume; restoring `.env` alone does not restore either volume.
-See [backups and recovery](docs/backups-and-recovery.md) for encrypted database
-snapshots, a full GovMap archive, Duplicati integration, and isolated recovery.
+Use encrypted logical Postgres dumps and separate log archives, keep copies
+off-server, verify transferred checksums, and test restoration into a named
+scratch database without replacing the live database. Remove decrypted
+scratch dumps and the scratch database after successful verification.
+Keep backup passphrases or private identities separately and recoverably.
+`/tank` or another filesystem on the same host is not an off-server backup.
 
-### Rebuilding on a fresh box
+[Backups and recovery](docs/backups-and-recovery.md) documents the legacy
+Compose scripts and recovery safeguards. Those scripts assume the old VM's
+deployment and have not been adapted or validated for Coolify resource
+selection. Do not run them against Coolify unchanged. Scheduled encrypted
+backups, off-server retention and recurring restore rehearsals remain to be
+configured and verified.
 
-The tunnel is **dashboard-managed**, so its routes survive a rebuild. Restoring
-the token can reconnect the same tunnel, but it does not restore the database
-or logs. First recover the application files, `.env`, database, and logs on an
-isolated host and verify them as described in
-[backups and recovery](docs/backups-and-recovery.md); reconnect the tunnel only
-after an operator-approved cutover.
+### Migration and recovery verification: 2026-11-09
 
-Do not use the deploy script as a restore shortcut. It fetches the latest
-`main`, starts services and migrations, and can refresh data before the
-recovered release has been verified.
+- Restored the old VM's final custom-format dump into a separate database
+  on Coolify and compared revision and table counts before the production
+  cutover. The migrated snapshot had revision `0013`, 539 members, 19,489
+  bills, 283 votes and 46,012 ZIP-to-district rows.
+- Archived the old application and bug-report logs separately and verified
+  the transferred archive's checksum; the archive was not merged into the
+  live production log volume.
+- Recreated `govmap-prod` and corrected the root hostname's stale DNS
+  target. The new tunnel was healthy with one connector. The public home
+  page and `/api/summary` returned 200; `/health` on the frontend returned
+  404. That 404 is a routing check, not by itself proof of network isolation.
+- Verified production credentials were present without displaying values.
+  The manual HUD refresh succeeded with 46,012 rows. After the latest
+  redeploy, bills recorded `ok` at 13:04 UTC (250 records), votes recorded
+  `ok` at 13:01 UTC (200 records), and backfill recorded `ok` at 13:15 UTC.
+  All 19,489 bills had a non-null enrichment timestamp, explaining the
+  backfill's zero work.
+- Created an age-encrypted production backup, decrypted it to a private
+  scratch file and restored it into a scratch database. Restore exited
+  zero; verified revision `0013`, 539 members, 19,489 bills and 46,012 ZIP
+  rows. The operator subsequently confirmed backup safety. Verify
+  off-server copy checksums and retain the decryption credentials separately.
+- Senate endpoint probes returned 403, while the subsequent application
+  refresh recorded `ok`. The blocking cause is unknown; neither observation
+  establishes a permanent site-wide access policy or a permanent recovery.
+  Future Voteview fallback runs remain degraded (`partial`), with fallback
+  attribution and no advance to the official `last_success`.
 
-**If you ever lose the token:** get a fresh one from the Cloudflare dashboard → the `govmap` tunnel → connector install command (the `eyJ…` after `--token`), or **Rotate token**. The tunnel itself (ID `ebdeb681-961d-4321-8beb-2f14b35c6143`) and its routes stay put; only the token changes. Update `.env` and redeploy.
+**Still pending at this checkpoint:** the next post-cutover committee,
+member-roster, sponsored-bill and FEC refreshes; verification of the isolated
+test environment; and automated backup scheduling. A previous `ok` row
+restored from the old database does not verify a job on the new server.
+`partial` is degraded, not an unconditional success.
 
-Server hardening (UFW, Tailscale, and fail2ban) is separate host setup — see
-[CODE-MANIFEST.md](CODE-MANIFEST.md). Backup schedules are not configured by
-this repository; a backup is not established until it has been created and its
-restore verified.
+Keep the old VM's backend stopped to avoid duplicate jobs. Once the remaining
+pipeline checks and off-server recovery requirements pass, power off the old
+VM after confirming it has no other required workloads. Observe production
+for at least a week with the VM off, retain it powered off for 30 days before
+deletion, and retain independent backups after deleting its disks and
+snapshots. Shutdown and deletion are separate operator-approved steps.
+
+### Legacy VM tooling
+
+[docker-compose.yml](docker-compose.yml) and `scripts/deploy.sh` remain
+legacy VM tooling, not the Coolify deployment path. The script syncs
+`origin/main`, builds services, runs migrations and refreshes core data with
+a bounded timeout. Do not run it on the Coolify server or use it as a
+restore shortcut. A Coolify backend restart runs migrations and starts the
+scheduler; it does not execute that script's deploy-time refresh.
 
 ## Documentation
 
