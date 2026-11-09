@@ -4,7 +4,7 @@ What's been built, in what order, and what's next. This is a living log — add 
 
 ## Build log
 
-**2026-11-09 — Production readiness: audit fix, lint fix, Coolify Compose (CI pending)**
+**2026-11-09 — Production readiness: audit fix, lint fix, Coolify Compose (lockfile validation pending)**
 CI on `4e30c04` (the push of the 2026-11-08 work) passed backend lint and
 tests but failed frontend lint and the audit gate; build/typecheck were skipped.
 - Audit: 8 moderate findings, all one advisory
@@ -19,7 +19,7 @@ tests but failed frontend lint and the audit gate; build/typecheck were skipped.
   override once typescript-eslint depends on a patched release.
 - Lint: `app/account/page.tsx` used `<a href="/">` for internal navigation;
   now `next/link`. The follow-up run (`d0932b5`) passed the audit gate and
-  surfaced one more error, hidden behind the first:
+  still failed on another error:
   `components/UsMap.tsx` wrote `zoomRef.current` during render
   (`react-hooks/refs`). It's now synced in a `useLayoutEffect` keyed on
   `zoom`; the ref is only read by event handlers and effects, which run
@@ -32,9 +32,16 @@ tests but failed frontend lint and the audit gate; build/typecheck were skipped.
   targets the private backend instead of the retired `api.govmap.us`. CORS
   defaults to `https://govmap.us`. Each environment (dev/production) is a
   separate Coolify resource with its own database, volumes and tunnel token.
-- Still open: commit `frontend/package-lock.json` from this PR's CI
-  artifact (the Dockerfile requires it), then obtain a fully green run with
-  `npm ci` before merging or deploying.
+- CI on `bc5c4c2` passed backend lint/tests, frontend lint, Next type generation,
+  TypeScript checking, the production build and the dependency audit
+  ([run 42603854918](https://github.com/esotericlabs-connor/govmap.us/actions/runs/42603854918)).
+  Its generated lockfile matches the frontend manifest and resolves the scoped
+  minimatch override to 11.0.5; all 448 packages resolve from
+  `registry.npmjs.org`.
+- `frontend/package-lock.json` is now committed from that run's CI artifact
+  (byte-identical, so integrity hashes are unchanged). The Dockerfile's
+  `npm ci` requires it. Still open: a fully green CI run that installs with
+  `npm ci` from this lockfile, before any deploy.
 
 **2026-11-08 — Vote source repair and frontend platform upgrade (CI pending)**
 The first deploy after the refresh bounds (`8630cad`) finished on time, but the
