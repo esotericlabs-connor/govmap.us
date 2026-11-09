@@ -4,7 +4,7 @@ The single entry point both the scheduler and manual/deploy runs call, so
 pipeline_status stays consistent no matter how a refresh is triggered. Add a
 new source by writing its refresh_* coroutine and registering it in REFRESHERS.
 
-Run directly: `python -m app.pipelines.refresh` (refreshes every source) — this
+Run directly: `python -m app.pipelines.refresh` (refreshes the core sources) — this
 is what scripts/deploy.sh invokes.
 """
 
@@ -36,6 +36,7 @@ from app.pipelines import (
     fec_finance,
     house_clerk_votes,
     senate_lis_votes,
+    voteview_senate_votes,
     zip_crosswalk,
 )
 from app.pipelines.batch import BatchResult
@@ -46,6 +47,10 @@ from app.services.upstream import UpstreamCapacityError, UpstreamUnavailableErro
 logger = logging.getLogger(__name__)
 
 _SEAT_CHANGE_LIST_CAP = 12
+
+
+class VoteRefreshIncompleteError(RuntimeError):
+    """A degraded vote refresh must not be retried as a whole batch."""
 
 
 async def _held_house_districts() -> set[str]:
@@ -132,32 +137,65 @@ async def refresh_bills() -> None:
         raise
 
 
+async def _pull_senate_votes() -> str:
+    """Try official LIS, then Voteview; return the source that staged the data."""
+    try:
+        await asyncio.to_thread(senate_lis_votes.run)
+        return senate_lis_votes.SOURCE_NAME
+    except Exception as exc:
+        logger.warning("votes: official senate LIS pull failed, falling back to Voteview: %s", exc)
+    await asyncio.to_thread(voteview_senate_votes.run)
+    return voteview_senate_votes.SOURCE_NAME
+
+
 async def refresh_votes() -> None:
-    """Roll-call votes from two chambers/sources (House Clerk XML + Senate LIS
-    XML), normalized together. The two pulls are independent — one chamber's
-    source being down still loads the other (recorded as 'partial'); only both
-    failing raises (so the retry/visibility framework kicks in). Senate positions
-    resolve LIS->Bioguide via id_crosswalk in the normalizer."""
+    """Roll-call votes from two chambers (House Clerk XML; Senate LIS XML with a
+    Voteview CSV fallback), normalized together. The two chambers are
+    independent — one chamber's sources being down still loads the other
+    (recorded as 'partial'). Incomplete refreshes raise after recording status,
+    so the CLI reports degradation without retrying the whole batch.
+    A fallback is partial: Voteview excludes some roll
+    calls and its freshness relative to the official feed is not established.
+    LIS positions resolve LIS->Bioguide via
+    id_crosswalk in the normalizer; Voteview positions carry Bioguide ids."""
     source = "votes"
     failed: list[str] = []
+    notes: list[str] = []
+    used_fallback = False
     try:
-        for name, fn in (("house", house_clerk_votes.run), ("senate", senate_lis_votes.run)):
-            try:
-                await asyncio.to_thread(fn)
-            except Exception as exc:
-                failed.append(name)
-                logger.warning("votes: %s pull failed: %s", name, exc)
+        try:
+            await asyncio.to_thread(house_clerk_votes.run)
+        except Exception as exc:
+            failed.append("house")
+            logger.warning("votes: house pull failed: %s", exc)
+        try:
+            senate_source = await _pull_senate_votes()
+            if senate_source != senate_lis_votes.SOURCE_NAME:
+                used_fallback = True
+                notes.append(
+                    f"senate via {senate_source} fallback (senate.gov LIS unavailable; "
+                    "official coverage/freshness unverified)"
+                )
+        except Exception as exc:
+            failed.append("senate")
+            logger.warning("votes: senate pull failed (official LIS and Voteview fallback): %s", exc)
         if len(failed) == 2:
-            raise RuntimeError("both House and Senate vote pulls failed")
-        count = await normalize_votes()
-        status = "ok" if not failed else "partial"
-        detail = None if not failed else f"chamber(s) failed: {', '.join(failed)}"
+            raise VoteRefreshIncompleteError("both House and Senate vote pulls failed")
+        count = await normalize_votes(
+            include_house="house" not in failed, include_senate="senate" not in failed
+        )
+        status = "partial" if failed or used_fallback else "ok"
+        if failed:
+            notes.insert(0, f"chamber(s) failed: {', '.join(failed)}")
+        detail = "; ".join(notes) or None
         await record_run(source, count, status, detail)
-        logger.info("refresh votes: %s (%d votes; failed: %s)", status, count, failed or "none")
+        logger.info("refresh votes: %s (%d votes; %s)", status, count, detail or "all official sources")
     except Exception as exc:
         await record_run(source, 0, "error", str(exc))
         logger.exception("refresh %s failed", source)
         raise
+    if status == "partial":
+        raise VoteRefreshIncompleteError(detail)
 
 
 async def refresh_sponsored_bills() -> None:
@@ -276,15 +314,13 @@ REFRESHERS: dict[str, Callable[[], Awaitable[None]]] = {**CORE_REFRESHERS, **EXT
 async def _run_with_retry(
     name: str, fn: Callable[[], Awaitable[None]], retries: int = 2, delay: float = 5.0
 ) -> bool:
-    """Run one source, retrying transient failures (a DB/connection blip right
-    after a migration is the likely culprit behind a partial deploy load).
-    An upstream outage or exhausted request budget is not retried: a retry 5s
-    later would only repeat the same timeouts. Returns True on success."""
+    """Retry unexpected failures, but not known upstream outages, exhausted
+    request budgets, or incomplete vote batches. Returns True on success."""
     for attempt in range(1, retries + 2):
         try:
             await fn()
             return True
-        except (UpstreamUnavailableError, UpstreamCapacityError) as exc:
+        except (UpstreamUnavailableError, UpstreamCapacityError, VoteRefreshIncompleteError) as exc:
             logger.error("refresh '%s' failed: %s — not retrying", name, exc)
             return False
         except Exception:

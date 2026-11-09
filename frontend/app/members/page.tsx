@@ -108,15 +108,14 @@ function MemberGridSkeleton() {
   );
 }
 
-export default function MembersPage({
+export default async function MembersPage({
   searchParams,
 }: {
-  searchParams: { chamber?: string };
+  searchParams: Promise<{ chamber?: string }>;
 }) {
+  const { chamber: chamberParam } = await searchParams;
   const chamber: Chamber | null =
-    searchParams.chamber === "house" || searchParams.chamber === "senate"
-      ? searchParams.chamber
-      : null;
+    chamberParam === "house" || chamberParam === "senate" ? chamberParam : null;
 
   const scopeLabel =
     chamber === "house"

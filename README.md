@@ -62,7 +62,7 @@ Nothing skips a layer. The full identifier and normalization rules are non-negot
 | --- | --- |
 | Backend | Python 3.11+, FastAPI, SQLAlchemy (async), Alembic |
 | Database | PostgreSQL |
-| Frontend | Next.js (App Router), TypeScript, Tailwind CSS |
+| Frontend | Next.js 16 (App Router), React 19, TypeScript, Tailwind CSS 3, Node.js 24 |
 | Pipelines | Python scripts, one per source, scheduled via APScheduler |
 | Infrastructure | Self-hosted Linux VM, tunneled via Cloudflare (`cloudflared`), no exposed ports; Tailscale-only SSH management; GitHub Actions for CI/CD |
 
@@ -83,7 +83,7 @@ Brand assets live in `frontend/public/` (`logo-dark.png`, `logo-light.png` — f
 
 ## Local development
 
-Prerequisites: Python 3.11+, Node.js 20+, and Docker (for local Postgres — or point `DATABASE_URL` at any Postgres 16 instance).
+Prerequisites: Python 3.11+, Node.js 24, and Docker (for local Postgres — or point `DATABASE_URL` at any Postgres 16 instance).
 
 ```bash
 # 1. Start Postgres
@@ -110,6 +110,39 @@ npm run dev                                    # marketing: http://localhost:300
 `*.localhost` resolves to loopback with no hosts-file editing needed, so `app.localhost:3000` exercises the exact same middleware-based host routing as `app.govmap.us` will in production. Visit `http://app.localhost:3000/members` — it should list all current members of Congress, pulled live from the `unitedstates/congress-legislators` GitHub repo, normalized, and served through the API.
 
 ## Production deployment
+
+### Security-update validation
+
+The Next.js 16 / Node.js 24 upgrade is pending CI validation. Do not treat
+passing checks for the previous release as validation of this upgrade.
+
+1. Push the changes to `dev`, not `main`. The **Lint** workflow runs backend
+   tests, frontend lint, route type generation, TypeScript checking, a
+   production build, and a full dependency audit (including development
+   dependencies). Any audit vulnerability or audit-service error fails CI.
+2. Download `frontend-security-<commit SHA>` from that run. It contains the
+   resolved `package-lock.json` and `npm-audit.json`, including on a failed
+   audit. Review the report and commit the lockfile as
+   `frontend/package-lock.json`. The Docker build requires this file and uses
+   `npm ci`; it no longer silently resolves a different dependency tree.
+3. Rerun CI on `dev` with the committed lockfile and require all checks to
+   pass for that exact commit before promotion. Fix findings rather than
+   using `npm audit fix --force` or ignoring audit exit codes.
+
+The manual **Frontend lockfile** workflow also generates and validates the
+lockfile. GitHub only exposes manual dispatch after the workflow is present
+on the default branch; the `dev` Lint artifact provides the first bootstrap
+without deploying an unvalidated upgrade.
+
+ESLint 9 is retained for the current React/import plugins' declared peer
+compatibility. It is end-of-life; the deprecation warning remains a tooling
+support limitation, not evidence that the dependency audit passed.
+
+The deployment workflow is still independent of CI until Group 1. Do not push
+these changes to `main` before the checks pass and an off-server backup and
+isolated restore have been verified.
+
+### Deploying a verified release
 
 Production runs the whole stack in Docker on the Ubuntu VM — `postgres`, `backend`, `frontend`, and `cloudflared` — reached only through a Cloudflare Tunnel (no public inbound ports). Everything is driven by one script:
 

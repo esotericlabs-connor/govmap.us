@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main, dev]
 
+# CI only reads the repo; keep the job token read-only.
+permissions:
+  contents: read
+
 jobs:
   backend-lint:
     runs-on: ubuntu-latest
@@ -41,13 +45,35 @@ jobs:
     defaults:
       run:
         working-directory: frontend
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
-          node-version: "20"
-      # No npm cache yet -- switch to `npm ci` + setup-node's cache option once a
-      # frontend/package-lock.json is committed (run `npm install --package-lock-only`).
-      - run: npm install
+          node-version: "24"
+      # Bootstrap on dev without local commands or first deploying a manual
+      # workflow to main. Upload the exact tree checked by this job below.
+      - name: Install dependencies
+        id: dependencies
+        run: if [ -f package-lock.json ]; then npm ci; else npm install; fi
       - run: npm run lint
+      - run: npx next typegen
       - run: npx tsc --noEmit
+      # The same production build the deploy runs inside Docker, so a broken
+      # build fails here instead of on the server. All API-backed pages are
+      # force-dynamic, so no backend is needed at build time.
+      - run: npm run build
+      - name: Audit all dependencies (gate)
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        run: npm audit --json > npm-audit.json
+      - name: Upload lockfile and security evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: frontend-security-${{ github.sha }}
+          path: |
+            frontend/package-lock.json
+            frontend/npm-audit.json
+          if-no-files-found: warn
+          retention-days: 7

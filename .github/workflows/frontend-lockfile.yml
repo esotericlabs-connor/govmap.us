@@ -1,0 +1,50 @@
+name: Frontend lockfile
+
+# Manual, one-click generation of frontend/package-lock.json from the exact
+# pins in frontend/package.json, resolved on a clean Node 24 runner (the same
+# Node major as CI and the Docker image). Download the artifact, review it, and
+# commit it as frontend/package-lock.json. Docker requires that lockfile.
+# Before this workflow is on the default branch, the Lint job on dev provides
+# the same artifact bootstrap without a production deployment.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lockfile:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+      # Resolve the dependency tree only: no node_modules, no install scripts.
+      - name: Resolve lockfile
+        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+      - name: Install resolved dependencies
+        id: dependencies
+        run: npm ci
+      - run: npm run lint
+      - run: npx next typegen
+      - run: npx tsc --noEmit
+      - run: npm run build
+      - name: Audit all dependencies (gate)
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        run: npm audit --json > npm-audit.json
+      - name: Upload lockfile and security evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: frontend-security-${{ github.sha }}
+          path: |
+            frontend/package-lock.json
+            frontend/npm-audit.json
+          if-no-files-found: warn
+          retention-days: 7

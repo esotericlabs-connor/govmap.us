@@ -4,6 +4,127 @@ What's been built, in what order, and what's next. This is a living log — add 
 
 ## Build log
 
+**2026-11-08 — Vote source repair and frontend platform upgrade (CI pending)**
+The first deploy after the refresh bounds (`8630cad`) finished on time, but the
+refresh was unhealthy: bills `partial`, and votes failed in both chambers.
+
+Bills: Congress.gov read timeouts tripped the new outage breaker as designed
+(9 staged, 6 failed, 235 not attempted, recorded `partial`). The cause is still
+unknown; no code change in this entry.
+
+House votes: the observed missing `roll999.xml` request returned
+`<xml>Error sanitizing file "roll999.xml"…</xml>` rather than a roll-call
+document. The production probes treated it as HTTP success. `_exists` only checked the
+status code, so the max-roll binary search settled on 999 and every fetched
+roll parsed to nothing ("no house votes parsed (year 2026, top roll 999)").
+`_exists` now streams the first 1 KB and requires a `<rollcall-vote` root.
+Only a definite missing-file response counts as absence. Timeouts, blocks,
+and unexpected responses at any probe raise instead of silently truncating
+the discovered range. A failed/mismatched detail prevents publication of
+the batch, preserving the previous staging.
+
+Senate votes: the production menu request returned HTTP 403, also reproduced
+by a read-only fetch. This establishes refusal of those requests, not a
+site-wide policy against every non-browser client. The blocking rule and its
+cause are unknown. Changes:
+- `senate_lis_votes` now fails with a clear error on a non-200, unparseable or
+  non-`vote_summary` menu, invalid menu entries, or any failed/mismatched
+  selected detail. A partially successful official pull also triggers fallback.
+- `refresh_votes` falls back to a new `voteview_senate_votes` pipeline only when
+  the official pull raises. Source:
+  [Voteview](https://voteview.com/) (Lewis, Poole, Rosenthal, Boche, Rudkin,
+  Sonnet, *Voteview: Congressional Roll-Call Votes Database*), per-Congress
+  `S{c}_rollcalls/members/votes.csv`.
+- Voteview carries Bioguide IDs, so positions join `members` directly.
+  `clerk_rollnumber` is the official Senate vote number, so vote IDs
+  (`s{congress}-{session}-{roll}`) are the same as LIS IDs. A later official
+  pull overwrites the same rows.
+- `source_url` points to the Voteview votes dataset; attribution persists
+  through the existing database/API field without a migration. The vote page
+  labels it "Voteview Data", not "Official Record", and discloses the fallback.
+  Each staged vote also carries `provenance: "voteview"`.
+- Cast codes: paired and announced votes (2–5) and 9 stage as Not Voting,
+  matching the official tally. 0 (not a member) is skipped. Totals are
+  recomputed from positions. Malformed CSV, conflicting identifiers, duplicate
+  member positions, unknown cast codes, missing Bioguide mappings, missing
+  positions, and inconsistent tallies reject the batch before publication.
+  No name-based identity matching is attempted.
+- Fallback runs record `partial`, never advance the official `last_success`,
+  and do not produce an all-sources-ok CLI result. Voteview explicitly excludes
+  quorum calls and vacated votes; its freshness relative to the official feed
+  is unverified. A cached download is not evidence of fresh government data.
+- The normalizer reads only chambers that succeeded in the current refresh;
+  failed chambers' old staging is not replayed. Degraded/failed vote sources
+  are not retried as a whole batch by the deploy refresh runner.
+- The CSVs are re-downloaded at most every `VOTEVIEW_MIN_REFETCH_HOURS`
+  (default 6), because the scheduler runs votes every 30 minutes.
+- Staging reuse validates the complete payload, identifiers and totals.
+  Publication uses a unique temporary file followed by atomic replacement.
+
+Frontend platform: the attached CI install reported 11 vulnerabilities
+(1 critical, 4 high, 6 moderate), without a detailed dependency-tree report.
+The [Image Optimizer advisory](https://github.com/vercel/next.js/security/advisories/GHSA-2464-fhr4-w9xw)
+includes the previous Next 14.2.35 version; `images.unoptimized` limits exposure
+to that path but does not remediate other advisories. The
+[November security release](https://nextjs.org/blog/november-2026-security-release)
+identifies Next 16.4.5 as patched. Published package versions/peer metadata
+were checked, not installed or audited locally. Node 20 reached end-of-life
+on 2026-04-30; the approved runtime is Node 24.
+
+Versions:
+
+| Package | From | To |
+| --- | --- | --- |
+| `next`, `eslint-config-next` | 14.2.35 | 16.4.5 (November 2026 security release) |
+| `react`, `react-dom` | 18.3.1 | 19.3.1 |
+| `eslint` | 8.57.0 | 9.39.5 |
+| `postcss` | 8.4.39 | 8.5.32 |
+| `typescript` | 5.5.3 | 5.9.3 |
+
+`tailwindcss` (3.x), `autoprefixer` and `@types/*` also moved to current
+releases.
+
+Code and config changes:
+- The six dynamic pages await `params`/`searchParams`, which Next 16 requires.
+- `<html>` gets `data-scroll-behavior="smooth"`, which keeps the instant
+  scroll-to-top on navigation.
+- `next lint` (removed in Next 16) is replaced by `eslint .` with
+  `frontend/eslint.config.mjs`.
+- Node 24 in the Dockerfile, CI and the README.
+
+CI (`lint.yml`):
+- read-only token
+- full `npm audit` gate, including development dependencies and lower
+  severities; audit errors are not ignored
+- route type generation, TypeScript checking and a `next build` gate
+- SHA-labeled lockfile and audit-report artifacts, retained even on failure
+
+The manual `Frontend lockfile` workflow resolves and validates a lockfile.
+The `dev` Lint job also supplies the artifact before manual dispatch is
+available on the default branch. The Dockerfile now requires the committed
+lockfile and uses `npm ci`; there is no production install fallback.
+
+Regression cases are in `backend/tests/test_vote_pipelines.py`. Nothing in this
+entry has been run on this static checkout. Added an orchestration-to-normalizer
+test with real pipeline/normalizer logic and fake HTTP/DB I/O, covering the
+Senate 403 fallback, source attribution and exclusion of failed-chamber staging.
+This is not a real database integration test. The latest inspected GitHub CI
+still tested `8630cad`, not these changes; no green audit/build/vote-test result
+is established for this upgrade.
+
+Open:
+- Commit the lockfile from the workflow artifact.
+- Obtain green CI on the exact locked commit before promotion or Group 1.
+- The obsolete `.eslintrc.json` was removed. Only `set-state-in-effect`
+  remains a warning for existing effect-driven loading resets; other
+  recommended React rules keep their upstream severities.
+- ESLint 9.39.5 is also end-of-life. It is retained for the React/import
+  plugins' declared ESLint <=9 peer compatibility, not claimed as supported.
+  Do not force ESLint 10 past peer requirements.
+- Find the Congress.gov timeout cause.
+- Watch for senate.gov accepting requests again (the official pull is always tried
+  first).
+
 **2026-11-08 — Bounded deploy refresh during Congress.gov outages (CI pending)**
 [Deploy run 65](https://github.com/esotericlabs-connor/govmap.us/actions/runs/42450393617)
 took 2h12m (earlier deploys took 2–5 min). Congress.gov answered almost every

@@ -33,8 +33,9 @@ async function getMember(bioguide: string): Promise<MemberDetail | null> {
   }
 }
 
-export async function generateMetadata({ params }: { params: { bioguide: string } }) {
-  const member = await getMember(params.bioguide).catch(() => null);
+export async function generateMetadata({ params }: { params: Promise<{ bioguide: string }> }) {
+  const { bioguide } = await params;
+  const member = await getMember(bioguide).catch(() => null);
   return { title: member ? `${member.official_full_name} — Donations` : "Donations" };
 }
 
@@ -105,18 +106,19 @@ async function DonationsContent({
   );
 }
 
-export default function DonationsPage({
+export default async function DonationsPage({
   params,
   searchParams,
 }: {
-  params: { bioguide: string };
-  searchParams: { offset?: string; sort?: string; q?: string; cycle?: string };
+  params: Promise<{ bioguide: string }>;
+  searchParams: Promise<{ offset?: string; sort?: string; q?: string; cycle?: string }>;
 }) {
-  const parsed = Number.parseInt(searchParams.offset ?? "0", 10);
+  const [{ bioguide }, search] = await Promise.all([params, searchParams]);
+  const parsed = Number.parseInt(search.offset ?? "0", 10);
   const offset = Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
-  const sort = searchParams.sort ?? "amount";
-  const q = searchParams.q ?? "";
-  const cycleParsed = Number.parseInt(searchParams.cycle ?? "", 10);
+  const sort = search.sort ?? "amount";
+  const q = search.q ?? "";
+  const cycleParsed = Number.parseInt(search.cycle ?? "", 10);
   const cycle = Number.isFinite(cycleParsed) && cycleParsed > 0 ? cycleParsed : undefined;
 
   return (
@@ -124,9 +126,9 @@ export default function DonationsPage({
       <SiteHeader variant="app" />
       <main className="bg-slate-warm-50 pb-20 pt-28">
         <div className="mx-auto max-w-4xl px-6">
-          <BackLink href={`/members/${params.bioguide}`}>Back to member</BackLink>
+          <BackLink href={`/members/${bioguide}`}>Back to member</BackLink>
           <Suspense fallback={<PageSkeleton />}>
-            <DonationsContent bioguide={params.bioguide} offset={offset} sort={sort} q={q} cycle={cycle} />
+            <DonationsContent bioguide={bioguide} offset={offset} sort={sort} q={q} cycle={cycle} />
           </Suspense>
         </div>
       </main>

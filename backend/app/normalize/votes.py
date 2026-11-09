@@ -1,10 +1,13 @@
 """Layer 2 normalizer: House + Senate vote staging -> votes / vote_positions.
 
-Reads both staged files (house_votes_raw.json, senate_votes_raw.json). House
-positions carry Bioguide IDs directly; **Senate positions carry LIS member ids
-and are resolved to Bioguide via id_crosswalk.lis** — the crosswalk backbone's
-first real cross-source join. Senate positions with no crosswalk hit (e.g. a
-former senator not in the current map) are skipped and counted.
+Reads only the chambers selected by the refresh orchestrator; the standalone
+normalizer defaults to both staged files. House
+positions carry Bioguide IDs directly. **Official Senate (LIS) positions carry
+LIS member ids and are resolved to Bioguide via id_crosswalk.lis** — the
+crosswalk backbone's first real cross-source join. Senate positions staged by
+the Voteview fallback already carry `bioguide_id` and bind directly. Senate
+positions with neither a Bioguide id nor a crosswalk hit (e.g. a former senator
+not in the current map) are skipped and counted.
 
 Votes upsert on vote_id; each refreshed vote's positions are fully replaced.
 Inserts are chunked under Postgres' 32767 bind-parameter cap (100 House votes ×
@@ -65,9 +68,9 @@ async def _insert_chunked(session, model, rows: list[dict]) -> None:
         await session.execute(pg_insert(model).values(rows[i : i + _CHUNK]))
 
 
-async def normalize_and_load() -> int:
-    house = _load(HOUSE_PATH)
-    senate = _load(SENATE_PATH)
+async def normalize_and_load(*, include_house: bool = True, include_senate: bool = True) -> int:
+    house = _load(HOUSE_PATH) if include_house else []
+    senate = _load(SENATE_PATH) if include_senate else []
     if not house and not senate:
         logger.info("votes normalizer: nothing staged")
         return 0
@@ -102,7 +105,7 @@ async def normalize_and_load() -> int:
             vote_ids.append(v["vote_id"])
             seen = set()
             for p in v.get("positions", []):
-                bio = lis_to_bioguide.get(p.get("lis_member_id"))
+                bio = p.get("bioguide_id") or lis_to_bioguide.get(p.get("lis_member_id"))
                 if not bio:
                     senate_unresolved += 1
                     continue
@@ -130,7 +133,7 @@ async def normalize_and_load() -> int:
         await session.commit()
 
     logger.info(
-        "normalized %d votes, %d positions (%d senate positions unresolved via crosswalk)",
+        "normalized %d votes, %d positions (%d senate positions unresolved)",
         len(vote_rows), len(pos_rows), senate_unresolved,
     )
     return len(vote_rows)

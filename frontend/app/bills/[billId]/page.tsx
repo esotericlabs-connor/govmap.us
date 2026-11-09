@@ -101,8 +101,9 @@ async function BillFullText({ billId }: { billId: string }) {
   );
 }
 
-export async function generateMetadata({ params }: { params: { billId: string } }) {
-  const bill = await getBill(params.billId).catch(() => null);
+export async function generateMetadata({ params }: { params: Promise<{ billId: string }> }) {
+  const { billId } = await params;
+  const bill = await getBill(billId).catch(() => null);
   const label = bill ? `${bill.bill_type.toUpperCase()} ${bill.number}` : "Bill";
   return { title: bill?.title ?? label };
 }
@@ -282,7 +283,8 @@ async function BillDetailContent({ billId }: { billId: string }) {
   );
 }
 
-export default function BillDetailPage({ params }: { params: { billId: string } }) {
+export default async function BillDetailPage({ params }: { params: Promise<{ billId: string }> }) {
+  const { billId } = await params;
   return (
     <>
       <SiteHeader variant="app" />
@@ -290,7 +292,7 @@ export default function BillDetailPage({ params }: { params: { billId: string } 
         <div className="mx-auto max-w-6xl px-6">
           <BackLink href="/bills">All Bills</BackLink>
           <Suspense fallback={<PageSkeleton />}>
-            <BillDetailContent billId={params.billId} />
+            <BillDetailContent billId={billId} />
           </Suspense>
         </div>
       </main>

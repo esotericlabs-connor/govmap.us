@@ -20,8 +20,9 @@ async function getMember(bioguide: string): Promise<MemberDetail | null> {
   }
 }
 
-export async function generateMetadata({ params }: { params: { bioguide: string } }) {
-  const member = await getMember(params.bioguide).catch(() => null);
+export async function generateMetadata({ params }: { params: Promise<{ bioguide: string }> }) {
+  const { bioguide } = await params;
+  const member = await getMember(bioguide).catch(() => null);
   return { title: member ? member.official_full_name : "Member" };
 }
 
@@ -36,7 +37,8 @@ async function MemberDetailContent({ bioguide }: { bioguide: string }) {
   );
 }
 
-export default function MemberDetailPage({ params }: { params: { bioguide: string } }) {
+export default async function MemberDetailPage({ params }: { params: Promise<{ bioguide: string }> }) {
+  const { bioguide } = await params;
   return (
     <>
       <SiteHeader variant="app" />
@@ -44,7 +46,7 @@ export default function MemberDetailPage({ params }: { params: { bioguide: strin
         <div className="mx-auto max-w-6xl px-6">
           <BackLink href="/congress">Back to map</BackLink>
           <Suspense fallback={<PageSkeleton />}>
-            <MemberDetailContent bioguide={params.bioguide} />
+            <MemberDetailContent bioguide={bioguide} />
           </Suspense>
         </div>
       </main>

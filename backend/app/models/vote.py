@@ -10,7 +10,8 @@ from app.db import Base
 class Vote(Base):
     """A roll-call vote. vote_id is `{h|s}{congress}-{session}-{roll}`, e.g.
     'h119-2-5' (House) or 's119-2-1' (Senate). Source: House Clerk EVS XML /
-    Senate LIS XML."""
+    Senate LIS XML, with Voteview CSVs as the Senate fallback when senate.gov
+    is unreachable (same vote_id scheme, so official pulls overwrite in place)."""
 
     __tablename__ = "votes"
 

@@ -48,6 +48,12 @@ class Settings(BaseSettings):
     congress_session: int = 2
     # Per-chamber cap on how many most-recent roll-call votes to pull.
     votes_limit: int = 100
+    # Senate fallback (Voteview CSVs, used only when senate.gov refuses the
+    # official LIS pull): reuse an already-staged Voteview pull younger than
+    # this many hours instead of re-downloading ~3 MB from a free academic
+    # service every 30-min run. Reuse never certifies official-feed freshness.
+    # 0 = always re-download.
+    voteview_min_refetch_hours: int = Field(default=6, ge=0, le=24)
     # Per-chamber cap on how many most-recently-updated committee meetings to
     # pull detail for (each meeting = 1 detail call). Covers recent + upcoming
     # activity across all committees; well under the hourly key limit.

@@ -71,6 +71,9 @@ services:
       CONGRESS_GOV_BILLS_MAX_SECONDS: ${CONGRESS_GOV_BILLS_MAX_SECONDS:-600}
       CONGRESS_MAX_CONSECUTIVE_FAILURES: ${CONGRESS_MAX_CONSECUTIVE_FAILURES:-5}
       VOTES_LIMIT: ${VOTES_LIMIT:-100}
+      # Hours a staged Voteview Senate pull (the fallback when senate.gov blocks
+      # the official LIS XML) is reused before re-downloading.
+      VOTEVIEW_MIN_REFETCH_HOURS: ${VOTEVIEW_MIN_REFETCH_HOURS:-6}
     ports:
       # Loopback only — for host-side tooling and the deploy health check.
       # The tunnel reaches this over the compose network at http://backend:8000.

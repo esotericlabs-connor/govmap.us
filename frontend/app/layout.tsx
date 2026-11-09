@@ -54,6 +54,9 @@ export default function RootLayout({
     <html
       lang="en"
       className={`${inter.variable} ${spaceGrotesk.variable} scroll-smooth`}
+      // Next 16 stopped disabling smooth scrolling during route changes by
+      // default; this restores the instant scroll-to-top on navigation.
+      data-scroll-behavior="smooth"
     >
       {/* Base background/text colors are now in globals.css */}
       <body>

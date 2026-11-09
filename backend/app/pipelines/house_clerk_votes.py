@@ -9,6 +9,12 @@ binary-search the current maximum and pull the most-recent VOTES_LIMIT of them
 (newest first). A descriptive User-Agent is REQUIRED — the Clerk 403s the
 default requests UA.
 
+The Clerk soft-404s: a missing 3-digit roll (e.g. roll999.xml) answers HTTP 200
+with a tiny `<xml>Error sanitizing file ...</xml>` body (4-digit misses are a
+real 404). Existence is therefore judged by the body opening a <rollcall-vote>
+document, never by status alone — a status-only probe once made every 3-digit
+roll "exist", converged on 999, and the run parsed nothing.
+
 Run directly: `python -m app.pipelines.house_clerk_votes`.
 """
 
@@ -36,6 +42,11 @@ STAGING = STAGING_DIR / "house_votes_raw.json"
 # (and the default requests UA), but honors this identifying "compatible" form.
 _HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; GovMap.us/1.0; +https://govmap.us)"}
 _session = requests.Session()
+
+# A real roll file opens <rollcall-vote> within its first ~60 bytes (after the
+# XML declaration); the probe reads only this much of the body.
+_ROLL_ROOT = b"<rollcall-vote"
+_PROBE_BYTES = 1024
 
 # House bill types map from the legis-num text (e.g. "H R 3076", "H J RES 1").
 _BILL_PREFIX = {
@@ -79,15 +90,26 @@ def bill_id_from_legis(legis: str, congress: int) -> str | None:
     return f"{prefix}{number}-{congress}" if prefix else None
 
 
+def _is_roll_document(head: bytes) -> bool:
+    return _ROLL_ROOT in head
+
+
 def _exists(year: int, n: int) -> bool:
-    # Status-only probe — stream + close so we don't download the body.
+    """Only a definite missing-file response is absence, not an outage."""
+    resp = _session.get(_roll_url(year, n), headers=_HEADERS, timeout=20, stream=True)
     try:
-        resp = _session.get(_roll_url(year, n), headers=_HEADERS, timeout=20, stream=True)
-        ok = resp.status_code == 200
+        if resp.status_code == 404:
+            return False
+        if resp.status_code != 200:
+            raise RuntimeError(f"house clerk returned HTTP {resp.status_code} (roll {n}, {year})")
+        head = next(resp.iter_content(chunk_size=_PROBE_BYTES), b"")
+        if _is_roll_document(head):
+            return True
+        if b"Error sanitizing" in head:
+            return False
+        raise RuntimeError(f"house clerk returned an unexpected response (roll {n}, {year})")
+    finally:
         resp.close()
-        return ok
-    except requests.RequestException:
-        return False
 
 
 def _max_roll(year: int) -> int:
@@ -171,31 +193,26 @@ def run() -> int:
     session = settings.congress_session
     year = _year(congress, session)
 
-    # Authoritative reachability probe on roll 1: 404 = no votes yet (fine);
-    # anything else non-200 (e.g. a WAF 403) is raised so it surfaces as a
-    # failure rather than being mistaken for "no votes".
-    first = _session.get(_roll_url(year, 1), headers=_HEADERS, timeout=20)
-    if first.status_code == 404:
+    top = _max_roll(year)
+    if top == 0:
         _stage([])
         logger.info("house_clerk_votes: no roll calls yet for %d", year)
         return 0
-    if first.status_code != 200:
-        raise RuntimeError(f"house clerk returned HTTP {first.status_code} (roll 1, {year})")
 
-    top = _max_roll(year)
     lo = max(1, top - settings.votes_limit + 1)
     staged: list[dict] = []
     for n in range(top, lo - 1, -1):  # newest first
+        resp = _session.get(_roll_url(year, n), headers=_HEADERS, timeout=20)
         try:
-            resp = _session.get(_roll_url(year, n), headers=_HEADERS, timeout=20)
             if resp.status_code != 200:
-                continue
-            vote = _parse(ET.fromstring(resp.content), year, congress, session)
-            if vote:
-                staged.append(vote)
-        except Exception as exc:
-            logger.warning("skipping house roll %d: %s", n, exc)
-
+                raise RuntimeError(f"house roll {n} returned HTTP {resp.status_code}")
+            root = ET.fromstring(resp.content)
+            vote = _parse(root, year, congress, session) if root.tag == "rollcall-vote" else None
+            if not vote or vote["roll_number"] != n:
+                raise ValueError(f"house roll {n} is not a matching roll-call document")
+            staged.append(vote)
+        finally:
+            resp.close()
     if not staged:
         raise ValueError(f"no house votes parsed (year {year}, top roll {top})")
 

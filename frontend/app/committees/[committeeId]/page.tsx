@@ -36,8 +36,9 @@ async function getCommittee(id: string): Promise<CommitteeDetail | null> {
   }
 }
 
-export async function generateMetadata({ params }: { params: { committeeId: string } }) {
-  const committee = await getCommittee(params.committeeId).catch(() => null);
+export async function generateMetadata({ params }: { params: Promise<{ committeeId: string }> }) {
+  const { committeeId } = await params;
+  const committee = await getCommittee(committeeId).catch(() => null);
   return { title: committee?.name ?? "Committee" };
 }
 
@@ -346,7 +347,12 @@ async function CommitteeDetailContent({ committeeId }: { committeeId: string }) 
   );
 }
 
-export default function CommitteeDetailPage({ params }: { params: { committeeId: string } }) {
+export default async function CommitteeDetailPage({
+  params,
+}: {
+  params: Promise<{ committeeId: string }>;
+}) {
+  const { committeeId } = await params;
   return (
     <>
       <SiteHeader variant="app" />
@@ -354,7 +360,7 @@ export default function CommitteeDetailPage({ params }: { params: { committeeId:
         <div className="mx-auto max-w-6xl px-6">
           <BackLink href="/congress">Back to map</BackLink>
           <Suspense fallback={<PageSkeleton />}>
-            <CommitteeDetailContent committeeId={params.committeeId} />
+            <CommitteeDetailContent committeeId={committeeId} />
           </Suspense>
         </div>
       </main>

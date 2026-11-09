@@ -9,12 +9,8 @@ const nextConfig = {
     // member photos land.
     unoptimized: true,
   },
-  eslint: {
-    // Lint is enforced in CI (.github/workflows/lint.yml), not as a hard gate
-    // on the production build — a stray lint nit shouldn't be able to block a
-    // deploy. Type checking still runs during the build.
-    ignoreDuringBuilds: true,
-  },
+  // Lint is enforced in CI (.github/workflows/lint.yml) via the ESLint CLI;
+  // Next 16 no longer lints during `next build`. Type checking still runs.
   // Proxy same-origin browser calls ("/api/*") to the backend server-side. This
   // keeps client fetches on the page's own origin so they never depend on the
   // public api.* host being reachable/unblocked from the device or on CORS —

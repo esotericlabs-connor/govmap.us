@@ -16,6 +16,10 @@ Senate votes key each member by `lis_member_id` (e.g. "S429"), NOT Bioguide, so
 positions are staged with the LIS id and the normalizer resolves them to
 Bioguide via id_crosswalk.lis.
 
+The production menu request returned HTTP 403. This stays the PRIMARY source;
+refresh_votes falls back to voteview_senate_votes when it raises. A 403 alone
+does not identify the upstream blocking policy.
+
 Run directly: `python -m app.pipelines.senate_lis_votes`.
 """
 
@@ -61,17 +65,30 @@ def _int(v) -> int | None:
 
 
 def _menu_numbers(congress: int, session: int) -> list[int]:
-    """Vote numbers from the session menu. A menu that won't parse as XML is a
-    soft-404 / bad response — raise so it surfaces (vs. looking like 'no votes')."""
+    """Vote numbers from the session menu. A non-200, a body that won't parse as
+    XML, or a parseable document that isn't a <vote_summary> menu is a block /
+    soft-404 / bad response — raise so it surfaces (vs. looking like 'no votes',
+    which would also suppress the Voteview fallback in refresh_votes)."""
     resp = _session.get(_menu_url(congress, session), headers=_HEADERS, timeout=30)
+    if resp.status_code != 200:
+        raise RuntimeError(f"senate vote menu returned HTTP {resp.status_code} ({congress}_{session})")
     try:
         menu = ET.fromstring(resp.content)
     except ET.ParseError as exc:
         raise RuntimeError(
             f"senate vote menu not parseable (HTTP {resp.status_code}, {congress}_{session}): {exc}"
         ) from exc
-    numbers = [_int(v.findtext("vote_number")) for v in menu.findall("votes/vote")]
-    return [n for n in numbers if n is not None]
+    if menu.tag != "vote_summary":
+        raise RuntimeError(f"senate vote menu has unexpected root <{menu.tag}> ({congress}_{session})")
+    if menu.find("votes") is None:
+        raise ValueError("senate vote menu is missing its votes element")
+    numbers: list[int] = []
+    for vote in menu.findall("votes/vote"):
+        number = _int(vote.findtext("vote_number"))
+        if number is None or number < 1:
+            raise ValueError("senate vote menu contains an invalid vote number")
+        numbers.append(number)
+    return numbers
 
 
 def _parse_date(raw: str | None) -> str | None:
@@ -147,13 +164,19 @@ def run() -> int:
     numbers = sorted(set(numbers), reverse=True)[: settings.votes_limit]  # newest first
     staged: list[dict] = []
     for n in numbers:
+        resp = _session.get(_vote_url(congress, session, n), headers=_HEADERS, timeout=30)
         try:
-            resp = _session.get(_vote_url(congress, session, n), headers=_HEADERS, timeout=30)
-            vote = _parse(ET.fromstring(resp.content), congress, session, n)
-            if vote:
-                staged.append(vote)
-        except Exception as exc:
-            logger.warning("skipping senate vote %d: %s", n, exc)
+            if resp.status_code != 200:
+                raise RuntimeError(f"senate vote {n} returned HTTP {resp.status_code}")
+            root = ET.fromstring(resp.content)
+            if root.tag != "roll_call_vote" or _int(root.findtext("vote_number")) != n:
+                raise ValueError(f"senate vote {n} is not a matching roll-call document")
+            vote = _parse(root, congress, session, n)
+            if not vote:
+                raise ValueError(f"senate vote {n} has no member positions")
+            staged.append(vote)
+        finally:
+            resp.close()
 
     if not staged:
         raise ValueError(f"no senate votes parsed ({len(numbers)} in menu)")

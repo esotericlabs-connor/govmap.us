@@ -20,8 +20,9 @@ async function getVote(voteId: string): Promise<VoteDetail | null> {
   }
 }
 
-export async function generateMetadata({ params }: { params: { voteId: string } }) {
-  const vote = await getVote(params.voteId).catch(() => null);
+export async function generateMetadata({ params }: { params: Promise<{ voteId: string }> }) {
+  const { voteId } = await params;
+  const vote = await getVote(voteId).catch(() => null);
   return { title: vote ? `${chamberLabel(vote.chamber)} Vote ${vote.roll_number}` : "Vote" };
 }
 
@@ -99,8 +100,13 @@ async function VoteDetailContent({ voteId }: { voteId: string }) {
             rel="noreferrer"
             className="mt-4 inline-block text-sm font-semibold text-govblue transition-colors hover:text-govblue-600"
           >
-            Official Record ↗
+            {vote.source_url.startsWith("https://voteview.com/") ? "Voteview Data" : "Official Record"} ↗
           </a>
+        )}
+        {vote.source_url?.startsWith("https://voteview.com/") && (
+          <p className="mt-2 text-sm text-slate-warm-500">
+            Senate fallback from Voteview. Coverage and freshness may differ from the official record.
+          </p>
         )}
       </header>
 
@@ -177,7 +183,8 @@ async function VoteDetailContent({ voteId }: { voteId: string }) {
   );
 }
 
-export default function VoteDetailPage({ params }: { params: { voteId: string } }) {
+export default async function VoteDetailPage({ params }: { params: Promise<{ voteId: string }> }) {
+  const { voteId } = await params;
   return (
     <>
       <SiteHeader variant="app" />
@@ -185,7 +192,7 @@ export default function VoteDetailPage({ params }: { params: { voteId: string } 
         <div className="mx-auto max-w-6xl px-6">
           <BackLink href="/votes">All Votes</BackLink>
           <Suspense fallback={<PageSkeleton />}>
-            <VoteDetailContent voteId={params.voteId} />
+            <VoteDetailContent voteId={voteId} />
           </Suspense>
         </div>
       </main>
