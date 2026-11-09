@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import { SiteHeader } from "@/components/SiteHeader";
 
 export const metadata = {
@@ -19,12 +21,12 @@ export default function AccountPage() {
             personalize and keep up with your government — we&apos;re building it
             now and will open it up shortly.
           </p>
-          <a
+          <Link
             href="/"
             className="mt-6 inline-block rounded-full bg-govnavy px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-govnavy/90"
           >
             Back to home
-          </a>
+          </Link>
         </div>
       </main>
     </>

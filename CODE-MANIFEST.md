@@ -4,6 +4,32 @@ What's been built, in what order, and what's next. This is a living log — add 
 
 ## Build log
 
+**2026-11-09 — Production readiness: audit fix, lint fix, Coolify Compose (CI pending)**
+CI on `4e30c04` (the push of the 2026-11-08 work) passed backend lint and
+tests but failed frontend lint and the audit gate; build/typecheck were skipped.
+- Audit: 8 moderate findings, all one advisory
+  ([GHSA-g3hv-75wg-m249](https://github.com/advisories/GHSA-g3hv-75wg-m249),
+  minimatch globparts DoS) reached via
+  `@typescript-eslint/typescript-estree@8.72.1` → `minimatch@10.2.6`
+  (lint tooling, dev-only). npm's suggested fix was a downgrade to
+  `eslint-config-next@15`, which was rejected. A scoped `overrides` entry pins
+  only that consumer's `minimatch` to 11.0.5 (patched); other ESLint packages keep
+  their separate `minimatch@3`. This is a major-version bump for that consumer,
+  so passing lint in CI is the compatibility evidence. Remove the
+  override once typescript-eslint depends on a patched release.
+- Lint: `app/account/page.tsx` used `<a href="/">` for internal navigation;
+  now `next/link`.
+- `docker-compose.coolify.yml` (previously only on `dev`) added to `main` for
+  the Coolify production resource. Root-only topology: only the frontend is
+  published, through that environment's own tunnel. `NEXT_PUBLIC_API_URL`
+  defaults to `http://backend:8000`, so the build-time `/api/*` rewrite
+  targets the private backend instead of the retired `api.govmap.us`. CORS
+  defaults to `https://govmap.us`. Each environment (dev/production) is a
+  separate Coolify resource with its own database, volumes and tunnel token.
+- Still open: commit `frontend/package-lock.json` from this PR's CI
+  artifact (the Dockerfile requires it), then obtain a fully green run with
+  `npm ci` before merging or deploying.
+
 **2026-11-08 — Vote source repair and frontend platform upgrade (CI pending)**
 The first deploy after the refresh bounds (`8630cad`) finished on time, but the
 refresh was unhealthy: bills `partial`, and votes failed in both chambers.
