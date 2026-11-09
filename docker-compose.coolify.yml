@@ -1,0 +1,80 @@
+# GovMap on Coolify. Mirrors docker-compose.yml (still used by the old VM), except:
+# - no host ports: cloudflared reaches frontend/backend by service name on
+#   Coolify's network, so nothing is published on the server;
+# - no fixed container names; Coolify manages container and volume names;
+# - cloudflared always runs and reads its token from the environment;
+# - POSTGRES_PASSWORD and CLOUDFLARE_TUNNEL_TOKEN are required (no defaults).
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: govmap
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+      POSTGRES_DB: govmap
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U govmap"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://govmap:${POSTGRES_PASSWORD:?}@postgres:5432/govmap
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://govmap.us,https://app.govmap.us}
+      TRUSTED_PROXY_CIDRS: ${TRUSTED_PROXY_CIDRS:-}
+      UPSTREAM_MAX_CONCURRENT_REQUESTS: ${UPSTREAM_MAX_CONCURRENT_REQUESTS:-4}
+      CONGRESS_REQUESTS_PER_HOUR: ${CONGRESS_REQUESTS_PER_HOUR:-4500}
+      FEC_REQUESTS_PER_HOUR: ${FEC_REQUESTS_PER_HOUR:-900}
+      GOVINFO_REQUESTS_PER_HOUR: ${GOVINFO_REQUESTS_PER_HOUR:-600}
+      INTERNAL_USER: ${INTERNAL_USER:-}
+      INTERNAL_PASSWORD: ${INTERNAL_PASSWORD:-}
+      ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
+      CONGRESS_GOV_API_KEY: ${CONGRESS_GOV_API_KEY:-}
+      FEC_API_KEY: ${FEC_API_KEY:-}
+      FEC_CYCLE: ${FEC_CYCLE:-2026}
+      HUD_API_TOKEN: ${HUD_API_TOKEN:-}
+      TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY:-}
+      CONGRESS_NUMBER: ${CONGRESS_NUMBER:-119}
+      CONGRESS_SESSION: ${CONGRESS_SESSION:-2}
+      CONGRESS_GOV_BILL_LIMIT: ${CONGRESS_GOV_BILL_LIMIT:-250}
+      CONGRESS_GOV_BILLS_MAX_SECONDS: ${CONGRESS_GOV_BILLS_MAX_SECONDS:-600}
+      CONGRESS_MAX_CONSECUTIVE_FAILURES: ${CONGRESS_MAX_CONSECUTIVE_FAILURES:-5}
+      VOTES_LIMIT: ${VOTES_LIMIT:-100}
+    volumes:
+      - govmap-logs:/app/logs
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://api.govmap.us}
+        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-https://app.govmap.us}
+        NEXT_PUBLIC_MARKETING_URL: ${NEXT_PUBLIC_MARKETING_URL:-https://govmap.us}
+        NEXT_PUBLIC_TURNSTILE_SITE_KEY: ${NEXT_PUBLIC_TURNSTILE_SITE_KEY:-}
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      API_INTERNAL_URL: http://backend:8000
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?}
+    depends_on:
+      - frontend
+      - backend
+
+volumes:
+  postgres-data:
+  govmap-logs:
