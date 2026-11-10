@@ -15,11 +15,18 @@ deployment directory, a manifest with the Alembic revision, checksums, and
 restore notes. It replaces yesterday's bundle only after the new one is
 verified; any failure keeps the old one. Synthetic tests cover the contents,
 replacement, ambiguous or missing containers, and dump, verification and log
-failures. The earlier age-encrypted production dump and its recovery
-identity are retained. Temporary rehearsal copies and the unused SSH key are
-being removed.
-Server installation, the first real run, Duplicati inclusion, and a restore
-from a Duplicati copy remain to be verified.
+failures. [CI run 42922242786](https://github.com/esotericlabs-connor/govmap.us/actions/runs/42922242786)
+passed on `1353642`. A manual dev run passed its checksums and restored into a
+scratch database matching dev (revision `0013`, 539 members, 19,489 bills, 283
+votes, 46,012 ZIP rows). The script and units were then installed on the
+server. One production run through the systemd service passed its checksums
+and restored into a scratch database in the dev Postgres container, matching
+live production: `0013`, 539 members, 19,512 bills, 289 votes and 46,012 ZIP
+rows. Both scratch databases and the rehearsal folder were removed, along
+with the temporary transfer copies and the unused SSH key. The earlier
+age-encrypted production dump and its recovery identity are retained.
+The nightly timer, Duplicati inclusion and encryption, both off-site copies,
+failure alerting, and a restore from a Duplicati copy remain to be verified.
 
 **2026-11-09 — Coolify-aware encrypted database backup utility (production decryption checked)**
 Added `scripts/backup-coolify-database.sh` for an explicitly selected

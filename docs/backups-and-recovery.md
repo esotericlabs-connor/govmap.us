@@ -57,13 +57,20 @@ Installation (as root on the server, from a reviewed checkout):
 ```bash
 install -m 755 -o root -g root scripts/backup-coolify-daily.sh /usr/local/sbin/govmap-daily-backup
 install -m 644 -o root -g root scripts/systemd/govmap-daily-backup.service scripts/systemd/govmap-daily-backup.timer /etc/systemd/system/
-install -d -m 700 -o root -g root /srv/govmap-backup
+install -d -m 700 -o root -g root /srv/govmap-backup /etc/govmap-backup
 printf 'GOVMAP_RESOURCE_ID=%s\nGOVMAP_BACKUP_DIR=%s\nGOVMAP_CONFIG_DIR=%s\n' RESOURCE_ID /srv/govmap-backup CONFIG_DIR > /etc/govmap-backup/daily.env
 systemctl daemon-reload && systemctl start govmap-daily-backup.service && systemctl enable --now govmap-daily-backup.timer
 ```
 
-The paths are placeholders. Omit the `GOVMAP_CONFIG_DIR` line if there is no
-Coolify deployment directory. Check runs with
+The paths are placeholders. Coolify keeps a resource's `docker-compose.yaml`
+and `.env` in `/data/coolify/applications/RESOURCE_ID`. Omit the
+`GOVMAP_CONFIG_DIR` line if there is no Coolify deployment directory.
+
+To check a bundle, run `sha256sum -c SHA256SUMS` in its unpacked copy. Then
+restore `database.dump` into a new scratch database in a non-production
+Postgres container and compare `alembic_version` and row counts with the
+source. On 2026-11-10 this check matched for both the dev and production
+bundles. Check runs with
 `systemctl status govmap-daily-backup.service` and
 `journalctl -u govmap-daily-backup.service`.
 
