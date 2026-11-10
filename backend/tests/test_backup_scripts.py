@@ -39,7 +39,10 @@ elif args[:1] == ["ps"]:
         "postgres-testresource-20261109T123048"
     ))
 elif args[:1] == ["exec"]:
-    command = args[2]
+    index = 1
+    while args[index].startswith("-"):
+        index += 1
+    command = args[index + 1]
     if command == "pg_isready":
         if os.environ.get("FAKE_PG_READY_FAIL") == "1":
             sys.exit(1)
@@ -47,7 +50,18 @@ elif args[:1] == ["exec"]:
         sys.stdout.buffer.write(b"synthetic database dump")
         if os.environ.get("FAKE_DUMP_FAIL") == "1":
             sys.exit(1)
+    elif command == "pg_restore":
+        if sys.stdin.buffer.read() != b"synthetic database dump":
+            sys.exit(1)
+        if os.environ.get("FAKE_VERIFY_FAIL") == "1":
+            sys.exit(1)
+    elif command == "psql":
+        print("0013")
     else:
+        sys.exit(1)
+elif args[:1] == ["cp"]:
+    sys.stdout.buffer.write(b"synthetic log archive")
+    if os.environ.get("FAKE_LOG_FAIL") == "1":
         sys.exit(1)
 elif args[:1] == ["compose"]:
     if "ps" in args:
@@ -131,6 +145,7 @@ def backup_context(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> BackupCon
         "backup-common.sh",
         "backup-database.sh",
         "backup-coolify-database.sh",
+        "backup-coolify-daily.sh",
         "backup-govmap.sh",
         "duplicati-database-hook.sh",
         "restore-database.sh",
@@ -177,6 +192,10 @@ def backup_context(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> BackupCon
         "FAKE_RUNNING_CONTAINERS",
         "FAKE_RESTORE_FAIL",
         "FAKE_ROTATE_RECIPIENTS",
+        "FAKE_VERIFY_FAIL",
+        "GOVMAP_BACKUP_DIR",
+        "GOVMAP_CONFIG_DIR",
+        "GOVMAP_RESOURCE_ID",
     ):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}")
@@ -288,6 +307,127 @@ def test_coolify_database_backup_fails_closed_without_replacing_prior_backup(
     assert previous.read_bytes() == b"previous backup"
     assert not list(backup_context.destination.glob("govmap-testresource-*.dump.age"))
     assert not list(backup_context.destination.glob(".govmap-db-work-*"))
+
+
+_DAILY_CONTAINERS = "postgres-testresource-20261109T123048\nbackend-testresource-20261109T123048"
+
+
+def _daily_args(context: BackupContext) -> tuple[str, ...]:
+    context.destination.chmod(0o700)
+    return ("--resource-id", "testresource", "--destination", str(context.destination))
+
+
+def _bundle_members(bundle: Path) -> dict[str, bytes]:
+    members: dict[str, bytes] = {}
+    with tarfile.open(bundle, "r:gz") as archive:
+        for member in archive.getmembers():
+            extracted = archive.extractfile(member) if member.isfile() else None
+            if extracted is not None:
+                members[member.name] = extracted.read()
+    return members
+
+
+def test_daily_bundle_contains_verified_dump_logs_config_and_manifest(
+    backup_context: BackupContext, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("FAKE_RUNNING_CONTAINERS", _DAILY_CONTAINERS)
+    config = tmp_path / "coolify-app"
+    config.mkdir()
+    (config / ".env").write_text("SYNTHETIC_SECRET=example\n", encoding="utf-8")
+    result = _run(
+        backup_context,
+        "backup-coolify-daily.sh",
+        *_daily_args(backup_context),
+        "--config-dir",
+        str(config),
+    )
+    assert result.returncode == 0, result.stderr
+    output = Path(result.stdout.strip())
+    assert output == backup_context.destination / "govmap-backup.tar.gz"
+    assert stat.S_IMODE(output.stat().st_mode) == 0o600
+    members = _bundle_members(output)
+    assert members["govmap-backup/database.dump"] == b"synthetic database dump"
+    assert members["govmap-backup/logs.tar"] == b"synthetic log archive"
+    assert members["govmap-backup/coolify-config/.env"] == b"SYNTHETIC_SECRET=example\n"
+    manifest = members["govmap-backup/MANIFEST.txt"].decode()
+    assert "alembic_revision=0013" in manifest
+    assert "postgres_container=postgres-testresource-20261109T123048" in manifest
+    checksums = members["govmap-backup/SHA256SUMS"].decode()
+    for name in ("database.dump", "logs.tar", "MANIFEST.txt", "RESTORE.txt", "coolify-config/.env"):
+        assert f"./{name}\n" in checksums
+    assert sorted(p.name for p in backup_context.destination.iterdir()) == [
+        ".govmap-backup.lock",
+        "govmap-backup.tar.gz",
+    ]
+    restore_inputs = [call for call in _docker_calls(backup_context) if "pg_restore" in call]
+    assert restore_inputs == [
+        ["exec", "-i", "postgres-testresource-20261109T123048", "pg_restore", "--list"]
+    ]
+
+
+def test_daily_bundle_reads_systemd_environment_and_replaces_previous_bundle(
+    backup_context: BackupContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    backup_context.destination.chmod(0o700)
+    previous = backup_context.destination / "govmap-backup.tar.gz"
+    previous.write_bytes(b"yesterday")
+    monkeypatch.setenv("FAKE_RUNNING_CONTAINERS", _DAILY_CONTAINERS)
+    monkeypatch.setenv("GOVMAP_RESOURCE_ID", "testresource")
+    monkeypatch.setenv("GOVMAP_BACKUP_DIR", str(backup_context.destination))
+    result = _run(backup_context, "backup-coolify-daily.sh")
+    assert result.returncode == 0, result.stderr
+    members = _bundle_members(previous)
+    assert members["govmap-backup/database.dump"] == b"synthetic database dump"
+    assert "coolify_config=not included" in members["govmap-backup/MANIFEST.txt"].decode()
+
+
+@pytest.mark.parametrize(
+    ("environment", "value"),
+    [
+        ("FAKE_RUNNING_CONTAINERS", "postgres-testresource-20261109T123048"),
+        (
+            "FAKE_RUNNING_CONTAINERS",
+            _DAILY_CONTAINERS + "\npostgres-testresource-20261109T123049",
+        ),
+        ("FAKE_PG_READY_FAIL", "1"),
+        ("FAKE_DUMP_FAIL", "1"),
+        ("FAKE_VERIFY_FAIL", "1"),
+        ("FAKE_LOG_FAIL", "1"),
+    ],
+)
+def test_daily_bundle_failure_keeps_previous_bundle(
+    backup_context: BackupContext,
+    monkeypatch: pytest.MonkeyPatch,
+    environment: str,
+    value: str,
+) -> None:
+    args = _daily_args(backup_context)
+    previous = backup_context.destination / "govmap-backup.tar.gz"
+    previous.write_bytes(b"yesterday")
+    monkeypatch.setenv("FAKE_RUNNING_CONTAINERS", _DAILY_CONTAINERS)
+    monkeypatch.setenv(environment, value)
+    result = _run(backup_context, "backup-coolify-daily.sh", *args)
+    assert result.returncode != 0
+    assert previous.read_bytes() == b"yesterday"
+    assert not list(backup_context.destination.glob(".govmap-backup-work-*"))
+
+
+def test_daily_bundle_refuses_group_accessible_destination(
+    backup_context: BackupContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("FAKE_RUNNING_CONTAINERS", _DAILY_CONTAINERS)
+    backup_context.destination.chmod(0o750)
+    result = _run(
+        backup_context,
+        "backup-coolify-daily.sh",
+        "--resource-id",
+        "testresource",
+        "--destination",
+        str(backup_context.destination),
+    )
+    assert result.returncode != 0
+    assert "group or others" in result.stderr
+    assert not list(backup_context.destination.iterdir())
 
 
 @pytest.mark.parametrize("failure", ["FAKE_DUMP_FAIL", "FAKE_AGE_FAIL"])

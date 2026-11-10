@@ -4,17 +4,44 @@ What's been built, in what order, and what's next. This is a living log — add 
 
 ## Build log
 
-**2026-11-09 — Coolify-aware encrypted database backup utility (validation pending)**
+**2026-11-10 — Daily GovMap recovery bundle for Duplicati**
+The operator chose a simpler routine: one compressed, root-only bundle per day
+in a dedicated server directory. Duplicati copies it with its own encryption
+and keeps the version history. Daily backups no longer use age. Added
+`scripts/backup-coolify-daily.sh` and a systemd service/timer in
+`scripts/systemd/`. Each run makes a consistent `pg_dump`, checks it with
+`pg_restore --list`, and adds backend logs, an optional copy of the Coolify
+deployment directory, a manifest with the Alembic revision, checksums, and
+restore notes. It replaces yesterday's bundle only after the new one is
+verified; any failure keeps the old one. Synthetic tests cover the contents,
+replacement, ambiguous or missing containers, and dump, verification and log
+failures. The earlier age-encrypted production dump and its recovery
+identity are retained. Temporary rehearsal copies and the unused SSH key are
+being removed.
+Server installation, the first real run, Duplicati inclusion, and a restore
+from a Duplicati copy remain to be verified.
+
+**2026-11-09 — Coolify-aware encrypted database backup utility (production decryption checked)**
 Added `scripts/backup-coolify-database.sh` for an explicitly selected
 production resource. It requires exactly one running matching Postgres
 container, verifies readiness, streams a custom-format `pg_dump` through `age`,
 and publishes the complete encrypted result without replacing prior files.
-It does not back up the raw live Postgres volume and does not install a timer
-or change production. Synthetic failure-path tests were added for missing or
+It does not back up the raw live Postgres volume, install a timer, or modify the
+source database. Synthetic failure-path tests were added for missing or
 ambiguous containers, readiness, dump and encryption failures. No local tests
-were run; the script has not been executed against Coolify. Require CI on the
-exact `dev` commit and a supervised backup plus isolated restore rehearsal
-before configuring Duplicati or a schedule. See
+were run. [CI run 42711965941](https://github.com/esotericlabs-connor/govmap.us/actions/runs/42711965941)
+passed on `7cc0abe1f3bf228a7d2cedd2c40d41897818d4fc`; the backup tests use
+mocked Docker and `age`, not a real database or encryption. A supervised
+development run produced an encrypted dump, which was decrypted with a
+temporary test identity and restored into a separate development scratch
+database. Both databases reported revision `0013`, 539 members, 19,489 bills,
+283 votes and 46,012 ZIP rows.
+The operator then removed the scratch database and temporary test key and dump.
+A supervised production run later produced an encrypted dump. A transferred
+copy matched the original checksum and decrypted completely with an off-server
+identity. The production dump has not yet been restored into PostgreSQL;
+Duplicati inclusion, copies to both off-site destinations, automation and
+full recovery on a separate machine remain unverified. See
 [backups and recovery](docs/backups-and-recovery.md).
 
 **2026-11-09 — Coolify test verification and scheduler-enabled release**

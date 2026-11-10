@@ -5,15 +5,67 @@
 Compose deployment. Do not run them against Coolify unchanged.
 `backup-coolify-database.sh` is a separate, new operator utility for creating
 an encrypted logical dump from one explicitly selected Coolify Postgres
-resource. It has not yet been run against the production server or validated
-by CI. The manual Coolify backup and scratch-restore verification is recorded
-in the [README](../README.md#migration-and-recovery-verification-2026-11-09);
-it does not validate this utility or establish an automated backup schedule.
+resource.
+[CI run 42711965941](https://github.com/esotericlabs-connor/govmap.us/actions/runs/42711965941)
+passed on `7cc0abe1f3bf228a7d2cedd2c40d41897818d4fc` with mocked Docker and
+`age`. A supervised development rehearsal subsequently created an encrypted
+dump and restored it into a separate scratch database; revision and
+representative row counts matched. The operator removed the scratch database
+and temporary test key and dump afterward. A supervised production run
+produced an encrypted dump; its transferred copy matched the source checksum
+and decrypted completely with an off-server identity. That production dump
+has not yet been restored into PostgreSQL. Duplicati inclusion, copies to both
+off-site destinations, automation and full recovery on a separate machine
+remain unverified.
+The earlier manual production backup and scratch restore are recorded in the
+[README](../README.md#migration-and-recovery-verification-2026-11-09).
 
 These are operator procedures for the Linux server and an **isolated recovery
-host**. The scripts do not configure Duplicati, create a schedule, access a
-remote host, or remove old backups. They have not yet been exercised against a
-real server and must be reviewed and verified before being relied upon.
+host**. Apart from the daily bundle below, which replaces its own previous file
+and ships an optional systemd timer, the scripts do not configure Duplicati,
+create a schedule, access a
+remote host, or remove old backups. Review and verify each script in the target
+environment before relying on it.
+
+## Daily recovery bundle (selected production method)
+
+`backup-coolify-daily.sh` replaces the age-encrypted dumps for routine daily
+backups. Each run writes one file, `govmap-backup.tar.gz`, to a root-only
+directory. Duplicati copies that directory to its own encrypted destinations
+and keeps the version history. Only the latest successful bundle is kept
+locally.
+
+Each bundle contains:
+
+- `database.dump`: a consistent custom-format `pg_dump`, checked with
+  `pg_restore --list`
+- `logs.tar`: the backend's `/app/logs`
+- `coolify-config/`: a copy of the Coolify deployment directory, including
+  `.env` secrets, when `GOVMAP_CONFIG_DIR` is set
+- `MANIFEST.txt`: the time, containers, image, and Alembic revision
+- `SHA256SUMS` and `RESTORE.txt`
+
+The new bundle is built in a scratch directory, verified, and then renamed over
+yesterday's file. Any failure leaves the previous bundle untouched and causes
+the systemd unit to report failure. The bundle is not encrypted. Keep the
+directory `root:root` with mode `700`, enable Duplicati encryption, and keep its
+passphrase separate. Schedule Duplicati after the timer, which runs at 02:30
+server time with up to 10 minutes of random delay.
+
+Installation (as root on the server, from a reviewed checkout):
+
+```bash
+install -m 755 -o root -g root scripts/backup-coolify-daily.sh /usr/local/sbin/govmap-daily-backup
+install -m 644 -o root -g root scripts/systemd/govmap-daily-backup.service scripts/systemd/govmap-daily-backup.timer /etc/systemd/system/
+install -d -m 700 -o root -g root /srv/govmap-backup
+printf 'GOVMAP_RESOURCE_ID=%s\nGOVMAP_BACKUP_DIR=%s\nGOVMAP_CONFIG_DIR=%s\n' RESOURCE_ID /srv/govmap-backup CONFIG_DIR > /etc/govmap-backup/daily.env
+systemctl daemon-reload && systemctl start govmap-daily-backup.service && systemctl enable --now govmap-daily-backup.timer
+```
+
+The paths are placeholders. Omit the `GOVMAP_CONFIG_DIR` line if there is no
+Coolify deployment directory. Check runs with
+`systemctl status govmap-daily-backup.service` and
+`journalctl -u govmap-daily-backup.service`.
 
 ## What must be protected
 
