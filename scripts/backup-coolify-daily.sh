@@ -17,6 +17,12 @@ root-only and encrypt the off-site copies (for example in Duplicati).
 
 Options may also be supplied as environment variables (used by the systemd
 unit): GOVMAP_RESOURCE_ID, GOVMAP_BACKUP_DIR, GOVMAP_CONFIG_DIR (optional).
+
+GOVMAP_HEARTBEAT_URL (optional, https only) is requested after each successful
+backup, for a dead-man's-switch monitor such as Healthchecks.io or an Uptime
+Kuma push monitor. The monitor alerts when the ping stops arriving, which
+covers failed runs and a stopped timer alike. The URL is passed to curl on
+stdin so its token never appears in the process list.
 EOF
 }
 
@@ -32,6 +38,7 @@ require_command() {
 resource_id="${GOVMAP_RESOURCE_ID:-}"
 destination="${GOVMAP_BACKUP_DIR:-}"
 config_dir="${GOVMAP_CONFIG_DIR:-}"
+heartbeat_url="${GOVMAP_HEARTBEAT_URL:-}"
 while (($#)); do
   case "$1" in
     --resource-id | --destination | --config-dir)
@@ -66,6 +73,13 @@ if ((8#$destination_mode & 8#077)); then
 fi
 if [[ -n "$config_dir" ]]; then
   [[ -d "$config_dir" && -r "$config_dir" ]] || die "The Coolify config directory is not readable."
+fi
+
+if [[ -n "$heartbeat_url" ]]; then
+  heartbeat_pattern='^https://[^[:space:]"\]+$'
+  [[ "$heartbeat_url" =~ $heartbeat_pattern ]] \
+    || die "GOVMAP_HEARTBEAT_URL must be a single https:// URL."
+  require_command curl
 fi
 
 for command in docker flock tar gzip sha256sum stat mktemp; do
@@ -194,3 +208,12 @@ chmod 600 -- "$workdir/govmap-backup.tar.gz"
 # Same-filesystem rename: readers see either the old bundle or the new one.
 mv -fT -- "$workdir/govmap-backup.tar.gz" "$output" || die "Could not publish the bundle."
 printf '%s\n' "$output"
+
+# The bundle is already published, so a failed ping only warns; the monitor
+# raises the alert when the ping does not arrive.
+if [[ -n "$heartbeat_url" ]]; then
+  if ! printf 'url = "%s"\n' "$heartbeat_url" \
+    | curl --config - --fail --silent --show-error --max-time 10 --retry 3 --output /dev/null; then
+    printf 'WARNING: The bundle was published, but the heartbeat ping failed.\n' >&2
+  fi
+fi

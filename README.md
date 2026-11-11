@@ -262,20 +262,15 @@ scratch dumps and the scratch database after successful verification.
 Keep backup passphrases or private identities separately and recoverably.
 `/tank` or another filesystem on the same host is not an off-server backup.
 
-[Backups and recovery](docs/backups-and-recovery.md) documents the legacy
-Compose scripts and recovery safeguards. Those scripts assume the old VM's
-deployment and have not been adapted or validated for Coolify resource
-selection. Do not run them against Coolify unchanged. Scheduled encrypted
-backups, off-server retention and recurring restore rehearsals remain to be
-configured and verified.
-
-The selected recovery direction is one consistent database backup per day in
-a dedicated server directory, with Duplicati copying the backup and
-application recovery materials to two off-server destinations. This is a
-goal, not yet a configured or tested schedule. Verify encryption for both
-off-server copies, protect any local plaintext, and keep recovery credentials
-separately. Coolify configuration and application data require separate
-recovery planning; a database dump alone does not recreate the deployment.
+[Backups and recovery](docs/backups-and-recovery.md) describes the production
+backup. A systemd timer on the Coolify server writes one verified, root-only
+bundle every night. The bundle holds the database dump, logs and Coolify
+deployment configuration. Duplicati copies it, encrypted, to two off-server
+destinations. On 2026-11-10 the bundle was restored into a scratch database
+and matched production. A missed-backup alert, a restore from a Duplicati
+copy, and a monthly restore check are tracked in
+[CODE-MANIFEST.md](CODE-MANIFEST.md). A database dump alone does not recreate
+the deployment; the runbook lists what else recovery needs.
 
 ### Migration and recovery verification: 2026-11-09
 

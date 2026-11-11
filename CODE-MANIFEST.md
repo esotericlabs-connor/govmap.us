@@ -4,6 +4,21 @@ What's been built, in what order, and what's next. This is a living log — add 
 
 ## Build log
 
+**2026-11-10 — Group 0: backup heartbeat and retirement of the old VM backup scripts**
+The daily bundle script gained an optional `GOVMAP_HEARTBEAT_URL`. The URL is
+requested only after a bundle is published. It must be `https`, and it is
+passed to curl on stdin so its token stays out of the process list. A failed
+ping warns but keeps the new bundle; the monitor alerts on the missing ping.
+Removed the old VM's Compose backup scripts (`backup-database.sh`,
+`backup-govmap.sh`, `duplicati-database-hook.sh`, `restore-database.sh`) and
+their tests, and rewrote [backups and recovery](docs/backups-and-recovery.md)
+around the current method. `deploy.sh`, `deploy.yml` and `docker-compose.yml`
+remain legacy VM tooling until the VM is deleted. The operator enabled the
+nightly timer and reported Duplicati copying the bundle to both destinations.
+Pending: install the heartbeat and test its alert, restore from a Duplicati
+copy, merge to `main`, and rotate credentials and delete the old VM once its
+30-day hold ends.
+
 **2026-11-10 — Daily GovMap recovery bundle for Duplicati**
 The operator chose a simpler routine: one compressed, root-only bundle per day
 in a dedicated server directory. Duplicati copies it with its own encryption
