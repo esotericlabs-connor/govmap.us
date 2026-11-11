@@ -1,7 +1,7 @@
-# GovMap on Coolify. Mirrors docker-compose.yml (still used by the old VM), except:
+# Deployment configuration. Mirrors docker-compose.yml (still used by the old VM), except:
 # - no host ports: cloudflared reaches the frontend by service name on the
 #   resource's private network, so nothing is published on the server;
-# - no fixed container names; Coolify manages container and volume names, so
+# - no fixed container names; the deployment system manages container and volume names, so
 #   separate dev/production resources on one server never collide;
 # - cloudflared always runs and reads its token from the environment;
 # - POSTGRES_PASSWORD and CLOUDFLARE_TUNNEL_TOKEN are required (no defaults).
@@ -82,6 +82,41 @@ services:
       TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?}
     depends_on:
       - frontend
+
+  # Daily recovery bundle (see docs/backup-service.md). Idle unless
+  # BACKUP_ENABLED=true. Writes to /srv/govmap-backups/<BACKUP_TARGET> on the
+  # host; the entrypoint adopts that directory when Docker first creates it
+  # (root-owned) and then drops to uid/gid 70, so no host setup is needed. A
+  # missing target or a directory owned by anyone else fails every run with
+  # no heartbeat. No Docker socket, no secrets beyond the database password.
+  backup:
+    build: ./backup
+    restart: unless-stopped
+    read_only: true
+    cap_drop:
+      - ALL
+    # Only for the entrypoint's one-time chown and its drop to uid/gid 70;
+    # the backup user holds no capabilities.
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      BACKUP_ENABLED: ${BACKUP_ENABLED:-false}
+      BACKUP_TARGET: ${BACKUP_TARGET:-unconfigured}
+      BACKUP_TIME_UTC: ${BACKUP_TIME_UTC:-02:30}
+      BACKUP_HEARTBEAT_URL: ${BACKUP_HEARTBEAT_URL:-}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?}
+    volumes:
+      - /srv/govmap-backups/${BACKUP_TARGET:-unconfigured}:/backups
+      - govmap-logs:/logs:ro
 
 volumes:
   postgres-data:

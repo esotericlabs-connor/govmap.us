@@ -4,8 +4,159 @@ What's been built, in what order, and what's next. This is a living log — add 
 
 ## Build log
 
-**2026-11-09 — Isolated snapshot test setup (prepared; CI/deployment pending)**
-The approved replacement test environment is a fresh Coolify resource with
+**2026-11-10 — Group 0: backup service moved into the Compose stack (cutover pending)**
+The nightly bundle now has a `backup` service in
+[docker-compose.PaaS.yml](docker-compose.PaaS.yml), built from
+[backup/](backup/), so backups are versioned and deployed with the app instead
+of relying on a root host script with Docker socket access. It connects to
+`postgres` by service name with PostgreSQL 16 client tools, verifies the dump
+with `pg_restore --list`, archives logs from a read-only log mount, and
+publishes atomically under a lock. The entrypoint starts as root only to
+adopt the host directory Docker creates on first deploy, then drops to uid 70
+with no capabilities; the container has a read-only root filesystem and
+`no-new-privileges`. Deployment configuration and secrets are no longer
+bundled; they stay in the operator's vault.
+Enabling it needs only environment settings in the deployment platform
+(`BACKUP_ENABLED=true`, `BACKUP_TARGET`, `BACKUP_HEARTBEAT_URL`); no shell
+setup. Runs write to `/srv/govmap-backups/<target>` and fail without a
+heartbeat if the target is missing or the directory is owned by anyone else.
+It idles unless enabled (test environments stay disabled), runs daily at
+`BACKUP_TIME_UTC`, and catches up on start only when the bundle is missing or
+at least 24 hours old. The host timer's script, systemd units and their tests
+were removed from the repository; the guide lists the commands to remove an
+installed copy. Tests cover the destination checks, entrypoint privilege
+drop, failure paths, heartbeat handling and scheduler. **Pending:** CI;
+enabling it on production; confirming its first bundle, heartbeat and
+off-site copy; removing the installed host timer; and a scratch restore of a
+container bundle.
+
+**2026-11-10 — Private deployment references (verification pending)**
+The operator removed the environment-specific recovery guide and renamed the
+backup utilities. A provider-neutral [backup service guide](docs/backup-service.md)
+describes their operation without private host details. Repository references
+and tests now use the current names, and the deployment Compose file has a
+generic name. Before deploying a revision that contains the renamed Compose
+file, update each resource's Compose path after the revision is available on
+its branch. No running service was changed.
+
+The updated daily script names its configuration copy `deployment-config/`
+and its manifest field `deployment_config`; existing bundles and the installed
+script are unchanged. The database dump name and published archive path are
+unchanged, and existing bundles retain their own restore notes. Check any
+external tooling that expects the earlier configuration names. The revised
+script also copies the contents of a symlinked configuration root instead of
+archiving only the link; nested symlinks are still preserved, not followed.
+CI and a supervised backup and restore rehearsal are required before
+installing this script on the server.
+
+**2026-11-10 — Group 0: backup heartbeat and retirement of the old VM backup scripts**
+The daily bundle script gained an optional `GOVMAP_HEARTBEAT_URL`. The URL is
+requested only after a bundle is published. It must be `https`, and it is
+passed to curl on stdin so its token stays out of the process list. A failed
+ping warns but keeps the new bundle; the monitor alerts on the missing ping.
+Removed the old VM's original Compose backup scripts (`backup-database.sh`,
+`backup-govmap.sh`, `duplicati-database-hook.sh`, `restore-database.sh`) and
+their tests. The current same-named database exporter is a different utility.
+`deploy.sh`, `deploy.yml` and `docker-compose.yml` remain legacy VM tooling
+until the VM is deleted. The operator enabled the
+nightly timer and reported Duplicati copying the bundle to both destinations.
+[CI run 42938994029](https://github.com/esotericlabs-connor/govmap.us/actions/runs/42938994029)
+passed on `953d6a1`, including the backend tests and frontend build and audit.
+The operator installed the updated script on the production host; a manual
+service run exited zero and Healthchecks received its ping. The operator
+subsequently replaced the check, updated the server's URL, confirmed the new ping and
+received the email integration's test notification. Notification delivery is
+verified; an actual missed-heartbeat transition has not been rehearsed.
+On 2026-11-11 UTC, the operator restored a bundle from one Duplicati off-site
+destination into a private directory on the production host. Its recorded
+checksums passed; the manifest identified the production resource, creation time
+`2026-11-10T23:41:01Z` and revision `0013`. A PostgreSQL restore from that
+retrieved copy and an independent restore from the second destination have
+not been performed; the operator chose to move on after checking one copy.
+The restored archive and its extracted temporary copy were subsequently
+removed.
+The environment-specific recovery guide was subsequently removed.
+Pending: rotate any credentials carried over from the old VM and merge to
+`main`. Keep the old VM powered off for its 30-day retention period, then
+delete it only with operator approval. Credential rotation need not wait for
+VM deletion.
+
+**2026-11-10 — Daily GovMap recovery bundle for Duplicati**
+The operator chose a simpler routine: one compressed, root-only bundle per day
+in a dedicated server directory. Duplicati copies it with its own encryption
+and keeps the version history. Daily backups no longer use age. Added
+the utility now at `scripts/backup-daily.sh` and a systemd service/timer in
+`scripts/systemd/`. Each run makes a consistent `pg_dump`, checks it with
+`pg_restore --list`, and adds backend logs, an optional copy of the PaaS
+deployment directory, a manifest with the Alembic revision, checksums, and
+restore notes. It replaces yesterday's bundle only after the new one is
+verified; any failure keeps the old one. Synthetic tests cover the contents,
+replacement, ambiguous or missing containers, and dump, verification and log
+failures. [CI run 42922242786](https://github.com/esotericlabs-connor/govmap.us/actions/runs/42922242786)
+passed on `1353642`. A manual dev run passed its checksums and restored into a
+scratch database matching dev (revision `0013`, 539 members, 19,489 bills, 283
+votes, 46,012 ZIP rows). The script and units were then installed on the
+server. One production run through the systemd service passed its checksums
+and restored into a scratch database in the dev Postgres container, matching
+live production: `0013`, 539 members, 19,512 bills, 289 votes and 46,012 ZIP
+rows. Both scratch databases and the rehearsal folder were removed, along
+with the temporary transfer copies and the unused SSH key. The earlier
+age-encrypted production dump and its recovery identity are retained.
+The operator subsequently confirmed the nightly timer and encrypted Duplicati
+copies to both off-site destinations. Heartbeat installation and notification
+delivery and the checksum verification of one restored Duplicati copy are
+recorded in the Group 0 entry above.
+
+**2026-11-09 — PaaS-aware encrypted database backup utility (production decryption checked)**
+Added the utility now at `scripts/backup-database.sh` for an explicitly selected
+production resource. It requires exactly one running matching Postgres
+container, verifies readiness, streams a custom-format `pg_dump` through `age`,
+and publishes the complete encrypted result without replacing prior files.
+It does not back up the raw live Postgres volume, install a timer, or modify the
+source database. Synthetic failure-path tests were added for missing or
+ambiguous containers, readiness, dump and encryption failures. No local tests
+were run. [CI run 42711965941](https://github.com/esotericlabs-connor/govmap.us/actions/runs/42711965941)
+passed on `7cc0abe1f3bf228a7d2cedd2c40d41897818d4fc`; the backup tests use
+mocked Docker and `age`, not a real database or encryption. A supervised
+development run produced an encrypted dump, which was decrypted with a
+temporary test identity and restored into a separate development scratch
+database. Both databases reported revision `0013`, 539 members, 19,489 bills,
+283 votes and 46,012 ZIP rows.
+The operator then removed the scratch database and temporary test key and dump.
+A supervised production run later produced an encrypted dump. A transferred
+copy matched the original checksum and decrypted completely with an off-server
+identity. The production dump has not yet been restored into PostgreSQL;
+Duplicati inclusion, copies to both off-site destinations, automation and
+full recovery on a separate machine remain unverified.
+
+**2026-11-09 — PaaS test verification and scheduler-enabled release**
+The replacement `dev` resource restored a production snapshot into its own
+database: revision `0013`, 539 members, 19,489 bills and 46,012 ZIP rows.
+The test backend logged scheduled refreshes disabled, and an internal
+frontend `/api/summary` check returned 200. Signed-out site and API requests
+redirected to Cloudflare Access; the operator confirmed authorized access
+and displayed data. The old dev resource remains stopped.
+
+The scheduler-switch changes were merged to `main` as
+`118e1ab3fbd01451b5574cc406f8948f813c151c`, which passed
+[CI run 42704119369](https://github.com/esotericlabs-connor/govmap.us/actions/runs/42704119369).
+The operator reported deploying the merged branch to production; the actual
+PaaS deployment SHA still needs to be matched to the CI-tested commit.
+After that deployment, the production backend showed `SCHEDULER_ENABLED=true`
+and logged eight scheduled jobs immediately after startup. This verifies
+registration, not subsequent job completion.
+
+GitHub reports the legacy Deploy workflow disabled and Lint active. The
+operator reported the old VM powered off and no legacy agents running.
+Post-deployment source freshness, automated off-server backups, recurring
+restore rehearsals and alert delivery remain to be verified. See the
+[README deployment record](README.md#production-deployment).
+The selected backup direction is a daily consistent database backup in a
+dedicated server directory, copied with application recovery materials by
+Duplicati to two off-server destinations. It is not yet configured or tested.
+
+**2026-11-09 — Isolated snapshot test setup (initial preparation checkpoint)**
+The approved replacement test environment is a fresh PaaS resource with
 a production database snapshot, independent volumes/network/credentials,
 scheduled refreshes off, and Cloudflare Access on `dev.govmap.us`. Preserve
 the old dev resource stopped for recovery; do not delete its data or branch
@@ -14,11 +165,12 @@ Compose files; setting it to `false` skips scheduler startup and shutdown
 and logs the disabled state. It does not disable manual refreshes or
 request-triggered fetches. Regression tests cover the default, environment
 parsing, invalid input and both lifespan modes, including exceptional exit.
-No tests were run locally; green CI on the exact test release is required
-before deployment. Production has not been changed or redeployed.
+No tests were run locally; this checkpoint required green CI on the exact
+test release before deployment. Production had not yet been redeployed at
+this point; the later verification is recorded above.
 
-**2026-11-09 — Coolify production cutover and recovery verification**
-Production is live at `https://govmap.us` on the `main` Coolify resource,
+**2026-11-09 — PaaS production cutover and recovery verification**
+Production is live at `https://govmap.us` on the `main` PaaS resource,
 using the environment's own `govmap-prod` tunnel and private backend/Postgres.
 The final old-VM database was restored and checked before cutover. A fresh
 encrypted production backup subsequently passed a scratch-database restore:
@@ -26,13 +178,13 @@ revision `0013`, 539 members, 19,489 bills and 46,012 ZIP-to-district rows.
 The operator confirmed backup safety; transferred-copy checksums and
 recoverable decryption credentials remain operational requirements.
 Post-redeploy bills, votes, backfill and manual HUD refreshes recorded `ok`;
-zero unenriched bills explain backfill's zero work. Daily-source checks,
-isolated test-environment verification, automated backups and old-VM
-retirement remain pending. The old backend stays stopped. See the
+zero unenriched bills explain backfill's zero work. At that checkpoint,
+daily-source checks, isolated test-environment verification, automated backups
+and old-VM retirement remained pending, and the old backend was stopped. See the
 [README deployment record](README.md#production-deployment) for topology,
 configuration, recovery evidence and the remaining retirement gates.
 
-**2026-11-09 — Production readiness: audit fix, lint fix, Coolify Compose (lockfile validated)**
+**2026-11-09 — Production readiness: audit fix, lint fix, PaaS Compose (lockfile validated)**
 CI on `4e30c04` (the push of the 2026-11-08 work) passed backend lint and
 tests but failed frontend lint and the audit gate; build/typecheck were skipped.
 - Audit: 8 moderate findings, all one advisory
@@ -53,13 +205,13 @@ tests but failed frontend lint and the audit gate; build/typecheck were skipped.
   `zoom`; the ref is only read by event handlers and effects, which run
   after that sync, so tween start points are unchanged. The remaining
   `set-state-in-effect` items are warnings by design (see 2026-11-08).
-- `docker-compose.coolify.yml` (previously only on `dev`) added to `main` for
-  the Coolify production resource. Root-only topology: only the frontend is
-  published, through that environment's own tunnel. `NEXT_PUBLIC_API_URL`
+- The deployment Compose configuration (now `docker-compose.PaaS.yml`) was
+  added to `main` after being developed on `dev`. Root-only topology: only
+  the frontend is published through that environment's own tunnel. `NEXT_PUBLIC_API_URL`
   defaults to `http://backend:8000`, so the build-time `/api/*` rewrite
   targets the private backend instead of the retired `api.govmap.us`. CORS
   defaults to `https://govmap.us`. Each environment (dev/production) is a
-  separate Coolify resource with its own database, volumes and tunnel token.
+  separate PaaS resource with its own database, volumes and tunnel token.
 - CI on `bc5c4c2` passed backend lint/tests, frontend lint, Next type generation,
   TypeScript checking, the production build and the dependency audit
   ([run 42603854918](https://github.com/esotericlabs-connor/govmap.us/actions/runs/42603854918)).
@@ -246,18 +398,20 @@ the [deployment run](https://github.com/esotericlabs-connor/govmap.us/actions/ru
 for that trigger also reported success. The deployment script fetches `main`,
 so the running SHA is not established by the trigger SHA alone. GitHub's branch
 listing reported `main` as unprotected; separate rulesets were not checked.
-The operator reported that no backups are in place. Production migration
-revision, pipeline freshness, and proxy trust remain unverified.
+At that checkpoint, the operator reported that no backups were in place.
+Production migration revision, pipeline freshness, and proxy trust were
+unverified.
 
 Added inert operator tooling for an age-encrypted GovMap archive, an encrypted
 database dump and required Duplicati pre-backup hook, and an empty-target
 database restore. The archive includes `.env`, repository files, and the
-persistent log volume. Nothing is scheduled or installed, and no backup or
-restore has been performed. Synthetic regression cases were added but not run
-on this static checkout; CI and a real isolated restore rehearsal are still
-required. See [backups and recovery](docs/backups-and-recovery.md).
-Group 0 remains blocked until a backup exists separately and a restore is
-verified. Pipeline status currently lives in PostgreSQL; the JSON reference in
+persistent log volume. At that checkpoint, nothing had been scheduled or
+installed, and no backup or restore had been performed. Synthetic regression
+cases were added but not run on this static checkout; CI and a real isolated
+restore rehearsal are still required.
+Group 0 remained blocked at that checkpoint until a separate backup and
+restore were verified; later recovery evidence is recorded above. Pipeline
+status currently lives in PostgreSQL; the JSON reference in
 `AGENTS.md` and the earlier Group 3 plan need reconciliation before changing
 that contract.
 
@@ -390,7 +544,7 @@ The original planning docs disagreed with each other in a few places. Resolved a
 - **Senate LDA source**: the original note that `lda.senate.gov` "shuts down June 30 2026" is confirmed and the site now redirects to **lda.gov**, with API docs at `lda.senate.gov/api/`. Build the `senate_lda.py` pipeline against the current `lda.gov` endpoint, not the legacy domain. API access is already in hand.
 - **Repo folder structure doc**: discarded. It was carried over from an unrelated project (financial dashboard) and doesn't fit GovMap's domain. The structure actually in use is documented below under *Repository layout*.
 - **Frontend framework**: Next.js (App Router), not the earlier draft's Vite + React Router.
-- **Hosting**: self-hosted home VM behind `cloudflared` (no exposed ports), Tailscale-only SSH, GitHub Actions deploy — not the earlier draft's Hetzner VPS + Coolify. This is a deliberate cheap-and-temporary choice; see README's Tech stack section.
+- **Hosting**: self-hosted home VM behind `cloudflared` (no exposed ports), Tailscale-only SSH, GitHub Actions deploy — not the earlier draft's Hetzner VPS + PaaS. This is a deliberate cheap-and-temporary choice; see README's Tech stack section.
 - **OpenSecrets bulk data license** ("free, non-commercial") confirmed compatible with GovMap's nonprofit, non-advertising model.
 
 ## Canonical source list (26)

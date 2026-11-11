@@ -6,6 +6,8 @@
 *.yml   text eol=lf
 *.yaml  text eol=lf
 Dockerfile text eol=lf
+*.service text eol=lf
+*.timer   text eol=lf
 
 # Never touch binary assets.
 *.png  binary

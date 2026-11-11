@@ -10,7 +10,7 @@ A mobile-first web app that makes the entire US federal government easy to under
 
 > From City Council to Congress.
 
-**Status:** pre-launch. The federal legislative application is running on Coolify at **https://govmap.us**. See [CODE-MANIFEST.md](CODE-MANIFEST.md) for the current build log and phase checklist.
+**Status:** pre-launch. The federal legislative application is running on a self-hosted platform at **https://govmap.us**. See [CODE-MANIFEST.md](CODE-MANIFEST.md) for the current build log and phase checklist.
 
 ## Mission
 
@@ -39,7 +39,7 @@ The product's signature feature is the **full bill pipeline**: a single timeline
 
 ## Where things stand right now
 
-The project is deliberately being proven on the **federal legislative slice** before it's widened: members, bills, votes, committees, campaign finance and ZIP-to-district lookup, backed by Postgres and source-specific refresh jobs. Production moved to Coolify on 2026-11-09. Reliability, recovery and environment isolation take priority over expanding the product.
+The project is deliberately being proven on the **federal legislative slice** before it's widened: members, bills, votes, committees, campaign finance and ZIP-to-district lookup, backed by Postgres and source-specific refresh jobs. Production moved to a self-hosted deployment platform on 2026-11-09. Reliability, recovery and environment isolation take priority over expanding the product.
 
 Two things are intentionally **on hold**, not forgotten:
 
@@ -64,9 +64,9 @@ Nothing skips a layer. The full identifier and normalization rules are non-negot
 | Database | PostgreSQL |
 | Frontend | Next.js 16 (App Router), React 19, TypeScript, Tailwind CSS 3, Node.js 24 |
 | Pipelines | Python scripts, one per source, scheduled via APScheduler |
-| Infrastructure | Self-hosted Coolify server; Docker Compose resources reached through Cloudflare Tunnel (`cloudflared`), no application host ports; GitHub Actions for CI, manual Coolify deployment |
+| Infrastructure | Self-hosted deployment platform; Docker Compose resources reached through Cloudflare Tunnel (`cloudflared`), no application host ports; GitHub Actions for CI, manual deployment |
 
-Self-hosting is the current low-cost deployment choice. Application containers and persistent data are managed by Coolify; backups must also exist outside that server.
+Self-hosting is the current low-cost deployment choice. Application containers and persistent data are managed by the deployment platform; backups must also exist outside that server.
 
 ## Sites & branding
 
@@ -74,7 +74,7 @@ GovMap serves the marketing site and platform on one host:
 
 - **govmap.us** — the marketing site (`frontend/app/page.tsx`): what GovMap is, why it exists, and a way in.
 - **govmap.us/congress** — the platform entry point, with members, bills and votes on the same host.
-- **dev.govmap.us** — the intended test hostname; its isolated environment is not yet verified.
+- **dev.govmap.us** — the separate test environment, protected by Cloudflare Access and seeded from a production snapshot.
 
 Navigation uses relative paths defined in `frontend/lib/site-config.ts`. Separate `app.govmap.us` and `api.govmap.us` hosts are not part of the current deployment. Browser `/api/*` requests are forwarded by Next.js to the private backend.
 
@@ -120,9 +120,18 @@ passed for that exact commit, including backend lint/tests, frontend lint,
 route type generation, TypeScript checking, the production build and the
 dependency audit. The frontend installs with `npm ci`.
 
-For subsequent releases, validate the exact commit on `dev` before promotion
-to `main`. The **Lint** workflow audits development dependencies as well as
-runtime dependencies; any vulnerability or audit-service error fails CI.
+On 2026-11-09, the scheduler-switch changes were merged to `main` as
+`118e1ab3fbd01451b5574cc406f8948f813c151c`.
+[CI run 42704119369](https://github.com/esotericlabs-connor/govmap.us/actions/runs/42704119369)
+passed for that merge commit. The operator reported deploying the merged
+branch to production; confirm the SHA in the deployment log matches the
+CI-tested commit before relying on that release identity.
+
+For subsequent releases, develop and validate on `dev` before promotion to
+`main`. Check CI for both the tested development commit and the resulting
+production commit: a merge can give `main` a different SHA. The **Lint**
+workflow audits development dependencies as well as runtime dependencies;
+any vulnerability or audit-service error fails CI.
 Fix findings rather than using `npm audit fix --force` or ignoring exit codes.
 The **Frontend lockfile** workflow and `frontend-security-<commit SHA>`
 artifacts support deliberate lockfile updates; commit the reviewed lockfile
@@ -132,28 +141,33 @@ ESLint 9 is retained for the current React/import plugins' declared peer
 compatibility. It is end-of-life; the deprecation warning remains a tooling
 support limitation, not evidence that the dependency audit passed.
 
-Keep the legacy GitHub SSH deployment workflow disabled and Coolify
-auto-deploy off during migration and test-environment setup. Deployment is
-not yet automatically gated on CI; require passing checks, recoverable
-off-server backups and an explicit manual deployment.
+The legacy GitHub Deploy workflow is disabled; keep it disabled, keep
+auto-deploy off, and use manual deployments. Deployment is not yet
+automatically gated on CI; require passing checks for the release SHA,
+recoverable off-server backups and an explicit manual deployment.
 
-### Coolify topology and configuration
+### Deployment topology and configuration
 
-Coolify uses [docker-compose.coolify.yml](docker-compose.coolify.yml), with
-four services: `postgres`, `backend`, `frontend` and `cloudflared`.
+The deployment uses [docker-compose.PaaS.yml](docker-compose.PaaS.yml), with
+five services: `postgres`, `backend`, `frontend`, `cloudflared` and `backup`
+(idle unless `BACKUP_ENABLED=true`; see the
+[backup service guide](docs/backup-service.md)). For a
+revision containing this renamed file, update each resource's repository
+Compose path after that revision is available on its branch and before a
+manual deployment. A running resource is not changed by the repository rename.
 
-| Environment | Git branch | Public hostname | Cloudflare tunnel | State at cutover |
+| Environment | Git branch | Public hostname | Cloudflare tunnel | Current state |
 | --- | --- | --- | --- | --- |
 | Production | `main` | `govmap.us` | `govmap-prod` | Live and checked |
-| Test | `dev` | `dev.govmap.us` | `govmap-dev` | Existing resource requires reconciliation and verification |
+| Test | `dev` | `dev.govmap.us` | `govmap-dev` | Snapshot restored; Access and application checks passed |
 
-Each environment must have its own Coolify resource, private Compose
+Each environment must have its own deployment resource, private Compose
 network, Postgres volume, log volume, database password and tunnel token.
 Do not share production volumes or service-name aliases with the test
-environment. Coolify container names change on redeploy; identify the current
+environment. Container names change on redeploy; identify the current
 resource's containers before running operational commands.
 
-- Leave Coolify's **Domains** fields empty for this tunnel-only setup.
+- Leave the resource's **Domains** fields empty for this tunnel-only setup.
 - Publish only the frontend: the tunnel's public application route points
   to **HTTP `frontend:3000`**, with no path restriction. Do not publish
   Postgres or add a separate backend hostname.
@@ -166,7 +180,7 @@ resource's containers before running operational commands.
   reuse the production tunnel token for test; that creates a production
   replica rather than a separate environment.
 
-Set variables on the appropriate Coolify resource, not in shared
+Set variables on the appropriate deployment resource, not in shared
 project/team configuration that could also affect production:
 
 | Variable | Production | Test |
@@ -197,15 +211,19 @@ scheduler**; keyed jobs record failures and unkeyed jobs can still fetch data.
 This switch controls background scheduling only, not CLI refreshes,
 request-triggered fetches or application writes.
 
-The approved test setup is a **new Coolify resource** seeded from a production
-database snapshot, with its own empty log volume, no production API secrets,
+The test environment is a **separate deployment resource** seeded from a
+production database snapshot, with its own log volume and credentials,
 `SCHEDULER_ENABLED=false`, and Cloudflare Access restricting `dev.govmap.us`
-to approved identities. It is not deployed or verified yet:
+to approved identities. The old dev resource remains stopped for recovery.
+A production snapshot may contain sensitive operational data; review and
+sanitize it as appropriate before allowing wider test access.
 
-1. Bring `dev` up to the validated production code plus the scheduler
-   switch, preserving its existing history (the superseded early Compose
-   commit is merged with `-s ours`, not deleted). Require green CI on that
-   exact `dev` commit before deployment.
+The following are safeguards for any future replacement or reseeding. Do not
+repeat a restore into the existing environment without verifying backups and
+approving the target and data replacement:
+
+1. Prepare the intended `dev` release without rewriting existing history.
+   Require green CI on that exact commit before deployment.
 2. Verify server capacity before building another stack. Stop the old dev
    resource, but retain its database/log volumes for recovery. Never stop or
    edit production as part of this setup.
@@ -223,7 +241,7 @@ to approved identities. It is not deployed or verified yet:
    signed out, authorized browser/API access, scheduler-disabled startup
    and absence of test writes/jobs against production.
 
-After a manual Coolify deployment, check the internal backend health and
+After a manual deployment, check the internal backend health and
 database revision, then the public frontend and `/api/summary`. HTTP 200 on
 the frontend does not establish pipeline health. Query `pipeline_status`
 for `source`, `status`, `last_run`, `last_success` and `record_count`; do not
@@ -233,7 +251,7 @@ run, not necessarily the total rows in an entity table.
 
 ### Persistent state and secrets
 
-Production secrets are configured in Coolify, not committed to the repository.
+Production secrets are configured on the deployment platform, not committed to the repository.
 Keep a protected recovery copy of the environment configuration and required
 decryption credentials separately from the server. Restoring environment
 variables or reconnecting a tunnel does not restore database or log contents.
@@ -242,25 +260,41 @@ Postgres persists in the resource's `postgres-data` volume. Application and
 bug-report logs persist in its `govmap-logs` volume and may contain private
 information. Do not copy production logs or secrets into a test environment.
 
-Use encrypted logical Postgres dumps and separate log archives, keep copies
-off-server, verify transferred checksums, and test restoration into a named
-scratch database without replacing the live database. Remove decrypted
-scratch dumps and the scratch database after successful verification.
+Use consistent logical Postgres dumps and separate log archives, keep
+off-server copies encrypted, verify transferred checksums, and test restoration
+into a named scratch database without replacing the live database. Protect
+local plaintext and remove temporary copies and the scratch database after
+successful verification.
 Keep backup passphrases or private identities separately and recoverably.
 `/tank` or another filesystem on the same host is not an off-server backup.
 
-[Backups and recovery](docs/backups-and-recovery.md) documents the legacy
-Compose scripts and recovery safeguards. Those scripts assume the old VM's
-deployment and have not been adapted or validated for Coolify resource
-selection. Do not run them against Coolify unchanged. Scheduled encrypted
-backups, off-server retention and recurring restore rehearsals remain to be
-configured and verified.
+A systemd timer on the production server is configured to create one
+root-only bundle every night. The bundle holds the database dump, logs and
+deployment configuration. The operator reported Duplicati copying it,
+encrypted, to two off-server destinations. On 2026-11-10 a bundle was
+restored into a scratch database and matched production. The backup heartbeat
+and email test notification were subsequently verified. A bundle restored
+from one Duplicati destination passed its recorded checksums; the second
+destination has not been independently restored. Recurring monthly restore
+checks are tracked in [CODE-MANIFEST.md](CODE-MANIFEST.md). A database dump
+alone does not recreate the deployment; protect configuration and recovery
+credentials separately. The host timer is being replaced by a `backup`
+service inside the Compose stack, which prepares its own host directory,
+writes the database dump and logs there, and leaves deployment configuration
+and secrets in the operator's vault. Once enabled through the deployment's
+environment settings it needs no shell access. The host timer is removed
+after the container has published its first bundle, and the old local bundle
+is removed only after the new one has been restored successfully from
+off-site. The
+provider-neutral
+[backup service guide](docs/backup-service.md) covers operation and safe
+restore rehearsals without private host details.
 
 ### Migration and recovery verification: 2026-11-09
 
 - Restored the old VM's final custom-format dump into a separate database
-  on Coolify and compared revision and table counts before the production
-  cutover. The migrated snapshot had revision `0013`, 539 members, 19,489
+  on the deployment platform and compared revision and table counts before the
+  production cutover. The migrated snapshot had revision `0013`, 539 members, 19,489
   bills, 283 votes and 46,012 ZIP-to-district rows.
 - Archived the old application and bug-report logs separately and verified
   the transferred archive's checksum; the archive was not merged into the
@@ -270,7 +304,7 @@ configured and verified.
   page and `/api/summary` returned 200; `/health` on the frontend returned
   404. That 404 is a routing check, not by itself proof of network isolation.
 - Verified production credentials were present without displaying values.
-  The manual HUD refresh succeeded with 46,012 rows. After the latest
+  The manual HUD refresh succeeded with 46,012 rows. After the pre-promotion
   redeploy, bills recorded `ok` at 13:04 UTC (250 records), votes recorded
   `ok` at 13:01 UTC (200 records), and backfill recorded `ok` at 13:15 UTC.
   All 19,489 bills had a non-null enrichment timestamp, explaining the
@@ -285,27 +319,44 @@ configured and verified.
   establishes a permanent site-wide access policy or a permanent recovery.
   Future Voteview fallback runs remain degraded (`partial`), with fallback
   attribution and no advance to the official `last_success`.
+- Restored a production snapshot into the separate test database and verified
+  revision `0013`, 539 members, 19,489 bills and 46,012 ZIP rows before
+  starting the test backend. Its scheduler-disabled log appeared, and an
+  internal frontend `/api/summary` request returned 200. Signed-out requests
+  to the test site and API redirected to Cloudflare Access; the operator
+  confirmed authorized access and the displayed data.
+- After the subsequent production deployment, the backend started at
+  21:42:09 UTC and logged `scheduler started with 8 job(s)` at 21:42:11 UTC.
+  `SCHEDULER_ENABLED=true` was present in the running container. Scheduler
+  startup alone does not establish that each refresh has completed.
+- GitHub reports the legacy Deploy workflow disabled and Lint active. The
+  operator reported the old VM shut down and no legacy agents running.
 
-**Still pending at this checkpoint:** the next post-cutover committee,
-member-roster, sponsored-bill and FEC refreshes; verification of the isolated
-test environment; and automated backup scheduling. A previous `ok` row
-restored from the old database does not verify a job on the new server.
-`partial` is degraded, not an unconditional success.
+**Still pending:** verify the actual production deployment SHA against its CI
+run; confirm source status and freshness after the latest backend start,
+including the daily jobs; observe the next scheduled backup heartbeat; and
+continue periodic recovery checks. The daily bundle, off-site copying,
+heartbeat ping and test notification have been set up as described above.
+A previous `ok` row restored from an older database does
+not verify a job on the new server. `partial` is degraded, not an
+unconditional success.
 
-Keep the old VM's backend stopped to avoid duplicate jobs. Once the remaining
-pipeline checks and off-server recovery requirements pass, power off the old
-VM after confirming it has no other required workloads. Observe production
-for at least a week with the VM off, retain it powered off for 30 days before
+Keep the old VM powered off to avoid duplicate jobs, and confirm any other
+required workloads before starting or deleting it. Observe production for at
+least a week with the VM off, retain it powered off for 30 days before
 deletion, and retain independent backups after deleting its disks and
 snapshots. Shutdown and deletion are separate operator-approved steps.
+Rotate credentials carried over from the old VM without waiting for the
+retention period to end; retaining its disks does not require keeping its
+credentials valid.
 
 ### Legacy VM tooling
 
 [docker-compose.yml](docker-compose.yml) and `scripts/deploy.sh` remain
-legacy VM tooling, not the Coolify deployment path. The script syncs
+legacy VM tooling, not the current deployment path. The script syncs
 `origin/main`, builds services, runs migrations and refreshes core data with
-a bounded timeout. Do not run it on the Coolify server or use it as a
-restore shortcut. A Coolify backend restart runs migrations and starts the
+a bounded timeout. Do not run it on the production server or use it as a
+restore shortcut. A production backend restart runs migrations and starts the
 scheduler; it does not execute that script's deploy-time refresh.
 
 ## Documentation
