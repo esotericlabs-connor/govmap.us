@@ -1,6 +1,6 @@
 from datetime import date, datetime
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -111,3 +111,5 @@ class Cosponsor(Base):
     bioguide_id: Mapped[str] = mapped_column(String(7), primary_key=True)
     sponsorship_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     is_original: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+
+    __table_args__ = (Index("ix_cosponsors_bioguide_id", "bioguide_id"),)

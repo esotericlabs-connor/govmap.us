@@ -1,3 +1,5 @@
-# Test-only dependencies. Installed on top of requirements.txt in CI and locally
-# (`pip install -r requirements.txt -r requirements-dev.txt`) to run the suite.
-pytest==8.3.3
+# Test-only dependencies. Install them in a second command after
+# requirements.txt (`pip install -r requirements.txt`, then
+# `pip install -r requirements-dev.txt`): once requirements.txt is hash-locked,
+# a combined install would make pip demand hashes for these pins too.
+pytest==9.0.3

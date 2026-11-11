@@ -18,12 +18,13 @@ import logging
 from pathlib import Path
 
 import requests
-import yaml
 from pydantic import BaseModel, ValidationError
 
 from app.pipelines.staging import write_json_atomic
 from app.schemas.committee import CommitteeMemberRaw, CommitteeRaw
 from app.schemas.member import LegislatorRaw
+from app.services.bounded_http import read_body
+from app.services.safe_parse import load_yaml
 
 logger = logging.getLogger(__name__)
 
@@ -40,11 +41,24 @@ STAGING_LEGISLATORS = STAGING_DIR / "legislators_raw.json"
 STAGING_COMMITTEES = STAGING_DIR / "committees_raw.json"
 STAGING_MEMBERSHIP = STAGING_DIR / "committee_membership_raw.json"
 
+# The largest file (legislators-current.yaml) is about 1 MiB.
+_MAX_YAML_BYTES = 16 * 1024 * 1024
+_BODY_DEADLINE_SECONDS = 120
+
 
 def _fetch_yaml(url: str):
-    response = requests.get(url, timeout=30)
-    response.raise_for_status()
-    return yaml.safe_load(response.text)
+    response = requests.get(url, timeout=30, stream=True)
+    try:
+        response.raise_for_status()
+        body = read_body(
+            response,
+            max_bytes=_MAX_YAML_BYTES,
+            deadline_s=_BODY_DEADLINE_SECONDS,
+            label=url.rsplit("/", 1)[-1],
+        )
+    finally:
+        response.close()
+    return load_yaml(body)
 
 
 def _record_ident(record) -> str:

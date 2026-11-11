@@ -1,3 +1,4 @@
+import json
 from collections import deque
 from collections.abc import Iterator
 from typing import Any
@@ -145,10 +146,11 @@ def test_scrub_strips_terminal_bidi_and_invisible_characters() -> None:
 
 
 class _VerifyResponse:
-    def __init__(self, status: int = 200, body: Any = None, error: Exception | None = None):
+    def __init__(self, status: int = 200, body: Any = None, content: bytes | None = None):
         self.status_code = status
-        self._body = body
-        self._error = error
+        self._content = content if content is not None else json.dumps(body).encode()
+        self.headers: dict[str, str] = {}
+        self.raw = None
 
     def __enter__(self) -> "_VerifyResponse":
         return self
@@ -156,10 +158,9 @@ class _VerifyResponse:
     def __exit__(self, *_exc: object) -> None:
         return None
 
-    def json(self) -> Any:
-        if self._error is not None:
-            raise self._error
-        return self._body
+    def iter_content(self, chunk_size: int = 1) -> Iterator[bytes]:
+        for i in range(0, len(self._content), chunk_size):
+            yield self._content[i : i + chunk_size]
 
 
 def _turnstile(
@@ -192,6 +193,7 @@ def test_turnstile_requires_a_well_formed_success_for_our_hostname(
     post = _turnstile(monkeypatch, _VerifyResponse(body=body))
     assert report._verify_turnstile("token", "198.51.100.10") is accepted
     assert post.call_args.kwargs["allow_redirects"] is False
+    assert post.call_args.kwargs["stream"] is True
 
 
 def test_turnstile_dummy_secret_skips_the_hostname_check(
@@ -209,8 +211,10 @@ def test_turnstile_dummy_secret_skips_the_hostname_check(
     [
         requests.ConnectionError("down"),
         _VerifyResponse(status=503, body={"success": False}),
-        _VerifyResponse(error=ValueError("not json")),
+        _VerifyResponse(content=b"not json"),
+        _VerifyResponse(content=b" " * (64 * 1024 + 1)),
     ],
+    ids=["unreachable", "server-error", "unparseable", "oversized"],
 )
 def test_turnstile_outage_fails_open_without_logging_secrets(
     monkeypatch: pytest.MonkeyPatch,
@@ -234,6 +238,6 @@ def test_turnstile_redirects_and_client_errors_never_fail_open(
     monkeypatch: pytest.MonkeyPatch, http_status: int
 ) -> None:
     _turnstile(
-        monkeypatch, _VerifyResponse(status=http_status, error=ValueError("not json"))
+        monkeypatch, _VerifyResponse(status=http_status, content=b"not json")
     )
     assert report._verify_turnstile("token", "198.51.100.10") is False

@@ -42,6 +42,8 @@ class _Resp:
     def __init__(self, status_code: int, content: bytes) -> None:
         self.status_code = status_code
         self.content = content
+        self.headers: dict[str, str] = {}
+        self.raw = None
 
     def iter_content(self, chunk_size: int = 1) -> Iterator[bytes]:
         for i in range(0, len(self.content), chunk_size):

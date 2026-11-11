@@ -1,6 +1,7 @@
 services:
   postgres:
-    image: postgres:16-alpine
+    # Pinned by digest (as in docker-compose.PaaS.yml); bump deliberately.
+    image: postgres:16-alpine@sha256:aa6cb33cf4c19c765cefcf48d96176258800870a9a1e930ad126200f9d825139
     container_name: govmap-postgres
     restart: unless-stopped
     environment:
@@ -140,7 +141,7 @@ services:
   # api.govmap.us -> http://backend:8000. cloudflared shares the compose
   # network, so those service names resolve.
   cloudflared:
-    image: cloudflare/cloudflared:latest
+    image: cloudflare/cloudflared:2026.10.7@sha256:4955524aeaa379e154023d5a027c250f7b35041a2e7e950cf13f144bc9b9c5ba
     container_name: govmap-cloudflared
     restart: unless-stopped
     profiles: ["tunnel"]

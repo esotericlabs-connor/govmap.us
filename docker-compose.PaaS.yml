@@ -13,7 +13,9 @@
 # set it to the site's own public hostname: "/api/*" would proxy to itself.
 services:
   postgres:
-    image: postgres:16-alpine
+    # Images are pinned by digest: a redeploy must not silently pull a
+    # different build. Bump deliberately (Dependabot proposes the PRs).
+    image: postgres:16-alpine@sha256:aa6cb33cf4c19c765cefcf48d96176258800870a9a1e930ad126200f9d825139
     restart: unless-stopped
     environment:
       POSTGRES_USER: govmap
@@ -92,7 +94,7 @@ services:
       start_period: 120s
 
   cloudflared:
-    image: cloudflare/cloudflared:latest
+    image: cloudflare/cloudflared:2026.10.7@sha256:4955524aeaa379e154023d5a027c250f7b35041a2e7e950cf13f144bc9b9c5ba
     restart: unless-stopped
     command: tunnel --no-autoupdate run
     environment:

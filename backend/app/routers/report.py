@@ -31,6 +31,7 @@ from pydantic import BaseModel, Field
 
 from app.config import settings
 from app.report_categories import REPORT_CATEGORIES, normalize
+from app.services.bounded_http import ResponseTooLargeError, read_json
 
 logger = logging.getLogger("app.routers.report")
 
@@ -147,6 +148,9 @@ def _origin_ok(request: Request) -> bool:
 
 
 _TURNSTILE_VERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
+# siteverify answers a few hundred bytes of JSON.
+_TURNSTILE_MAX_BYTES = 64 * 1024
+_TURNSTILE_DEADLINE_SECONDS = 10
 # Cloudflare's documented dummy secrets always validate and always report the
 # hostname "example.com", so the hostname check only applies to real keys.
 _TURNSTILE_DUMMY_SECRETS = frozenset(
@@ -170,10 +174,10 @@ def _verify_turnstile(token: str | None, ip: str) -> bool:
     TURNSTILE_SECRET_KEY is set; once set, a valid token is required. Fails
     *closed* on a missing token, an explicit rejection (a bot), a malformed
     success body, or a token solved on a hostname outside CORS_ORIGINS. Fails
-    *open* only when Cloudflare is unreachable, answers 5xx, or returns an
-    unparseable body, so a CF outage can't lock out real users (the origin +
-    rate limits still apply). Redirects are never followed, so the secret is
-    only ever posted to the siteverify endpoint."""
+    *open* only when Cloudflare is unreachable or slow, answers 5xx, or returns
+    an unparseable or oversized body, so a CF outage can't lock out real users
+    (the origin + rate limits still apply). Redirects are never followed, so the
+    secret is only ever posted to the siteverify endpoint."""
     secret = os.getenv("TURNSTILE_SECRET_KEY", "").strip()
     if not secret:
         return True
@@ -185,6 +189,7 @@ def _verify_turnstile(token: str | None, ip: str) -> bool:
             data={"secret": secret, "response": token, "remoteip": ip},
             timeout=10,
             allow_redirects=False,
+            stream=True,
         ) as resp:
             if resp.status_code >= 500:
                 logger.warning("turnstile verify returned HTTP %d, allowing", resp.status_code)
@@ -192,8 +197,13 @@ def _verify_turnstile(token: str | None, ip: str) -> bool:
             if not 200 <= resp.status_code < 300:
                 logger.warning("turnstile verify returned HTTP %d; rejecting", resp.status_code)
                 return False
-            body = resp.json()
-    except (requests.RequestException, ValueError) as exc:
+            body = read_json(
+                resp,
+                max_bytes=_TURNSTILE_MAX_BYTES,
+                deadline_s=_TURNSTILE_DEADLINE_SECONDS,
+                label="turnstile verify",
+            )
+    except (requests.RequestException, ValueError, ResponseTooLargeError) as exc:
         logger.warning("turnstile verify unreachable, allowing: %s", type(exc).__name__)
         return True
     if not isinstance(body, dict) or body.get("success") is not True:

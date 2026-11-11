@@ -1,4 +1,4 @@
-from sqlalchemy import Integer, String
+from sqlalchemy import Index, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -20,3 +20,6 @@ class ZipDistrict(Base):
     zip: Mapped[str] = mapped_column(String(5), primary_key=True)
     state: Mapped[str] = mapped_column(String(2), primary_key=True)
     district: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    # Created by migration 0005; declared here so `alembic check` sees no drift.
+    __table_args__ = (Index("ix_zip_districts_state_district", "state", "district"),)

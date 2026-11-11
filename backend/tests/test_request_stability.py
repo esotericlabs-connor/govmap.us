@@ -77,7 +77,7 @@ def test_webhook_http_outcome_is_checked_and_response_closed(
     caplog.set_level(logging.WARNING, logger="app.pipelines.status")
     asyncio.run(status.send_alert(text))
     post.assert_called_once_with(
-        url, json={"text": text}, timeout=10, allow_redirects=False
+        url, json={"text": text}, timeout=10, allow_redirects=False, stream=True
     )
     response.close.assert_called_once_with()
     if 200 <= http_status < 300:

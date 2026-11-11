@@ -4,7 +4,86 @@ What's been built, in what order, and what's next. This is a living log — add 
 
 ## Build log
 
-**2026-11-11 — R0: release reconciliation and hardening (CI pending)**
+**2026-11-11 — R0 Phase A: supply chain, request/parser bounds, migration safety (CI pending)**
+Completes the R0 items the first pass deferred (roadmap R0 items 4 and 6).
+No schema migration; the model changes only declare indexes migrations already
+create.
+
+- *Pinned supply chain:* every base image (backend, frontend, backup, Postgres
+  in compose and CI, and `cloudflared`, previously `:latest`) is pinned by
+  digest, and every GitHub Action by commit SHA. Hand-edited top-level pins
+  move to `backend/requirements.in`, and `backend/requirements.txt` becomes
+  the install set. The `backend-audit` job compiles it with hashes on
+  Linux/Python 3.11 and uploads it as the `backend-lock-<sha>` artifact. Until
+  that artifact is committed, `requirements.txt` is a plain copy of
+  `requirements.in`, and `test_dependency_pins.py` fails if the two disagree.
+  Dependabot opens weekly grouped bump PRs against `dev` for pip, npm, Docker,
+  compose and Actions. Runtime majors (Python 3.11, Node 24, Postgres 16) are
+  excluded from those PRs; changing them is a deliberate platform decision.
+- *Known-vulnerability gates:* `pip-audit --strict` checks runtime and dev
+  requirements. A pinned Grype image scans the three built images and fails
+  on any fixable high or critical finding; the fix is a bump, never a
+  suppression. The runtime images no longer ship pip/setuptools (backend) or
+  npm/npx/corepack/yarn (frontend), and CI asserts that. Bumped fastapi
+  0.141.1, starlette 1.10.0 (multipart, Host-header and HTTPEndpoint
+  advisories), urllib3 2.8.0 (streaming decompression and chunk-line
+  advisories), python-dotenv 1.2.2 and pytest 9.0.3.
+- *Request bounds:* a pure ASGI middleware refuses request bodies over 64 KiB
+  with a 413, both when declared by Content-Length and while a chunked body
+  streams. Pydantic's `max_length` checks only run after the whole body is
+  buffered.
+- *Upstream response bounds:* every upstream fetch streams through
+  `services/bounded_http.py`, under a byte cap and a wall-clock body deadline
+  that starts once headers arrive. A `requests` timeout covers only each
+  socket read, so a source that drips bytes could otherwise hold a worker for
+  hours. A missed deadline is a `requests.Timeout`, so Congress.gov counts it
+  as an outage.
+
+  | Source | Cap | Deadline |
+  | --- | --- | --- |
+  | Congress.gov and OpenFEC JSON | 8 MiB | 60 s (30 s on the visitor-facing donations path) |
+  | HUD crosswalk page | 64 MiB | 300 s |
+  | congress-legislators YAML | 16 MiB | 120 s |
+  | House/Senate vote XML | 8 MiB | 60 s |
+  | Voteview CSV | 32 MiB | 300 s |
+  | Bill text | 16 MiB, truncated rather than rejected | 120 s |
+  | Turnstile | 64 KiB | 10 s |
+
+  Every response is closed on every path. The alert webhook's reply is never
+  downloaded.
+- *Parser bounds:* XML from the House Clerk and Senate LIS refuses any entity
+  declaration (internal, external or parameter), which rules out
+  entity-expansion attacks before ElementTree sees the document. YAML loads
+  with a safe loader that also refuses aliases. Bill-text and CRS-summary HTML
+  reduction is linear-time: tag patterns stop at the next `<` and trailing
+  whitespace is stripped per line. The previous patterns were quadratic on
+  malformed markup. Bill-text reduction runs off the event loop.
+- *Migration safety:* migrations run with a 5 s `lock_timeout`. A DDL
+  statement queued behind a long-held lock now fails the start, so the
+  previous container stays up, instead of stalling every query on the table.
+  The URL is no longer round-tripped through Alembic's ConfigParser, where a
+  percent-encoded password could break. CI's `backend-migrations` job runs
+  upgrade, `alembic check`, downgrade to base, then upgrade and check again
+  against Postgres. That check found four indexes the models didn't declare
+  (now declared) and a model module missing from `env.py`; a test now fails
+  if any model module is missing.
+- *Tests:* bounded reads (cap, declared length, truncation, deadline on
+  stalled, silent-EOF and shutdown paths), XML entity and YAML alias refusal,
+  linear HTML reduction on pathological input, body-limit middleware, pin
+  consistency, migration-module coverage, and streaming/close assertions in
+  every affected fetcher test.
+- *Accepted residuals:* the deadline starts after headers, so a slow drip of
+  headers is bounded only by the per-read timeout. If the deadline fires just
+  as a connection returns to the pool, the pooled socket can be shut down and
+  the next request on it fails once with a connection error. A mid-body
+  `ChunkedEncodingError` from Congress.gov still counts as an ordinary
+  failure, not an outage, as before.
+
+Second round (after this commit's CI): commit the `backend-lock-<sha>`
+artifact as `backend/requirements.txt`, then make the image install and
+`pip-audit` require hashes.
+
+**2026-11-11 — R0: release reconciliation and hardening (CI green)**
 Roadmap step 1. `dev` commit `6727148` had added regression tests without the
 code they test: [CI run 42976989444](https://github.com/esotericlabs-connor/govmap.us/actions/runs/42976989444)
 failed 25 of 261 backend tests while `main` (`2f3d374`) stayed green. This
@@ -59,10 +138,13 @@ exploitable issue; 12 low-severity items) and a reliability audit.
   requirements; trusted-proxy CIDRs; committee-meeting history; a script/style
   CSP.
 
-No schema migration. Validation so far is static (Pylance syntax checks,
-import and whitespace review); this checkout cannot run the app or tests.
-The release gate is green CI on the pushed `dev` commit, then the existing
-test-environment checks before promotion.
+No schema migration. Validation was static in this checkout (Pylance syntax
+checks, import and whitespace review). CI then passed on the pushed commit:
+[run 42985536408](https://github.com/esotericlabs-connor/govmap.us/actions/runs/42985536408)
+on `dev` (`749e6e3`) and
+[run 42985803997](https://github.com/esotericlabs-connor/govmap.us/actions/runs/42985803997)
+on `main` after #11 (`c080cb7`). Promotion still depends on the existing
+test-environment checks.
 
 **2026-11-11 — Proposed platform roadmap: hardening, federal breadth and history**
 Added a [platform roadmap](docs/platform-roadmap.md) for review. The operator
@@ -836,7 +918,7 @@ Adapted from the original end-to-end plan, reordered to prove the pipeline contr
 - **Ruff is pinned via `backend/ruff.toml`.** CI runs an unpinned `pip install ruff`, whose default rule set shifts between releases; without a config, a new ruff version turned the lint red on unchanged code (B008 on every FastAPI `Depends`, UP on Alembic boilerplate, BLE/DTZ on intentional patterns). The config sets a deterministic `select = [E, F, UP, B]`, ignores `B008` (FastAPI idiom), and excludes `migrations/`.
 - **ZIP crosswalk uses HUD (needs `HUD_API_TOKEN`).** Confirmed via directory listing that Census publishes **no** ZCTA↔CD relationship file (`rel2020/zcta520/` pairs ZCTA with county/place/tract/tabblock/cousub only). `zip_crosswalk.py` now uses the authoritative **HUD USPS ZIP→CD crosswalk** (huduser.gov, type 5), token as a Bearer header. Free token from huduser.gov; must also be in the backend `environment:` block (it is: `HUD_API_TOKEN`). Fail-soft without it — `/api/lookup` returns empty and the `/congress` ZIP box shows "couldn't match" until it's set + `refresh zip_districts` runs.
 - **R0 deferred hardening (2026-11-11).** Each needs an operator decision or infrastructure fact first, not just code:
-  - *Supply-chain pinning.* Base and `cloudflared:latest` images are not digest-pinned, and `requirements.txt` has no hashes. Pinning needs a Linux-resolved lock (e.g. `uv pip compile --universal --generate-hashes`) and an agreed update cadence, or stale pins become their own risk.
+  - *Supply-chain pinning.* Done in R0 Phase A (2026-11-11): images are pinned by digest, Actions by SHA, and the hash lock is compiled in CI. What remains is committing the first `backend-lock-<sha>` artifact and switching the image install and `pip-audit` to `--require-hashes`. After that, review and merge Dependabot's weekly PRs on `dev`, because pins that are never bumped become their own risk.
   - *Trusted-proxy CIDRs.* `TRUSTED_PROXY_CIDRS` must name the PaaS's actual private subnet. A guessed range could trust a neighboring network's forged client IP headers; read the real subnet from the deployment before setting it.
   - *Committee-meeting history.* The meetings table is fully replaced with each chamber's 300 most-recently-updated meetings (`committee_meetings_limit`), so older meetings drop out. Keeping history needs an append/upsert model and a migration (roadmap history lane).
   - *Script/style CSP.* Only `frame-ancestors` is enforced. A full CSP needs per-request nonces (making pages dynamic) plus Cloudflare Turnstile allowances; roll it out report-only first.

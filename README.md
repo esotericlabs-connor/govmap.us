@@ -141,6 +141,18 @@ The **Frontend lockfile** workflow and `frontend-security-<commit SHA>`
 artifacts support deliberate lockfile updates; commit the reviewed lockfile
 and rerun CI before deploying it.
 
+Backend dependencies follow the same rule:
+1. Edit the top-level pins in `backend/requirements.in`, never
+   `requirements.txt` directly.
+2. The Lint workflow's `backend-audit` job compiles the hash-locked install
+   set on Linux/Python 3.11 and uploads it as `backend-lock-<commit SHA>`.
+3. Commit that file as `backend/requirements.txt` and rerun CI.
+
+The same workflow fails on any `pip-audit` finding and on any fixable high or
+critical vulnerability in the built images. Base images are pinned by digest
+and Actions by commit SHA. Dependabot opens weekly grouped bump PRs against
+`dev`.
+
 ESLint 9 is retained for the current React/import plugins' declared peer
 compatibility. It is end-of-life; the deprecation warning remains a tooling
 support limitation, not evidence that the dependency audit passed.

@@ -18,6 +18,7 @@ failure, the stub is left as-is and retried on the next view.
 
 from __future__ import annotations
 
+import asyncio
 import html
 import logging
 import re
@@ -49,6 +50,7 @@ from app.schemas.bill import (
     BillTextVersionRaw,
     CosponsorRaw,
 )
+from app.services.bounded_http import read_prefix
 from app.services.upstream import (
     UpstreamCapacityError,
     UpstreamUnavailableError,
@@ -63,6 +65,7 @@ _TEXT_CAP = 800_000  # chars of plain text to store/serve; huge bills are trunca
 _TEXT_TIMEOUT = 30
 _TEXT_HOSTS = frozenset({"www.congress.gov", "congress.gov", "www.govinfo.gov", "govinfo.gov"})
 _TEXT_MAX_BYTES = 16 * 1024 * 1024  # raw HTML; the largest enrolled bills are a few MB
+_TEXT_DEADLINE_SECONDS = 120
 _TEXT_MAX_REDIRECTS = 3
 
 
@@ -169,15 +172,14 @@ def _check_text_url(url: str) -> None:
 
 
 def _read_capped(resp: requests.Response) -> tuple[str, bool]:
-    """Read at most `_TEXT_MAX_BYTES`; returns (text, cut_short)."""
-    body = bytearray()
-    cut_short = False
-    for chunk in resp.iter_content(chunk_size=64 * 1024):
-        body.extend(chunk)
-        if len(body) > _TEXT_MAX_BYTES:
-            del body[_TEXT_MAX_BYTES:]
-            cut_short = True
-            break
+    """Read at most `_TEXT_MAX_BYTES` within `_TEXT_DEADLINE_SECONDS`; returns
+    (text, cut_short)."""
+    body, cut_short = read_prefix(
+        resp,
+        max_bytes=_TEXT_MAX_BYTES,
+        deadline_s=_TEXT_DEADLINE_SECONDS,
+        label="bill text",
+    )
     try:
         return body.decode(resp.encoding or "utf-8", errors="replace"), cut_short
     except LookupError:
@@ -208,15 +210,19 @@ def _html_to_text(doc: str) -> str:
     legislative indentation. GPO wraps the body in <pre> blocks whose whitespace
     IS the layout — keep those verbatim (tags stripped); otherwise fall back to
     turning block-ends into newlines. No HTML reaches the client. A final <pre>
-    left open by the fetch size cap still counts."""
-    pres = re.findall(r"(?is)<pre[^>]*>(.*?)(?:</pre>|\Z)", doc)
+    left open by the fetch size cap still counts.
+
+    Every pass is linear in the input: tag patterns stop at the next "<", and
+    trailing whitespace is stripped per line rather than with a backtracking
+    regex, so a malformed multi-megabyte body cannot stall the worker."""
+    pres = re.findall(r"(?is)<pre[^<>]*>(.*?)(?:</pre>|\Z)", doc)
     if pres:
         body = "\n".join(pres)
     else:
         body = re.sub(r"(?is)<(br|/p|/div|/h[1-6]|/li|/tr)\s*/?>", "\n", doc)
-    text = re.sub(r"(?s)<[^>]+>", "", body)
+    text = re.sub(r"<[^<>]+>", "", body)
     text = html.unescape(text)
-    text = re.sub(r"[ \t]+\n", "\n", text)
+    text = "\n".join(line.rstrip(" \t") for line in text.split("\n"))
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
 
@@ -271,7 +277,7 @@ async def get_bill_text(db: AsyncSession, bill_id: str) -> dict | None:
         logger.warning("bill_enrich: text-body fetch failed for %s (%s): %s", bill_id, url, exc)
         return None
 
-    plain = _html_to_text(html_doc)
+    plain = await asyncio.to_thread(_html_to_text, html_doc)
     truncated = cut_short or len(plain) > _TEXT_CAP
     if truncated:
         plain = plain[:_TEXT_CAP]

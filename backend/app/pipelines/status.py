@@ -24,7 +24,10 @@ logger = logging.getLogger(__name__)
 def _post_alert(url: str, text: str) -> int:
     # Redirects are refused so a misconfigured or hijacked endpoint can't bounce
     # the notification (and the secret-bearing URL's payload) somewhere else.
-    response = requests.post(url, json={"text": text}, timeout=10, allow_redirects=False)
+    # The reply body is never read; streaming keeps it from being downloaded.
+    response = requests.post(
+        url, json={"text": text}, timeout=10, allow_redirects=False, stream=True
+    )
     try:
         return response.status_code
     finally:

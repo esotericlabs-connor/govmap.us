@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import time
 from collections.abc import Iterator
 from types import SimpleNamespace
 from typing import Any
@@ -124,6 +125,30 @@ def test_oversized_body_is_cut_at_the_byte_cap(monkeypatch: pytest.MonkeyPatch) 
 def test_unclosed_final_pre_block_still_yields_text() -> None:
     doc = "<html><title>Header</title><pre>SEC. 1. Short title.\n  (a) In general"
     assert bill_enrich._html_to_text(doc) == "SEC. 1. Short title.\n  (a) In general"
+
+
+def test_html_without_pre_keeps_indentation_and_drops_markup() -> None:
+    doc = (
+        "<html><body><p>SEC. 1. \t<b>Title</b></p>"
+        "<div>  (a) x &amp; y  </div><br/></body></html>"
+    )
+    assert bill_enrich._html_to_text(doc) == "SEC. 1. \tTitle\n  (a) x & y"
+
+
+@pytest.mark.parametrize(
+    "doc",
+    [
+        "<pre>" + "<" * 100_000,
+        "<pre>" + " " * 100_000 + "x",
+        "<" * 100_000,
+        "<pre" * 50_000,
+    ],
+    ids=["unclosed-tags-in-pre", "whitespace-run", "unclosed-tags", "unclosed-pre-tags"],
+)
+def test_html_reduction_stays_linear_on_malformed_input(doc: str) -> None:
+    started = time.monotonic()
+    bill_enrich._html_to_text(doc)
+    assert time.monotonic() - started < 2
 
 
 def test_cut_short_text_is_stored_as_truncated(monkeypatch: pytest.MonkeyPatch) -> None:

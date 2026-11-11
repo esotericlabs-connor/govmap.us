@@ -1,6 +1,6 @@
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Date, DateTime, ForeignKey, Index, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -48,3 +48,5 @@ class VotePosition(Base):
     )
     bioguide_id: Mapped[str] = mapped_column(String(7), primary_key=True)
     position: Mapped[str | None] = mapped_column(String(20), nullable=True)  # Yea/Nay/Present/Not Voting/Aye/No
+
+    __table_args__ = (Index("ix_vote_positions_bioguide", "bioguide_id"),)

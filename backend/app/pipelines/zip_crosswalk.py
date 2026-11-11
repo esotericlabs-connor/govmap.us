@@ -23,6 +23,7 @@ import requests
 
 from app.config import settings
 from app.pipelines.staging import write_json_atomic
+from app.services.bounded_http import read_json
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,10 @@ _TYPE_ZIP_CD = 5  # HUD crosswalk type: ZIP → Congressional District
 _PER_PAGE = 5000
 _MAX_PAGES = 60
 _TIMEOUT = 180  # a full-page pull over the whole country is occasionally slow
+# Even if HUD ignored per_page and returned all ~44k rows at once, that is
+# roughly 10 MiB of JSON.
+_MAX_PAGE_BYTES = 64 * 1024 * 1024
+_BODY_DEADLINE_SECONDS = 300
 
 # 2-digit state/territory FIPS → USPS abbreviation. Anything not here (e.g. a
 # stray "00") is dropped as out-of-scope.
@@ -82,9 +87,18 @@ def _fetch() -> list[dict]:
             params={"type": _TYPE_ZIP_CD, "query": "All", "page": page, "per_page": _PER_PAGE},
             headers=headers,
             timeout=_TIMEOUT,
+            stream=True,
         )
-        resp.raise_for_status()
-        payload = resp.json()
+        try:
+            resp.raise_for_status()
+            payload = read_json(
+                resp,
+                max_bytes=_MAX_PAGE_BYTES,
+                deadline_s=_BODY_DEADLINE_SECONDS,
+                label=f"HUD crosswalk page {page}",
+            )
+        finally:
+            resp.close()
         data = payload.get("data") or {}
         results = data.get("results") or []
 
