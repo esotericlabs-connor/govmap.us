@@ -27,6 +27,26 @@ database schema migration. No backup product beyond Duplicati was added.
   repository, not by the local WAL archive. CI builds and scans the custom
   database image and tests scheduler/config/Compose behavior. The operator
   must still deploy and rehearse a restore from each destination.
+- The first CI run failed two checks, both repaired. The backup Compose test
+  sliced the backup service to the end of the file and picked up the new
+  `pgbackrest` service; service blocks now end at the next service or
+  top-level key. The image scan first covered the PostgreSQL base once it
+  became a built image and found fixed zlib, libxslt and krb5-libs CVEs in
+  the pinned digest. The database Dockerfile now carries a floor for each
+  (remove them once a base digest bump ships the fixes), and Dependabot
+  watches `/database`.
+- Alpine's `pgbackrest` package depends on the generic `postgresql`
+  provider, which apk satisfied with a PostgreSQL 18 server beside the
+  official 16 build. An empty virtual `postgresql` package now satisfies it,
+  a unit test checks that it is declared first, and CI asserts the image
+  holds exactly one `postgres` server.
+- The database image gets Alpine 3.24's pgBackRest (currently 2.58) and the
+  sidecar gets Alpine 3.22's (currently 2.55). They exchange only repository
+  files and never use pgBackRest's remote protocol, where matching versions
+  are required, and the 2.56 to 2.58 release notes list no repository-format
+  change. Dev acceptance (`stanza-create`, `check`, a full backup and a
+  restore rehearsal) is the proof; move the sidecar to a newer Alpine
+  afterwards.
 
 **2026-11-11 — R2 shared rolling-hour request budgets (migration 0015)**
 Implemented on `dev`; CI and dev deployment acceptance are pending. No local
@@ -1116,7 +1136,7 @@ Adapted from the original end-to-end plan, reordered to prove the pipeline contr
 - **Ruff is pinned via `backend/ruff.toml`.** CI runs an unpinned `pip install ruff`, whose default rule set shifts between releases; without a config, a new ruff version turned the lint red on unchanged code (B008 on every FastAPI `Depends`, UP on Alembic boilerplate, BLE/DTZ on intentional patterns). The config sets a deterministic `select = [E, F, UP, B]`, ignores `B008` (FastAPI idiom), and excludes `migrations/`.
 - **ZIP crosswalk uses HUD (needs `HUD_API_TOKEN`).** Confirmed via directory listing that Census publishes **no** ZCTA↔CD relationship file (`rel2020/zcta520/` pairs ZCTA with county/place/tract/tabblock/cousub only). `zip_crosswalk.py` now uses the authoritative **HUD USPS ZIP→CD crosswalk** (huduser.gov, type 5), token as a Bearer header. Free token from huduser.gov; must also be in the backend `environment:` block (it is: `HUD_API_TOKEN`). Fail-soft without it — `/api/lookup` returns empty and the `/congress` ZIP box shows "couldn't match" until it's set + `refresh zip_districts` runs.
 - **R0 deferred hardening (2026-11-11).** Each needs an operator decision or infrastructure fact first, not just code:
-  - *Supply-chain pinning.* Done in R0 Phase A (2026-11-11): images are pinned by digest, Actions by SHA, and the backend installs and audits a hash-locked `requirements.txt`. What remains is upkeep: review and merge Dependabot's weekly PRs on `dev`, because pins that are never bumped become their own risk. Remove the zlib floors in the backend and backup Dockerfiles once a base digest bump ships the fix.
+  - *Supply-chain pinning.* Done in R0 Phase A (2026-11-11): images are pinned by digest, Actions by SHA, and the backend installs and audits a hash-locked `requirements.txt`. What remains is upkeep: review and merge Dependabot's weekly PRs on `dev`, because pins that are never bumped become their own risk. Remove the floors in the backend, backup and database Dockerfiles (zlib, plus libxslt and krb5-libs in the database image) once a base digest bump ships the fixes.
   - *Trusted-proxy CIDRs.* `TRUSTED_PROXY_CIDRS` must name the PaaS's actual private subnet. A guessed range could trust a neighboring network's forged client IP headers; read the real subnet from the deployment before setting it.
   - *Committee-meeting history.* The meetings table is fully replaced with each chamber's 300 most-recently-updated meetings (`committee_meetings_limit`), so older meetings drop out. Keeping history needs an append/upsert model and a migration (roadmap history lane).
   - *Script/style CSP.* Only `frame-ancestors` is enforced. A full CSP needs per-request nonces (making pages dynamic) plus Cloudflare Turnstile allowances; roll it out report-only first.

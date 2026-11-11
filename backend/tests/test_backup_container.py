@@ -499,11 +499,18 @@ def test_scheduler_rejects_invalid_time(
     assert _lines(context.backup_log) == []
 
 
+def _service_block(compose: str, name: str) -> str:
+    # A service ends at the next service or top-level key, together with the
+    # comment lines that introduce it, so a neighbour's settings never leak in.
+    block = compose.split(f"\n  {name}:\n", 1)[1]
+    return re.split(r"\n(?:  #[^\n]*\n)*(?:  )?[a-z][a-z0-9_-]*:\n", block, maxsplit=1)[0]
+
+
 def test_compose_backup_service_is_hardened_and_fails_closed() -> None:
     compose = (Path(__file__).resolve().parents[2] / "docker-compose.PaaS.yml").read_text(
         encoding="utf-8"
     )
-    service = compose.split("\n  backup:\n", 1)[1].split("\nvolumes:\n", 1)[0]
+    service = _service_block(compose, "backup")
     assert "BACKUP_ENABLED: ${BACKUP_ENABLED:-false}" in service
     assert "BACKUP_TARGET: ${BACKUP_TARGET:-unconfigured}" in service
     assert "BACKUP_INTERVAL_MINUTES: ${BACKUP_INTERVAL_MINUTES:-1440}" in service
