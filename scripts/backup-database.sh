@@ -7,11 +7,11 @@ source "$script_dir/backup-common.sh"
 
 usage() {
   cat <<'EOF'
-Usage: bash scripts/backup-coolify-database.sh \
+Usage: bash scripts/backup-database.sh \
   --resource-id ID --destination DIRECTORY --recipients-file FILE
 
 Create a consistent PostgreSQL custom-format dump from exactly one running
-Coolify Postgres container, encrypt it with age, and publish it atomically.
+deployment Postgres container, encrypt it with age, and publish it atomically.
 The destination must exist outside the repository. No existing backup is removed.
 EOF
 }
@@ -51,7 +51,7 @@ while (($#)); do
 done
 
 [[ "$resource_id" =~ ^[a-zA-Z0-9][a-zA-Z0-9_-]{7,63}$ ]] \
-  || backup_die "A valid Coolify resource ID is required."
+  || backup_die "A valid deployment resource ID is required."
 [[ -n "$destination" && -n "$recipients" ]] \
   || backup_die "The destination and recipients file are required."
 [[ -f "$recipients" && -r "$recipients" ]] \
