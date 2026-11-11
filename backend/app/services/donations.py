@@ -74,7 +74,8 @@ def _fec_get(path: str, **params: Any) -> dict:
     for attempt in range(1, _MAX_RETRIES + 1):
         with request_slot("fec"):
             resp = _session.get(
-                url, params=params, headers=headers, timeout=_TIMEOUT, stream=True
+                url, params=params, headers=headers, timeout=_TIMEOUT,
+                stream=True, allow_redirects=False,
             )
             try:
                 status = resp.status_code
@@ -90,7 +91,7 @@ def _fec_get(path: str, **params: Any) -> dict:
         if status == 429 or status >= 500:
             time.sleep(min(2**attempt, 10))
             continue
-        if status >= 400:
+        if status >= 300:
             raise RuntimeError(f"openfec {path} -> HTTP {status}: {text_excerpt(body, 200)}")
         return json.loads(body)
     raise RuntimeError(f"openfec {path} failing after {_MAX_RETRIES} attempts (HTTP {last_status})")

@@ -1,6 +1,7 @@
 from ipaddress import IPv4Network, IPv6Network, ip_network
+from typing import Literal, Self
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -17,6 +18,10 @@ class Settings(BaseSettings):
     congress_requests_per_hour: int = Field(default=4500, ge=1)
     fec_requests_per_hour: int = Field(default=900, ge=1)
     govinfo_requests_per_hour: int = Field(default=600, ge=1)
+    upstream_budget_scope: Literal["shared", "api", "worker"] = "shared"
+    total_congress_requests_per_hour: int = Field(default=4500, ge=1)
+    total_fec_requests_per_hour: int = Field(default=900, ge=1)
+    total_govinfo_requests_per_hour: int = Field(default=600, ge=1)
 
     # Credentials for the /internal/* ops endpoints. Left empty by default,
     # which keeps those endpoints locked (every request 401s) until real
@@ -84,7 +89,18 @@ class Settings(BaseSettings):
     # See app/logging_setup.py and app/routers/report.py.
     log_dir: str = "/app/logs"
 
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+    model_config = SettingsConfigDict(
+        env_file=".env", env_file_encoding="utf-8", hide_input_in_errors=True
+    )
+
+    @model_validator(mode="after")
+    def validate_request_budget_shares(self) -> Self:
+        for source in ("congress", "fec", "govinfo"):
+            if getattr(self, f"{source}_requests_per_hour") > getattr(
+                self, f"total_{source}_requests_per_hour"
+            ):
+                raise ValueError(f"{source} request share cannot exceed its total hourly budget")
+        return self
 
     @field_validator("trusted_proxy_cidrs")
     @classmethod

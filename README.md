@@ -264,16 +264,39 @@ Run manual refreshes in the worker:
 `all`). A per-source advisory lock records an overlapping run as `skipped`
 rather than loading the same source twice.
 
-Upstream request budgets are counted per process, so the API and the worker
-take separate shares of each key's hourly limit: `API_*` and `WORKER_*`
+PostgreSQL records each outbound attempt in a rolling 60-minute window, before
+HTTP starts. The API and worker keep separate shares: `API_*` and `WORKER_*`
 prefixed `CONGRESS_REQUESTS_PER_HOUR` (defaults 1000 / 3500),
 `FEC_REQUESTS_PER_HOUR` (250 / 650) and `GOVINFO_REQUESTS_PER_HOUR`
-(500 / 100). Keep each pair's sum at or below the single-process defaults of
-4500, 900 and 600. A manual refresh is another process with its own copy of
-the worker share; for a large one, lower it with
-`-e CONGRESS_REQUESTS_PER_HOUR=500` (or the FEC equivalent) on the `exec`. The
-deployment Compose file no longer reads the unprefixed variables; remove any
-that are still set in the deployment settings.
+(500 / 100). `TOTAL_*` sets the source-wide ceiling (4500 / 900 / 600).
+Keep each API/worker pair's sum at or below its total and keep the total
+identical across all processes. A process share above the total fails settings
+validation. Compose fixes `UPSTREAM_BUDGET_SCOPE` to `api` or `worker`;
+manual commands in the worker share the worker allocation, not a new budget.
+Do not override that scope or raise limits in a manual command.
+
+Reservations survive restart, failure and cancellation; retries and each
+allowed bill-text redirect spend another reservation. JSON API redirects are
+refused rather than making uncounted requests. Expired reservations are pruned
+on the next admission for that source. Database errors or a missing ledger
+fail closed, with an explicit 503/Retry-After for public upstream-dependent
+requests; there is no memory-only fallback. Concurrency limits remain local
+to each process. This ledger coordinates one database, not multiple deployment
+resources: dev and production still need separate source credentials.
+The deployment Compose file does not read the unprefixed share variables;
+remove any that are still set in the deployment settings.
+
+**First shared-budget rollout (migration 0015):** stop the old API and worker
+containers before applying this migration; do not use overlapping/rolling
+old and new versions. Old versions do not participate in the ledger.
+The migration starts an automatic, one-time **60-minute hold** on Congress,
+FEC and GovInfo requests because the old counters cannot be recovered.
+Database-backed pages and readiness stay available; features needing a new
+upstream request return 503 with Retry-After. Affected refreshes record their
+normal error/partial outcome and may alert during the hold. Do not retry them
+repeatedly or edit the ledger to bypass it. Afterward, confirm a successful
+refresh and a new source-run row before releasing the change to production.
+Ordinary redeploys do not restart the hold or clear usage.
 
 The test environment is a **separate deployment resource** seeded from a
 production database snapshot, with its own log volume and credentials,
@@ -451,7 +474,8 @@ a bounded timeout. Do not run it on the production server or use it as a
 restore shortcut. A production redeploy migrates in the backend and starts
 the scheduler in the worker; neither executes that script's deploy-time
 refresh. The legacy compose has no worker: its backend still runs the
-scheduler in-process with the single-process request budgets.
+scheduler in-process; its `shared` budget scope coordinates the backend and
+manual commands against the same source-wide totals.
 
 ### Credential rotation and Group 0 release gates
 

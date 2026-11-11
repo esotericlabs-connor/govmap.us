@@ -43,6 +43,13 @@ be recoverable independently of the server.
 The worker's `worker-staging` volume is not included either: it holds only the
 latest source snapshots, which the next refresh of each source rewrites.
 
+The database dump includes `upstream_budgets` and `upstream_requests` (0015).
+A restored ledger cannot include requests made after the backup. Before
+reusing the same source credentials on a restored environment, stop all old
+callers and allow a full 60-minute drain with upstream-dependent traffic and
+refreshes disabled. Do not clear the ledger or run old and restored instances
+against the same keys. Isolated dev/restore exercises need separate keys.
+
 ### Destination
 
 The bundle is written to `/backups` in the container. It is bind-mounted from

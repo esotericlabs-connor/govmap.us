@@ -349,10 +349,12 @@ def test_worker_service_runs_the_backend_image_without_api_settings() -> None:
     assert "worker-staging:/app/data/staging" in worker_service["volumes"]
 
     api_env, worker_env = backend["environment"], worker_service["environment"]
+    assert api_env["UPSTREAM_BUDGET_SCOPE"] == "api"
+    assert worker_env["UPSTREAM_BUDGET_SCOPE"] == "worker"
     assert not set(worker_env) & _API_ONLY
     assert set(worker_env) == set(api_env) - _API_ONLY
     for key, value in worker_env.items():
-        if key not in _BUDGETS and key != "SCHEDULER_ENABLED":
+        if key not in _BUDGETS and key not in {"SCHEDULER_ENABLED", "UPSTREAM_BUDGET_SCOPE"}:
             assert value == api_env[key], key
 
 
@@ -381,8 +383,11 @@ def test_api_and_worker_budget_shares_fit_the_single_process_limit(
     assert api is not None and shared is not None
     assert api["name"] == f"API_{variable}"
     assert shared["name"] == f"WORKER_{variable}"
-    limit = Settings.model_fields[field].default
-    assert int(api["value"]) + int(shared["value"]) <= limit
+    total = _DEFAULTED.fullmatch(services["backend"]["environment"][f"TOTAL_{variable}"])
+    assert total is not None
+    assert total["name"] == f"TOTAL_{variable}"
+    assert int(total["value"]) == Settings.model_fields[f"total_{field}"].default
+    assert int(api["value"]) + int(shared["value"]) <= int(total["value"])
 
 
 def test_worker_healthcheck_reads_the_heartbeat() -> None:

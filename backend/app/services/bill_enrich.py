@@ -191,9 +191,9 @@ def _fetch_url(url: str) -> tuple[str, bool]:
     Redirects are followed manually so every hop is re-checked against the
     host allowlist, and the body is size-capped so a misbehaving upstream
     cannot exhaust worker memory. Returns (html, cut_short)."""
-    with request_slot("govinfo"):
-        for _ in range(_TEXT_MAX_REDIRECTS + 1):
-            _check_text_url(url)
+    for _ in range(_TEXT_MAX_REDIRECTS + 1):
+        _check_text_url(url)
+        with request_slot("govinfo"):
             with requests.get(
                 url, timeout=_TEXT_TIMEOUT, allow_redirects=False, stream=True
             ) as resp:

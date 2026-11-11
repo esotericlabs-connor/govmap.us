@@ -12,6 +12,7 @@ from sqlalchemy.dialects import postgresql
 
 from app.config import settings
 from app.services import bill_enrich
+from app.services.upstream import UpstreamCapacityError
 
 TEXT_URL = "https://www.congress.gov/119/bills/hr1/BILLS-119hr1ih.htm"
 
@@ -113,6 +114,19 @@ def test_redirect_loops_are_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
     with pytest.raises(ValueError, match="too many redirects"):
         bill_enrich._fetch_url(TEXT_URL)
     assert get.call_count == bill_enrich._TEXT_MAX_REDIRECTS + 1
+
+
+def test_each_text_redirect_needs_a_new_reservation(monkeypatch: pytest.MonkeyPatch) -> None:
+    slot = Mock(side_effect=[contextlib.nullcontext(), UpstreamCapacityError("govinfo", 60)])
+    monkeypatch.setattr(bill_enrich, "request_slot", slot)
+    first = _Response(302, location=TEXT_URL)
+    get = Mock(return_value=first)
+    monkeypatch.setattr(bill_enrich.requests, "get", get)
+    with pytest.raises(UpstreamCapacityError):
+        bill_enrich._fetch_url(TEXT_URL)
+    assert slot.call_count == 2
+    assert get.call_count == 1
+    assert first.closed
 
 
 def test_oversized_body_is_cut_at_the_byte_cap(monkeypatch: pytest.MonkeyPatch) -> None:

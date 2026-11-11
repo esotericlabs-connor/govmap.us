@@ -1,9 +1,8 @@
 import asyncio
 import json
 import threading
-from collections.abc import Iterator
-from concurrent.futures import ThreadPoolExecutor
-from types import SimpleNamespace
+from collections.abc import Callable, Iterator
+from types import ModuleType, SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -16,7 +15,14 @@ from app.pipelines import congress_gov_bills, fec_finance
 from app.routers import bills
 from app.routers import donations as donation_routes
 from app.services import bill_enrich, committees, donations, upstream
-from app.services.upstream import UpstreamCapacityError, _Budget
+from app.services.upstream import UpstreamBudgetUnavailableError, UpstreamCapacityError, _Budget
+
+
+@pytest.fixture(autouse=True)
+def admission(monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
+    reserve = AsyncMock()
+    monkeypatch.setattr(upstream, "reserve_request", reserve)
+    return reserve
 
 
 class _Response:
@@ -34,29 +40,8 @@ class _Response:
         pass
 
 
-def test_hourly_attempt_limit_and_exact_expiry(monkeypatch: pytest.MonkeyPatch) -> None:
-    clock = [0.0]
-    monkeypatch.setattr(upstream.time, "monotonic", lambda: clock[0])
-    budget = _Budget("fec", 2, 2)
-    for _ in range(2):
-        with budget.slot():
-            pass
-    with pytest.raises(UpstreamCapacityError) as caught:
-        with budget.slot():
-            pytest.fail("exhausted budget admitted a request")
-    assert caught.value.retry_after == 3600
-    clock[0] = 3599.0
-    with pytest.raises(UpstreamCapacityError) as caught:
-        with budget.slot():
-            pytest.fail("budget expired early")
-    assert caught.value.retry_after == 1
-    clock[0] = 3600.0
-    with budget.slot():
-        pass
-
-
 def test_concurrency_limit_releases_after_failure() -> None:
-    budget = _Budget("fec", 10, 1)
+    budget = _Budget("fec", 1)
     with pytest.raises(RuntimeError, match="worker failed"):
         with budget.slot():
             with pytest.raises(UpstreamCapacityError) as caught:
@@ -68,27 +53,10 @@ def test_concurrency_limit_releases_after_failure() -> None:
         pass
 
 
-def test_hourly_limit_is_atomic_across_threads() -> None:
-    budget = _Budget("fec", 3, 16)
-    barrier = threading.Barrier(16)
-
-    def attempt() -> bool:
-        barrier.wait(timeout=5)
-        try:
-            with budget.slot():
-                return True
-        except UpstreamCapacityError:
-            return False
-
-    with ThreadPoolExecutor(max_workers=16) as pool:
-        futures = [pool.submit(attempt) for _ in range(16)]
-        assert sum(f.result(timeout=5) for f in futures) == 3
-
-
 def test_pipeline_and_public_fec_requests_share_budget(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, admission: AsyncMock,
 ) -> None:
-    monkeypatch.setitem(upstream._BUDGETS, "fec", _Budget("fec", 1, 1))
+    admission.side_effect = [None, UpstreamCapacityError("fec", 3600)]
     response = _Response(200, b'{"results": []}')
     pipeline_get = Mock(return_value=response)
     public_get = Mock(return_value=response)
@@ -99,18 +67,64 @@ def test_pipeline_and_public_fec_requests_share_budget(
         donations._fec_get("schedules/schedule_a")
     assert pipeline_get.call_count == 1
     public_get.assert_not_called()
+    assert admission.await_count == 2
+    assert {call.args[0] for call in admission.await_args_list} == {"fec"}
 
 
 def test_retry_consumes_budget_before_another_http_attempt(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, admission: AsyncMock,
 ) -> None:
-    monkeypatch.setitem(upstream._BUDGETS, "congress", _Budget("congress", 1, 1))
+    admission.side_effect = [None, UpstreamCapacityError("congress", 3600)]
     get = Mock(return_value=_Response(503))
     monkeypatch.setattr(congress_gov_bills._session, "get", get)
     monkeypatch.setattr(congress_gov_bills.time, "sleep", lambda _: None)
     with pytest.raises(UpstreamCapacityError):
         congress_gov_bills._get("bill/119")
     assert get.call_count == 1
+    assert admission.await_count == 2
+
+
+@pytest.mark.parametrize(
+    ("client", "fetch"),
+    [
+        (congress_gov_bills, congress_gov_bills._get),
+        (fec_finance, fec_finance._fec_get),
+        (donations, donations._fec_get),
+    ],
+)
+def test_json_redirect_cannot_send_an_uncounted_request(
+    monkeypatch: pytest.MonkeyPatch, client: ModuleType, fetch: Callable[[str], dict],
+) -> None:
+    get = Mock(return_value=_Response(302, b"{}"))
+    monkeypatch.setattr(client._session, "get", get)
+    with pytest.raises(RuntimeError, match="HTTP 302"):
+        fetch("test")
+    assert get.call_count == 1
+    assert get.call_args.kwargs["allow_redirects"] is False
+
+
+def test_unavailable_ledger_sends_no_http_and_releases_local_slot(
+    monkeypatch: pytest.MonkeyPatch, admission: AsyncMock,
+) -> None:
+    monkeypatch.setitem(upstream._BUDGETS, "fec", _Budget("fec", 1))
+    admission.side_effect = [UpstreamBudgetUnavailableError("fec", 5), None]
+    get = Mock(return_value=_Response(200, b'{"results": []}'))
+    monkeypatch.setattr(donations._session, "get", get)
+    with pytest.raises(UpstreamBudgetUnavailableError):
+        donations._fec_get("schedules/schedule_a")
+    get.assert_not_called()
+    assert donations._fec_get("schedules/schedule_a") == {"results": []}
+    assert get.call_count == 1
+
+
+def test_unavailable_budget_returns_sanitized_503() -> None:
+    request = Request({"type": "http", "method": "GET", "path": "/api/bills", "headers": []})
+    response = asyncio.run(
+        upstream_capacity_handler(request, UpstreamBudgetUnavailableError("congress", 5))
+    )
+    assert response.status_code == 503
+    assert response.headers["retry-after"] == "5"
+    assert "shared request budget unavailable" in json.loads(response.body)["detail"]
 
 
 def test_capacity_handler_returns_explicit_503_and_retry_after() -> None:

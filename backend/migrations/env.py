@@ -20,6 +20,7 @@ from app.models import (  # noqa: F401
     member,
     pipeline_status,
     source_run,
+    upstream_budget,
     vote,
     zip_district,
 )

@@ -26,9 +26,14 @@ from app.pipelines import (
 )
 from app.pipelines.batch import BatchResult, OutageBreaker
 from app.services import bill_enrich, upstream
-from app.services.upstream import UpstreamUnavailableError, _Budget
+from app.services.upstream import UpstreamUnavailableError
 
 _SECRET = "test-placeholder-key"
+
+
+@pytest.fixture(autouse=True)
+def admission(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(upstream, "reserve_request", AsyncMock())
 
 
 class _StatusOnly:
@@ -55,7 +60,6 @@ def _outage() -> UpstreamUnavailableError:
 def congress_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "congress_gov_api_key", _SECRET)
     monkeypatch.setattr(settings, "congress_max_consecutive_failures", 3)
-    monkeypatch.setitem(upstream._BUDGETS, "congress", _Budget("congress", 1000, 4))
 
 
 @pytest.mark.parametrize(
