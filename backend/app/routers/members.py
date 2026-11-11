@@ -30,7 +30,11 @@ async def list_members(
     limit: int = Query(default=100, le=600),
     offset: int = 0,
 ) -> list[Member]:
-    stmt = select(Member).order_by(Member.state, Member.last_name)
+    stmt = (
+        select(Member)
+        .where(Member.in_office.is_(True))
+        .order_by(Member.state, Member.last_name)
+    )
     if chamber:
         stmt = stmt.where(Member.chamber == chamber)
     if state:
@@ -138,6 +142,7 @@ async def member_detail(bioguide_id: BioguideId, db: AsyncSession = Depends(get_
         "gender": member.gender,
         "contact": member.contact,
         "leadership_role": member.leadership_role,
+        "in_office": member.in_office,
         "finance": {
             "cycle": finance_row.cycle,
             "fec_candidate_id": finance_row.fec_candidate_id,
@@ -251,6 +256,7 @@ async def member_card(
         "photo_url": member.photo_url,
         "served_since": member.served_since.isoformat() if member.served_since else None,
         "leadership_role": member.leadership_role,
+        "in_office": member.in_office,
         "recent_bills": int(recent_bills),
         "recent_votes": int(recent_votes),
         "activity_window_days": days,

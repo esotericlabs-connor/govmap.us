@@ -56,6 +56,7 @@ async def search(
                 Member.state,
                 Member.chamber,
                 Member.photo_url,
+                Member.in_office,
             )
             .where(
                 or_(
@@ -65,7 +66,8 @@ async def search(
                     Member.state.ilike(escape_like(term), escape=LIKE_ESCAPE),
                 )
             )
-            .order_by(Member.last_name)
+            # Former members stay searchable, after the current ones.
+            .order_by(Member.in_office.desc(), Member.last_name)
             .limit(PER_GROUP)
         )
     ).all()
@@ -112,6 +114,7 @@ async def search(
                 "state": m.state,
                 "chamber": m.chamber,
                 "photo_url": m.photo_url,
+                "in_office": m.in_office,
             }
             for m in members
         ],

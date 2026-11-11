@@ -48,6 +48,8 @@ export interface MemberSummary {
   state: string;
   chamber: "house" | "senate";
   photo_url: string | null;
+  // Present on search results; the members list only returns current members.
+  in_office?: boolean;
 }
 
 export interface CommitteeSeat {
@@ -147,6 +149,7 @@ export interface MemberDetail {
   gender: string | null;
   contact: Record<string, string> | null;
   leadership_role: string | null;
+  in_office: boolean;
   finance: MemberFinance | null;
   ids: {
     fec: string[];
@@ -376,6 +379,7 @@ export interface MemberCard {
   photo_url: string | null;
   served_since: string | null;
   leadership_role: string | null;
+  in_office: boolean;
   recent_bills: number;
   recent_votes: number;
   activity_window_days: number;

@@ -4,6 +4,47 @@ What's been built, in what order, and what's next. This is a living log — add 
 
 ## Build log
 
+**2026-11-11 — R1 Phase B: source registry, run history, member terms, departed members (schema 0014)**
+Starts roadmap R1 (immediate work queue item 3). CI is the only test run;
+nothing was executed on the static checkout.
+
+- *Source registry:* `backend/app/sources.py` lists each of the 8 refreshed
+  sources with its publisher, endpoints (official or community-maintained),
+  auth variable and staging files. `rights` stays empty until a source's terms
+  of use are reviewed; no license is assumed. `tests/test_sources.py` fails if
+  a refresher, a registry entry and a scheduler job don't line up one-to-one.
+- *Run history (`source_runs`):* every refresh attempt, whether scheduled
+  (`trigger=schedule`) or run by hand (`manual`), gets a row with its code
+  version, start/finish, outcome (`running`, `ok`, `partial`, `error`,
+  `skipped`, `abandoned`), record and item counts, and a SHA-256 manifest of
+  the staging files it loaded. Error text is stripped of configured secrets,
+  `key=`/`token=` parameters, bearer tokens and URL credentials before it is
+  stored or alerted. Rows older than 400 days are pruned per source.
+  `pipeline_status` still holds each source's latest state for
+  `/internal/pipeline-status`.
+- *Overlap protection:* a run holds a per-source Postgres advisory lock on its
+  own unpooled connection, so a `docker exec` refresh and the scheduler can no
+  longer load the same source at once. The loser records `skipped` and is not
+  retried. A row left `running` by a dead process becomes `abandoned` on the
+  next run.
+- *Departed members (bug fix):* the roster load only ever upserted, so members
+  who left Congress stayed "in office" on the map, ZIP lookup, search and
+  member list. The load now marks anyone missing from the current roster
+  `in_office = false`, in the same transaction, under a guard: no departure
+  is applied if any legislator record failed validation, and more than 3 at
+  once is withheld (`partial`, alert, not retried) until an operator confirms
+  it. Former members keep their profile pages, now labelled as former, and
+  are ranked below current members in search.
+- *Member terms (`member_terms`):* every term of each current member, keyed
+  on (member, chamber, start date), linked to the run that loaded it. Terms
+  are kept when a member departs.
+
+**Operator note:** the first members refresh after this deploy will likely be
+withheld, because members who left before now are all detected at once.
+Review the bioguide ids in the alert or the run's `detail`, then confirm with
+`python -m app.pipelines.refresh members --allow-roster-turnover` in the
+backend container. Expect the same at each new Congress.
+
 **2026-11-11 — R0 Phase A: supply chain, request/parser bounds, migration safety (CI green: [main run 42998076890](https://github.com/esotericlabs-connor/govmap.us/actions/runs/42998076890))**
 Completes the R0 items the first pass deferred (roadmap R0 items 4 and 6).
 No schema migration; the model changes only declare indexes migrations already
@@ -923,7 +964,7 @@ Adapted from the original end-to-end plan, reordered to prove the pipeline contr
 - **PACER costs money per page**, not a flat quarterly fee — the pipeline needs to scope queries tightly and track spend, not just cap at "$30/qtr" and assume it holds.
 - **OPM PLUM and White House scrapers are fragile by nature** (HTML scrapes with no API). They need to fail loudly on structural change, not silently return stale data — flagged in the original plan and still true.
 - **Pipeline status is persisted in Postgres** (the `pipeline_status` table / `PipelineStatusRow`), written by `record_run()` and read by `/internal/pipeline-status`, so it survives restarts and redeploys. This supersedes the old ephemeral `pipeline_status.json` (promoted to a table in schema 0002) — no volume/permission concern remains. A fresh DB simply shows no rows until each source's first run.
-- **2027 rollover: the tracked Congress/session/cycle are time-coupled and must be bumped together in January 2027.** All three are env-overridable (change the deploy `.env` + `docker-compose.yml` defaults, not code): `CONGRESS_NUMBER` 119 → 120, `CONGRESS_SESSION` 2 → 1 (120th's first session = 2027), and `FEC_CYCLE` 2026 → 2028. Defaults live in `backend/app/config.py`; the runtime values are wired in the backend `environment:` block of `docker-compose.yml`. Roll all three at once — a mismatch (e.g. new Congress but old cycle) silently pulls the wrong session's bills/votes or the wrong finance cycle. The per-run coverage caps (`CONGRESS_GOV_BILL_LIMIT`, `VOTES_LIMIT`) don't need touching; only these three values.
+- **2027 rollover: the tracked Congress/session/cycle are time-coupled and must be bumped together in January 2027.** All three are env-overridable (change the deploy `.env` + `docker-compose.yml` defaults, not code): `CONGRESS_NUMBER` 119 → 120, `CONGRESS_SESSION` 2 → 1 (120th's first session = 2027), and `FEC_CYCLE` 2026 → 2028. Defaults live in `backend/app/config.py`; the runtime values are wired in the backend `environment:` block of `docker-compose.yml`. Roll all three at once — a mismatch (e.g. new Congress but old cycle) silently pulls the wrong session's bills/votes or the wrong finance cycle. The per-run coverage caps (`CONGRESS_GOV_BILL_LIMIT`, `VOTES_LIMIT`) don't need touching; only these three values. The first members refresh of the new Congress will be withheld by the departure guard (more than 3 members leave); confirm it with `python -m app.pipelines.refresh members --allow-roster-turnover`.
 - **Marketing site has no real social handles or support/donation link.** `frontend/lib/site-config.ts` ships with `socialLinks: []` and `supportUrl: null` on purpose rather than placeholder/fake links — fill them in as real accounts and a donation link exist.
 - **Favicon is a stopgap crop**, not a designed icon mark — see README → *Sites & branding*. Fine for now, worth revisiting once there's a proper icon-only asset.
 - **DNS not yet configured** for the `app.` subdomain split. `frontend/middleware.ts` assumes `app.govmap.us` resolves to the same deployment as `govmap.us` — that DNS record (and matching `cloudflared` routing) needs to exist before the split works in production.
@@ -939,4 +980,6 @@ Adapted from the original end-to-end plan, reordered to prove the pipeline contr
   - *Committee-meeting history.* The meetings table is fully replaced with each chamber's 300 most-recently-updated meetings (`committee_meetings_limit`), so older meetings drop out. Keeping history needs an append/upsert model and a migration (roadmap history lane).
   - *Script/style CSP.* Only `frame-ancestors` is enforced. A full CSP needs per-request nonces (making pages dynamic) plus Cloudflare Turnstile allowances; roll it out report-only first.
   - *HUD page cap.* `zip_crosswalk` now fails rather than staging a partial set if HUD needs more than 60 pages. If that error appears, check the page-1 log's metadata and raise `_MAX_PAGES` deliberately.
+  - *Python runtime CVEs below the gate.* Grype reports 9 medium/low CPython 3.11.18 findings in the backend image (CVE-2025-12781, CVE-2025-15366, CVE-2025-15367, CVE-2026-12345, CVE-2026-116566, CVE-2026-3446, CVE-2026-6019, CVE-2026-103995, CVE-2026-3479). None is high or critical and none has a 3.11 fix; they close only on Python 3.12+. Plan a deliberate Python minor upgrade (base image, hash lock, CI matrix) rather than suppressing them.
+- **R1 Phase B leftovers.** Stale `member_terms` rows (a term the upstream file later drops or re-dates) are not deleted. Only current members' terms load; historical members need the `legislators-historical` file. Run history is not yet exposed through an API.
 - **AGENTS.md still names `pipeline_status.json`** in the pipeline contract; status has lived in the `pipeline_status` table since schema 0002 (see above). Update that rule text in a deliberate AGENTS.md change.

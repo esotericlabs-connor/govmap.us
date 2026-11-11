@@ -2,11 +2,12 @@
 
 Runs each source's refresh on its cadence via APScheduler, inside the FastAPI
 process. Single uvicorn worker = single scheduler instance, which is the current
-deployment; revisit if the API ever scales to multiple workers (jobs would then
-need a shared lock so they don't run N times).
+deployment. Each refresh also holds a per-source Postgres advisory lock
+(app.pipelines.runs), so a manual run or a second worker can't load the same
+source concurrently; the overlapping run is recorded as 'skipped'.
 
 Cadences follow the planning-doc cadence table. Add a source by registering its
-refresh coroutine (from app.pipelines.refresh) in JOBS with a trigger.
+tracked refresher (app.pipelines.refresh.REFRESHERS) in JOBS with a trigger.
 """
 
 from __future__ import annotations
@@ -16,16 +17,8 @@ from collections.abc import Awaitable, Callable
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-from app.pipelines.refresh import (
-    refresh_backfill_bills,
-    refresh_bills,
-    refresh_committee_meetings,
-    refresh_finance,
-    refresh_members,
-    refresh_sponsored_bills,
-    refresh_votes,
-    refresh_zip_districts,
-)
+from app.pipelines.refresh import REFRESHERS
+from app.pipelines.runs import RunSkippedError, run_trigger
 
 logger = logging.getLogger(__name__)
 
@@ -51,42 +44,42 @@ JOBS: list[tuple[str, Callable[[], Awaitable[None]], dict]] = [
     # nearly free; the deploy-time core refresh keeps it warm on top of this.
     (
         "refresh_members",
-        refresh_members,
+        REFRESHERS["members"],
         {"trigger": "cron", "hour": 7},
     ),
     # Bills move constantly while Congress is in session. Every 30 min keeps the
     # "what's moving" view fresh; upserts are idempotent when nothing changed.
     (
         "refresh_bills",
-        refresh_bills,
+        REFRESHERS["bills"],
         {"trigger": "interval", "minutes": 30},
     ),
     # Roll-call votes post throughout session days — 30-min interval catches
     # them promptly; upserts are idempotent when nothing new landed.
     (
         "refresh_votes",
-        refresh_votes,
+        REFRESHERS["votes"],
         {"trigger": "interval", "minutes": 30},
     ),
     # Per-member sponsored legislation is ~537 API calls; members introduce
     # bills throughout the day but hourly is overkill — daily at 08:00 UTC.
     (
         "refresh_sponsored_bills",
-        refresh_sponsored_bills,
+        REFRESHERS["sponsored_bills"],
         {"trigger": "cron", "hour": 8},
     ),
     # Campaign-finance filings post on FEC monthly/quarterly schedules — daily
     # at 09:00 UTC is plenty and keeps the ~537 FEC calls off the hot path.
     (
         "refresh_finance",
-        refresh_finance,
+        REFRESHERS["finance"],
         {"trigger": "cron", "hour": 9},
     ),
     # ZIP→district crosswalk only changes on redistricting — monthly (1st,
     # 06:00 UTC) is generous. The deploy-time refresh_all keeps it warm too.
     (
         "refresh_zip_districts",
-        refresh_zip_districts,
+        REFRESHERS["zip_districts"],
         {"trigger": "cron", "day": 1, "hour": 6},
     ),
     # Committee meetings post a few days out and change (postpone/cancel) — twice
@@ -94,7 +87,7 @@ JOBS: list[tuple[str, Callable[[], Awaitable[None]], dict]] = [
     # per-run detail burst competing with the bills jobs on the hour.
     (
         "refresh_committee_meetings",
-        refresh_committee_meetings,
+        REFRESHERS["committee_meetings"],
         {"trigger": "cron", "hour": "6,18", "minute": 30},
     ),
     # Rolling enrichment of the ~17k sponsored-legislation stub bills — a bounded
@@ -102,7 +95,7 @@ JOBS: list[tuple[str, Callable[[], Awaitable[None]], dict]] = [
     # and the two never collide on the Congress.gov hourly budget.
     (
         "refresh_backfill_bills",
-        refresh_backfill_bills,
+        REFRESHERS["backfill_bills"],
         {"trigger": "cron", "minute": "15,45"},
     ),
 ]
@@ -113,13 +106,18 @@ def _guarded(
 ) -> Callable[[], Awaitable[None]]:
     """A failing job must never take down the scheduler. The refresh_* coroutine
     already records an 'error' status and alerts; this just keeps the loop
-    alive and logs."""
+    alive and logs. Runs started here are recorded with trigger 'schedule'."""
 
     async def wrapper() -> None:
+        token = run_trigger.set("schedule")
         try:
             await fn()
+        except RunSkippedError as exc:
+            logger.warning("scheduled job %s skipped: %s", job_id, exc)
         except Exception:
             logger.exception("scheduled job %s failed", job_id)
+        finally:
+            run_trigger.reset(token)
 
     return wrapper
 
