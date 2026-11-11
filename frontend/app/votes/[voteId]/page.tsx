@@ -8,6 +8,7 @@ import { PageSkeleton } from "@/components/PageSkeleton";
 import { Reveal } from "@/components/Reveal";
 import { SiteHeader } from "@/components/SiteHeader";
 import { apiGet, HttpError, type VoteDetail, type VotePosition } from "@/lib/api";
+import { externalHref } from "@/lib/safe-url.mjs";
 
 export const dynamic = "force-dynamic";
 
@@ -45,6 +46,8 @@ function getPositionGroup(p: VotePosition): string {
 async function VoteDetailContent({ voteId }: { voteId: string }) {
   const vote = await getVote(voteId);
   if (!vote) notFound();
+  const sourceHref = externalHref(vote.source_url);
+  const fromVoteview = sourceHref?.startsWith("https://voteview.com/") ?? false;
 
   // --- Data processing ---
   const totals: Record<string, number | null> = vote.totals ?? {};
@@ -93,17 +96,17 @@ async function VoteDetailContent({ voteId }: { voteId: string }) {
         >
           Result: {vote.result}
         </p>
-        {vote.source_url && (
+        {sourceHref && (
           <a
-            href={vote.source_url}
+            href={sourceHref}
             target="_blank"
             rel="noreferrer"
             className="mt-4 inline-block text-sm font-semibold text-govblue transition-colors hover:text-govblue-600"
           >
-            {vote.source_url.startsWith("https://voteview.com/") ? "Voteview Data" : "Official Record"} ↗
+            {fromVoteview ? "Voteview Data" : "Official Record"} ↗
           </a>
         )}
-        {vote.source_url?.startsWith("https://voteview.com/") && (
+        {fromVoteview && (
           <p className="mt-2 text-sm text-slate-warm-500">
             Senate fallback from Voteview. Coverage and freshness may differ from the official record.
           </p>

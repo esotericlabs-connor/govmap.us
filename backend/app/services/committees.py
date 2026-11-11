@@ -38,6 +38,8 @@ async def referred_bills(db: AsyncSession, committee_id: str, limit: int = 15) -
 
     system_code = to_system_code(committee_id)
     congress = settings.congress_number
+    # End the read transaction so no pooled connection is held during the call.
+    await db.commit()
     try:
         data = await run_upstream(
             "congress", _get, f"committee/{congress}/{committee.chamber}/{system_code}/bills", limit=limit

@@ -39,6 +39,7 @@ services:
       DATABASE_URL: postgresql+asyncpg://govmap:${POSTGRES_PASSWORD:-govmap}@postgres:5432/govmap
       CORS_ORIGINS: ${CORS_ORIGINS:-https://govmap.us,https://app.govmap.us}
       SCHEDULER_ENABLED: ${SCHEDULER_ENABLED:-true}
+      API_DOCS_ENABLED: ${API_DOCS_ENABLED:-false}
       TRUSTED_PROXY_CIDRS: ${TRUSTED_PROXY_CIDRS:-}
       UPSTREAM_MAX_CONCURRENT_REQUESTS: ${UPSTREAM_MAX_CONCURRENT_REQUESTS:-4}
       CONGRESS_REQUESTS_PER_HOUR: ${CONGRESS_REQUESTS_PER_HOUR:-4500}
@@ -143,7 +144,10 @@ services:
     container_name: govmap-cloudflared
     restart: unless-stopped
     profiles: ["tunnel"]
-    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    # Token via environment, not argv, so it stays out of `ps` and `docker inspect` Args.
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
     depends_on:
       - frontend
       - backend

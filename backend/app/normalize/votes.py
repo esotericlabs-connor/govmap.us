@@ -9,7 +9,8 @@ the Voteview fallback already carry `bioguide_id` and bind directly. Senate
 positions with neither a Bioguide id nor a crosswalk hit (e.g. a former senator
 not in the current map) are skipped and counted.
 
-Votes upsert on vote_id; each refreshed vote's positions are fully replaced.
+Votes upsert on vote_id; each refreshed vote's positions are fully replaced,
+except a vote that resolved no positions this run keeps its stored ones.
 Inserts are chunked under Postgres' 32767 bind-parameter cap (100 House votes ×
 ~435 members is ~43k rows).
 """
@@ -68,6 +69,13 @@ async def _insert_chunked(session, model, rows: list[dict]) -> None:
         await session.execute(pg_insert(model).values(rows[i : i + _CHUNK]))
 
 
+def replaceable_vote_ids(vote_rows: list[dict], pos_rows: list[dict]) -> list[str]:
+    """Votes whose stored positions this run may replace: those with at least
+    one resolved position, in staging order and without duplicates."""
+    with_positions = {p["vote_id"] for p in pos_rows}
+    return list(dict.fromkeys(v["vote_id"] for v in vote_rows if v["vote_id"] in with_positions))
+
+
 async def normalize_and_load(*, include_house: bool = True, include_senate: bool = True) -> int:
     house = _load(HOUSE_PATH) if include_house else []
     senate = _load(SENATE_PATH) if include_senate else []
@@ -85,13 +93,11 @@ async def normalize_and_load(*, include_house: bool = True, include_senate: bool
         lis_to_bioguide = {row.lis: row.bioguide_id for row in cw}
 
         vote_rows: list[dict] = []
-        vote_ids: list[str] = []
         pos_rows: list[dict] = []
         senate_unresolved = 0
 
         for v in house:
             vote_rows.append(_vote_row(v))
-            vote_ids.append(v["vote_id"])
             seen: set[str] = set()
             for p in v.get("positions", []):
                 bio = p.get("bioguide_id")
@@ -102,7 +108,6 @@ async def normalize_and_load(*, include_house: bool = True, include_senate: bool
 
         for v in senate:
             vote_rows.append(_vote_row(v))
-            vote_ids.append(v["vote_id"])
             seen = set()
             for p in v.get("positions", []):
                 bio = p.get("bioguide_id") or lis_to_bioguide.get(p.get("lis_member_id"))
@@ -113,6 +118,17 @@ async def normalize_and_load(*, include_house: bool = True, include_senate: bool
                     continue
                 seen.add(bio)
                 pos_rows.append({"vote_id": v["vote_id"], "bioguide_id": bio, "position": p.get("position")})
+
+        # A roll call always has positions, so a vote that resolved none this
+        # run (e.g. an empty LIS crosswalk) keeps its stored positions instead
+        # of being blanked.
+        vote_ids = replaceable_vote_ids(vote_rows, pos_rows)
+        kept = len({v["vote_id"] for v in vote_rows}) - len(vote_ids)
+        if kept:
+            logger.warning(
+                "votes normalizer: %d vote(s) resolved no positions; kept their stored positions",
+                kept,
+            )
 
         # Upsert votes (chunked).
         for i in range(0, len(vote_rows), 500):

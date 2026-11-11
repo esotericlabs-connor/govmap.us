@@ -21,19 +21,35 @@ from app.models.pipeline_status import PipelineStatusRow
 logger = logging.getLogger(__name__)
 
 
+def _post_alert(url: str, text: str) -> int:
+    # Redirects are refused so a misconfigured or hijacked endpoint can't bounce
+    # the notification (and the secret-bearing URL's payload) somewhere else.
+    response = requests.post(url, json={"text": text}, timeout=10, allow_redirects=False)
+    try:
+        return response.status_code
+    finally:
+        response.close()
+
+
 async def send_alert(text: str) -> None:
     """POST an operator notification to the alert webhook, if one is configured.
 
     Used for pipeline failures and other noteworthy data events (e.g. a vacant
-    House seat becoming filled). No-op when alert_webhook_url is unset, and
-    fail-soft — a webhook hiccup never propagates to the caller."""
+    House seat becoming filled). No-op when alert_webhook_url is unset.
+    Transport failures and non-2xx answers are logged (by exception class or
+    HTTP status only — the webhook URL is a credential and the text may carry
+    upstream error details) and never propagate to the caller; programming
+    errors do propagate so they aren't silently hidden."""
     url = settings.alert_webhook_url
     if not url:
         return
     try:
-        await asyncio.to_thread(requests.post, url, json={"text": text}, timeout=10)
-    except Exception:
-        logger.warning("alert webhook post failed: %s", text[:120])
+        status_code = await asyncio.to_thread(_post_alert, url, text)
+    except requests.RequestException as exc:
+        logger.warning("alert webhook post failed: %s", type(exc).__name__)
+        return
+    if not 200 <= status_code < 300:
+        logger.warning("alert webhook rejected the notification: HTTP %d", status_code)
 
 
 async def _maybe_alert(source: str, detail: str | None) -> None:

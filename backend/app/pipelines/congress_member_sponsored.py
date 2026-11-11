@@ -29,6 +29,7 @@ from app.config import settings
 from app.pipelines.batch import BatchResult, OutageBreaker
 from app.pipelines.congress_gov_bills import _PAGE, _get
 from app.pipelines.congress_legislators import STAGING_LEGISLATORS
+from app.pipelines.staging import write_json_atomic
 from app.schemas.bill import SponsoredLegislationItemRaw
 from app.services.upstream import UpstreamCapacityError, UpstreamUnavailableError
 
@@ -146,8 +147,7 @@ def run() -> BatchResult:
             raise UpstreamUnavailableError("congress", f"no sponsored bills fetched; {result.describe('members')}")
         raise RuntimeError(f"sponsored-legislation pull failed for all {failures} members")
 
-    STAGING_DIR.mkdir(parents=True, exist_ok=True)
-    STAGING_PATH.write_text(json.dumps(rows))
+    write_json_atomic(STAGING_PATH, rows)
     logger.info(
         "congress_member_sponsored: staged %d sponsored bills across %d members (%d pull failures)%s",
         len(rows),

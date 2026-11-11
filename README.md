@@ -12,6 +12,10 @@ A mobile-first web app that makes the entire US federal government easy to under
 
 **Status:** pre-launch. The federal legislative application is running on a self-hosted platform at **https://govmap.us**. See [CODE-MANIFEST.md](CODE-MANIFEST.md) for the current build log and phase checklist.
 
+The [platform roadmap](docs/platform-roadmap.md) proposes the next hardening
+and data-expansion waves: federal coverage and history, then state and local,
+with explicit correctness, security and release gates.
+
 ## Mission
 
 Apathy is largely a UX problem. - Govmap.us aims to be a modern, nonpartisan, transparent civic tool that gives every American a clear, real-time view of their entire federal government — who represents them, how they vote, who runs the agencies that govern them, where the money goes, and how laws move through all three branches.
@@ -142,7 +146,10 @@ compatibility. It is end-of-life; the deprecation warning remains a tooling
 support limitation, not evidence that the dependency audit passed.
 
 The legacy GitHub Deploy workflow is disabled; keep it disabled, keep
-auto-deploy off, and use manual deployments. Deployment is not yet
+auto-deploy off, and use manual deployments. Its file is also retired in code:
+it no longer triggers on push, accepts only a manual dispatch and has
+read-only repository permissions, so re-enabling it by mistake cannot
+auto-deploy. Deployment is not yet
 automatically gated on CI; require passing checks for the release SHA,
 recoverable off-server backups and an explicit manual deployment.
 
@@ -193,6 +200,7 @@ project/team configuration that could also affect production:
 | `CORS_ORIGINS` | `https://govmap.us` | `https://dev.govmap.us` |
 | `SCHEDULER_ENABLED` (runtime) | `true` (default) | `false` for the approved snapshot-only setup |
 | `NEXT_PUBLIC_TURNSTILE_SITE_KEY` (build) / `TURNSTILE_SECRET_KEY` (runtime) | Paired production widget keys | Separate paired test widget keys, or both empty behind restricted test access |
+| `API_DOCS_ENABLED` (runtime) | `false` (default) | `false`; enable only temporarily for schema inspection, then redeploy with it off |
 | `CONGRESS_GOV_API_KEY`, `FEC_API_KEY`, `HUD_API_TOKEN` | Production credentials | Separate credentials if running keyed refreshes; do not compete for production API quotas |
 
 Build variables require a frontend rebuild, not just a container restart.
@@ -457,13 +465,45 @@ work and disk-space thresholds are explicitly on hold at the operator's
 request. The existing backup heartbeat remains in use; application health
 checks neither send its ping nor establish backup success.
 
+### Request, browser and disclosure hardening
+
+- **Browser headers.** Every frontend response sends `nosniff`,
+  `Referrer-Policy: strict-origin-when-cross-origin`, `X-Frame-Options: DENY`
+  with `Content-Security-Policy: frame-ancestors 'none'`, a
+  `Permissions-Policy` denying camera, microphone, geolocation, payment and
+  USB, and one-year HSTS without `includeSubDomains` or `preload` (those bind
+  every subdomain and need a separate decision). `X-Powered-By` is not sent.
+  A script/style CSP is deferred: it needs per-request nonces plus Turnstile
+  allowances. If a Cloudflare rule also sets these headers, keep the values
+  identical rather than sending conflicting duplicates.
+- **API schema.** `/docs`, `/redoc` and `/openapi.json` are off unless
+  `API_DOCS_ENABLED=true`. Internal routes are never listed in the schema and
+  require `INTERNAL_USER` / `INTERNAL_PASSWORD`; with either unset they
+  refuse every request.
+- **Reports.** With `TURNSTILE_SECRET_KEY` set, a token solved on a hostname
+  outside `CORS_ORIGINS` is rejected, so each environment's `CORS_ORIGINS`
+  must list its public hostname (already required for report submission).
+  Cloudflare's documented dummy test secrets skip only the hostname check.
+- **Outbound links and fetches.** Links from source data render only as
+  absolute `http(s)` URLs. In-app bill text is fetched only over HTTPS from
+  `congress.gov`/`govinfo.gov`, re-checking every redirect, and is truncated
+  at 16 MB.
+- **security.txt.** [docs/security.txt](docs/security.txt) is prepared for
+  publication through Cloudflare at `https://govmap.us/.well-known/security.txt` (Security →
+  Settings → Web application exploits → Security.txt). Its reporting link
+  needs GitHub private vulnerability reporting enabled, and its email contact
+  must be monitored. Verify the public response after publishing. Renew it before its
+  `Expires` date; an expired file tells researchers to ignore it.
+
 ## Documentation
 
-Only three documents explain and govern this project:
+Core project documents:
 
 - **README.md** (this file) — what GovMap is.
 - **[CODE-MANIFEST.md](CODE-MANIFEST.md)** — what's been built, in what order, and what's next.
 - **[AGENTS.md](AGENTS.md)** — the rules coding agents (human or AI) follow when working in this repo.
+- **[Platform roadmap](docs/platform-roadmap.md)** — proposed engineering and
+  source-coverage milestones; planning targets are not deployed capabilities.
 
 ## License
 

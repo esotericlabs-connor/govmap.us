@@ -50,7 +50,12 @@ _rate: dict[str, deque[float]] = {}
 _global_rate: deque[float] = deque()
 
 _TAG_RE = re.compile(r"<[^>]*>")
-_CTRL_RE = re.compile(r"[\x00-\x1f\x7f]+")     # includes \r \n \t — collapse to space
+# C0/C1 controls (incl. \r \n \t and the ESC/CSI terminal sequences), line and
+# paragraph separators, zero-width and bidi-override characters — the latter can
+# make a report read differently to whoever reviews the log. Collapsed to space.
+_CTRL_RE = re.compile(
+    r"[\x00-\x1f\x7f-\x9f\u200b-\u200f\u2028\u2029\u202a-\u202e\u2060-\u2069\ufeff]+"
+)
 _SECRET_RE = re.compile(r"\b[A-Za-z0-9_\-]{32,}\b")  # redact long token-like strings
 
 
@@ -142,29 +147,63 @@ def _origin_ok(request: Request) -> bool:
 
 
 _TURNSTILE_VERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
+# Cloudflare's documented dummy secrets always validate and always report the
+# hostname "example.com", so the hostname check only applies to real keys.
+_TURNSTILE_DUMMY_SECRETS = frozenset(
+    {
+        "1x0000000000000000000000000000000AA",
+        "2x0000000000000000000000000000000AA",
+        "3x0000000000000000000000000000000AA",
+    }
+)
+
+
+def _turnstile_hostname_ok(hostname: object) -> bool:
+    allowed = {o[1] for o in map(_origin, settings.cors_origin_list) if o is not None}
+    if not allowed:
+        return True  # origins unset (dev) — nothing to compare against
+    return isinstance(hostname, str) and hostname.lower() in allowed
 
 
 def _verify_turnstile(token: str | None, ip: str) -> bool:
     """Cloudflare Turnstile check. Disabled (always allow) unless
     TURNSTILE_SECRET_KEY is set; once set, a valid token is required. Fails
-    *closed* on a missing token or an explicit rejection (a bot), but *open* on a
-    network error reaching Cloudflare so a CF outage can't lock out real users
-    (the origin + rate limits still apply)."""
+    *closed* on a missing token, an explicit rejection (a bot), a malformed
+    success body, or a token solved on a hostname outside CORS_ORIGINS. Fails
+    *open* only when Cloudflare is unreachable, answers 5xx, or returns an
+    unparseable body, so a CF outage can't lock out real users (the origin +
+    rate limits still apply). Redirects are never followed, so the secret is
+    only ever posted to the siteverify endpoint."""
     secret = os.getenv("TURNSTILE_SECRET_KEY", "").strip()
     if not secret:
         return True
     if not token:
         return False
     try:
-        resp = requests.post(
+        with requests.post(
             _TURNSTILE_VERIFY_URL,
             data={"secret": secret, "response": token, "remoteip": ip},
             timeout=10,
-        )
-        return bool(resp.json().get("success"))
-    except Exception as exc:  # noqa: BLE001 — network/parse error must not lock out users
-        logger.warning("turnstile verify unreachable, allowing: %s", exc)
+            allow_redirects=False,
+        ) as resp:
+            if resp.status_code >= 500:
+                logger.warning("turnstile verify returned HTTP %d, allowing", resp.status_code)
+                return True
+            if not 200 <= resp.status_code < 300:
+                logger.warning("turnstile verify returned HTTP %d; rejecting", resp.status_code)
+                return False
+            body = resp.json()
+    except (requests.RequestException, ValueError) as exc:
+        logger.warning("turnstile verify unreachable, allowing: %s", type(exc).__name__)
         return True
+    if not isinstance(body, dict) or body.get("success") is not True:
+        return False
+    if secret in _TURNSTILE_DUMMY_SECRETS:
+        return True
+    if not _turnstile_hostname_ok(body.get("hostname")):
+        logger.warning("turnstile token solved on an unexpected hostname; rejecting")
+        return False
+    return True
 
 
 def _append(block: str) -> None:

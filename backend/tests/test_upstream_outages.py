@@ -299,7 +299,9 @@ def test_public_enrichment_stays_fail_soft_during_outage(
     congress_env: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(bill_enrich, "run_upstream", AsyncMock(side_effect=_outage()))
-    db = SimpleNamespace(get=AsyncMock(return_value=SimpleNamespace(enriched_at=None)))
+    db = SimpleNamespace(
+        get=AsyncMock(return_value=SimpleNamespace(enriched_at=None)), commit=AsyncMock()
+    )
     assert asyncio.run(bill_enrich.enrich_bill(db, "hr1-119")) is False
     with pytest.raises(UpstreamUnavailableError):
         asyncio.run(bill_enrich.enrich_bill(db, "hr1-119", raise_unavailable=True))

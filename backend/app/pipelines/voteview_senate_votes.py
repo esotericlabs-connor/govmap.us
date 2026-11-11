@@ -43,13 +43,13 @@ import re
 import time
 from collections import defaultdict
 from pathlib import Path
-from tempfile import NamedTemporaryFile
 from typing import TypeVar
 
 import requests
 from pydantic import BaseModel, ValidationError
 
 from app.config import settings
+from app.pipelines.staging import write_json_atomic
 from app.schemas.vote import (
     VoteviewCastRaw,
     VoteviewMemberRaw,
@@ -268,22 +268,7 @@ def _reusable_staged_count(congress: int, session: int) -> int | None:
 
 
 def _stage(data: list[dict]) -> None:
-    # Write-then-rename: the normalizer and the freshness check never see a
-    # half-written file.
-    STAGING.parent.mkdir(parents=True, exist_ok=True)
-    with NamedTemporaryFile(mode="w", encoding="utf-8", dir=STAGING.parent,
-                            prefix=STAGING.name, suffix=".tmp", delete=False) as handle:
-        tmp = Path(handle.name)
-        try:
-            json.dump(data, handle, indent=2)
-        except BaseException:
-            handle.close()
-            tmp.unlink(missing_ok=True)
-            raise
-    try:
-        tmp.replace(STAGING)
-    finally:
-        tmp.unlink(missing_ok=True)
+    write_json_atomic(STAGING, data, indent=2)
 
 
 def run() -> int:

@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from typing import Annotated, Any
 
-from pydantic import BaseModel, BeforeValidator, ConfigDict
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
 
 
 def _date_only(v: Any) -> Any:
@@ -62,7 +62,7 @@ class ScheduleAItemRaw(BaseModel):
     when'. sub_id is the FEC transaction id (stable dedupe key). Only display
     fields are modeled; the rest of the Schedule A row is ignored."""
 
-    sub_id: str | None = None
+    sub_id: str = Field(min_length=1, max_length=32)
     committee_id: str | None = None
     contributor_name: str | None = None
     contributor_employer: str | None = None
@@ -73,4 +73,21 @@ class ScheduleAItemRaw(BaseModel):
     contribution_receipt_date: FlexDate = None
     contributor_aggregate_ytd: float | None = None
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="ignore", allow_inf_nan=False)
+
+
+class ScheduleAKeysetRaw(BaseModel):
+    last_index: str | int | None = None
+    last_contribution_receipt_amount: float | None = None
+
+    model_config = ConfigDict(extra="ignore", allow_inf_nan=False)
+
+
+class ScheduleAPaginationRaw(BaseModel):
+    count: int = Field(ge=0)
+    last_indexes: ScheduleAKeysetRaw = Field(default_factory=ScheduleAKeysetRaw)
+
+
+class ScheduleAPageRaw(BaseModel):
+    results: list[ScheduleAItemRaw]
+    pagination: ScheduleAPaginationRaw

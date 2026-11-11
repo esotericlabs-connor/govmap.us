@@ -25,7 +25,6 @@ Run directly: `python -m app.pipelines.senate_lis_votes`.
 
 from __future__ import annotations
 
-import json
 import logging
 from datetime import datetime
 from pathlib import Path
@@ -35,6 +34,7 @@ import requests
 
 from app.config import settings
 from app.pipelines.house_clerk_votes import bill_id_from_legis
+from app.pipelines.staging import write_json_atomic
 
 logger = logging.getLogger(__name__)
 
@@ -147,8 +147,7 @@ def _parse(root: ET.Element, congress: int, session: int, n: int) -> dict | None
 
 
 def _stage(data) -> None:
-    STAGING.parent.mkdir(parents=True, exist_ok=True)
-    STAGING.write_text(json.dumps(data, indent=2))
+    write_json_atomic(STAGING, data, indent=2)
 
 
 def run() -> int:

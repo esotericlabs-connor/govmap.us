@@ -59,6 +59,10 @@ test("built standalone health route reflects backend readiness and release misma
     const healthy = await probe();
     assert.equal(healthy.status, 200);
     assert.equal(healthy.headers.get("cache-control"), "no-store");
+    assert.equal(healthy.headers.get("x-content-type-options"), "nosniff");
+    assert.equal(healthy.headers.get("x-frame-options"), "DENY");
+    assert.equal(healthy.headers.get("content-security-policy"), "frame-ancestors 'none'");
+    assert.equal(healthy.headers.get("x-powered-by"), null);
     assert.deepEqual(await healthy.json(), {
       status: "ok", commit_sha: sha, backend_commit_sha: sha,
     });

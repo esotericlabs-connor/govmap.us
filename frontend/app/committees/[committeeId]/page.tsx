@@ -24,6 +24,7 @@ import {
   type CommitteeReferredBills,
 } from "@/lib/api";
 import { formatMeetingTime } from "@/lib/format";
+import { externalHref } from "@/lib/safe-url.mjs";
 
 export const dynamic = "force-dynamic";
 
@@ -206,6 +207,7 @@ function MemberCard({ member }: { member: CommitteeMember }) {
 async function CommitteeDetailContent({ committeeId }: { committeeId: string }) {
   const committee = await getCommittee(committeeId);
   if (!committee) notFound();
+  const websiteHref = externalHref(committee.url);
 
   const majority = committee.members.filter((m) => m.side === "majority");
   const minority = committee.members.filter((m) => m.side === "minority");
@@ -235,9 +237,9 @@ async function CommitteeDetailContent({ committeeId }: { committeeId: string }) 
           {committee.name}
         </h1>
         <div className="mt-4 flex flex-wrap gap-4">
-          {committee.url && (
+          {websiteHref && (
             <a
-              href={committee.url}
+              href={websiteHref}
               target="_blank"
               rel="noreferrer"
               className="inline-flex items-center gap-1 text-sm font-semibold text-govblue transition-colors hover:text-govblue-600"
