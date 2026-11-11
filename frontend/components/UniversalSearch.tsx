@@ -223,6 +223,7 @@ export function UniversalSearch({
                     >
                       <span className="font-semibold">{m.official_full_name}</span>
                       <span className="text-xs text-slate-400">
+                        {m.in_office === false && "Former · "}
                         {m.party?.slice(0, 1)} · {m.state}
                       </span>
                     </MemberLink>

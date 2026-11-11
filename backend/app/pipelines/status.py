@@ -17,6 +17,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from app.config import settings
 from app.db import async_session_factory
 from app.models.pipeline_status import PipelineStatusRow
+from app.pipelines.runs import note_outcome, redact
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +65,10 @@ async def record_run(
 ) -> None:
     """Upsert one pipeline_status row. last_run always advances; last_success
     only advances on an ok run, so a later failure doesn't erase when the
-    source was last known good."""
+    source was last known good. Inside a tracked run (app.pipelines.runs) the
+    same outcome is also kept for that run's source_runs row."""
+    detail = redact(detail)
+    note_outcome(source, record_count, status, detail)
     now = datetime.now(UTC)
     values: dict = {
         "source": source,

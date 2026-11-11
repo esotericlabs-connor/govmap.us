@@ -15,6 +15,7 @@ Run directly: `python -m app.pipelines.congress_legislators`.
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from pathlib import Path
 
 import requests
@@ -76,10 +77,12 @@ def _record_ident(record) -> str:
     return str(record.get("thomas_id") or record.get("committee_id") or "<unknown>")
 
 
-def _validate_list(records: list, model: type[BaseModel], label: str) -> list[dict]:
+def _validate_list(
+    records: list, model: type[BaseModel], label: str
+) -> tuple[list[dict], int]:
     """Validate each record; skip and log individually bad ones (naming the
     record so a dropped member is diagnosable), but raise if nothing survives (a
-    source-shape change, not a one-off quirk)."""
+    source-shape change, not a one-off quirk). Returns (valid, skipped count)."""
     valid: list[dict] = []
     skipped = 0
     for record in records:
@@ -92,26 +95,35 @@ def _validate_list(records: list, model: type[BaseModel], label: str) -> list[di
         logger.warning("%s: skipped %d of %d records as invalid", label, skipped, len(records))
     if not valid:
         raise ValueError(f"no {label} records passed validation")
-    return valid
+    return valid, skipped
 
 
 def _stage(path: Path, data) -> None:
     write_json_atomic(path, data, indent=2)
 
 
-def run() -> int:
+@dataclass(frozen=True)
+class LegislatorsPull:
+    legislators: int
+    # Legislator records that failed validation. The roster load won't mark
+    # anyone as departed unless this is 0: a skipped sitting member would
+    # otherwise look like a departure.
+    skipped_legislators: int
+
+
+def run() -> LegislatorsPull:
     # Legislators
     legislators_raw = _fetch_yaml(LEGISLATORS_URL)
     if not isinstance(legislators_raw, list) or not legislators_raw:
         raise ValueError("expected a non-empty list of legislator records")
-    legislators = _validate_list(legislators_raw, LegislatorRaw, "legislator")
+    legislators, skipped_legislators = _validate_list(legislators_raw, LegislatorRaw, "legislator")
     _stage(STAGING_LEGISLATORS, legislators)
 
     # Committees (+ subcommittees nested)
     committees_raw = _fetch_yaml(COMMITTEES_URL)
     if not isinstance(committees_raw, list) or not committees_raw:
         raise ValueError("expected a non-empty list of committees")
-    committees = _validate_list(committees_raw, CommitteeRaw, "committee")
+    committees, _ = _validate_list(committees_raw, CommitteeRaw, "committee")
     _stage(STAGING_COMMITTEES, committees)
 
     # Committee memberships: mapping {committee_code: [member entries]}
@@ -130,12 +142,14 @@ def run() -> int:
     _stage(STAGING_MEMBERSHIP, membership)
 
     logger.info(
-        "congress_legislators: staged %d legislators, %d committees, %d membership groups",
+        "congress_legislators: staged %d legislators (%d skipped), %d committees, "
+        "%d membership groups",
         len(legislators),
+        skipped_legislators,
         len(committees),
         len(membership),
     )
-    return len(legislators)
+    return LegislatorsPull(legislators=len(legislators), skipped_legislators=skipped_legislators)
 
 
 if __name__ == "__main__":

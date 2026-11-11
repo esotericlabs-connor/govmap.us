@@ -19,6 +19,7 @@ from app.models import (  # noqa: F401
     finance,
     member,
     pipeline_status,
+    source_run,
     vote,
     zip_district,
 )

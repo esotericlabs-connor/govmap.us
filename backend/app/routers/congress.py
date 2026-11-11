@@ -64,7 +64,7 @@ async def congress_map(db: AsyncSession = Depends(get_db)) -> dict:
                 Member.state,
                 Member.district,
                 Member.chamber,
-            )
+            ).where(Member.in_office.is_(True))
         )
     ).all()
 
@@ -100,7 +100,11 @@ async def congress_map(db: AsyncSession = Depends(get_db)) -> dict:
 @router.get("/summary")
 async def chamber_summary(db: AsyncSession = Depends(get_db)) -> dict:
     """Per-chamber party balance: {house:{D,R,I,total}, senate:{D,R,I,total}}."""
-    rows = (await db.execute(select(Member.chamber, Member.party))).all()
+    rows = (
+        await db.execute(
+            select(Member.chamber, Member.party).where(Member.in_office.is_(True))
+        )
+    ).all()
 
     out = {
         "house": {"D": 0, "R": 0, "I": 0, "total": 0},
@@ -140,7 +144,11 @@ async def lookup(
         sen = (
             await db.execute(
                 select(Member)
-                .where(Member.chamber == "senate", Member.state.in_(states))
+                .where(
+                    Member.chamber == "senate",
+                    Member.state.in_(states),
+                    Member.in_office.is_(True),
+                )
                 .order_by(Member.state, Member.last_name)
             )
         ).scalars().all()
@@ -154,7 +162,7 @@ async def lookup(
             reps = (
                 await db.execute(
                     select(Member)
-                    .where(Member.chamber == "house", or_(*conds))
+                    .where(Member.chamber == "house", Member.in_office.is_(True), or_(*conds))
                     .order_by(Member.state, Member.district)
                 )
             ).scalars().all()

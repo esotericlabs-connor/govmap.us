@@ -92,6 +92,11 @@ export function MemberCardBlock({
               {PARTY_NAME[party]} · {role}
             </span>
           </p>
+          {card?.in_office === false && (
+            <p className="mt-0.5 truncate text-[11px] font-medium text-slate-warm-500">
+              Former member
+            </p>
+          )}
           {card?.leadership_role && (
             <p className="mt-0.5 truncate text-[11px] font-medium text-govblue">
               {card.leadership_role}

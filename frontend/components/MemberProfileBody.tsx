@@ -78,6 +78,11 @@ export function MemberProfileBody({
             <p className={`mt-2 text-slate-warm-500 ${isBlade ? "text-base" : "text-xl"}`}>
               {seatLabel(member)}
             </p>
+            {member.in_office === false && (
+              <span className="mt-2 inline-block rounded-full border border-slate-warm-300 px-3 py-1 text-xs font-semibold text-slate-warm-600">
+                Former member · no longer on the current roster
+              </span>
+            )}
             {isBlade && member.leadership_role && (
               <span className="mt-2 inline-block rounded-full bg-govnavy px-3 py-1 text-xs font-semibold text-white">
                 {member.leadership_role}
@@ -101,7 +106,7 @@ export function MemberProfileBody({
             }`}
           >
             {(member.served_since ?? member.term_start) && (
-              <Stat label="In office since">
+              <Stat label={member.in_office === false ? "Served from" : "In office since"}>
                 {formatDate(member.served_since ?? member.term_start)}
               </Stat>
             )}

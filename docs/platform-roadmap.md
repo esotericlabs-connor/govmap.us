@@ -383,6 +383,14 @@ input cannot silently reduce a complete live dataset. A run can be reproduced
 from its retained lawful input and version metadata. Historical references
 resolve or appear as explicit coverage gaps.
 
+**Status (2026-11-11, Phase B):** delivered the source registry
+(`app/sources.py`), `source_runs` history with per-source advisory locks and
+staging-input hashes, `member_terms`, and guarded roster departures
+(`members.in_office`). Not yet done: partition/cursor/watermark fields (they
+arrive with the first fully enumerated source, queue item 4), retained raw
+inputs for replay, shrink thresholds for the other sources, and historical
+legislators.
+
 ### R2: Resilient execution
 
 - Separate serving from ingestion ownership before materially increasing
