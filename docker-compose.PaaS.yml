@@ -87,9 +87,10 @@ services:
   # BACKUP_ENABLED=true. Writes to "backups" in this resource's own directory
   # on the host. The deployment platform rejects variables in volume sources,
   # and a relative source keeps each resource's backups separate. The
-  # entrypoint adopts that directory when it is first created (root-owned)
+  # entrypoint adopts that directory when it is new (root-owned or empty)
   # and then drops to uid/gid 70, so no host setup is needed. A missing target
-  # or a directory owned by anyone else fails every run with no heartbeat.
+  # or a non-empty directory owned by anyone else fails every run with no
+  # heartbeat.
   # No Docker socket, no secrets beyond the database password.
   backup:
     build: ./backup

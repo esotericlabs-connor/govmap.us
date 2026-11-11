@@ -17,8 +17,8 @@ encrypted: keep the host directory private and encrypt off-site copies.
 
 The destination fails closed. BACKUP_TARGET must name the environment (for
 example "production"), and the destination must be owned by the backup user.
-A misconfigured target or a directory owned by anyone else fails the run,
-and no heartbeat is sent.
+A misconfigured target or a destination not owned by the backup user fails
+the run, and no heartbeat is sent.
 
 Environment:
   BACKUP_TARGET         required environment name, [a-z0-9-], not "unconfigured"
