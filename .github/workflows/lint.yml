@@ -141,7 +141,7 @@ jobs:
           alembic upgrade head
           alembic check
 
-  # Builds the three images that ship and fails on any high/critical
+  # Builds the images that ship and fails on any high/critical
   # vulnerability that has a fix available. Grype runs from a digest-pinned
   # image against saved tarballs: no third-party action and no Docker socket
   # inside the scanner. A failure here means "bump the pinned base digest or
@@ -157,20 +157,25 @@ jobs:
           docker build --build-arg SOURCE_COMMIT="$GITHUB_SHA" -t govmap-backend:ci backend
           docker build --build-arg SOURCE_COMMIT="$GITHUB_SHA" -t govmap-frontend:ci frontend
           docker build -t govmap-backup:ci backup
+          docker build -t govmap-postgres:ci database
       - name: Runtime images carry no package managers
         run: |
           docker run --rm --entrypoint sh govmap-backend:ci -c '! python -c "import pip" 2>/dev/null && ! python -c "import setuptools" 2>/dev/null'
           docker run --rm --entrypoint sh govmap-frontend:ci -c '! command -v npm && ! command -v npx && ! command -v yarn && ! command -v corepack'
+          docker run --rm --entrypoint pgbackrest govmap-backup:ci --version
+          docker run --rm --entrypoint pg_controldata govmap-backup:ci --version
+          docker run --rm --entrypoint pgbackrest govmap-postgres:ci --version
       - name: Save images for scanning
         run: |
           mkdir -p "$RUNNER_TEMP/scan" "$RUNNER_TEMP/grype-db"
           docker save -o "$RUNNER_TEMP/scan/backend.tar" govmap-backend:ci
           docker save -o "$RUNNER_TEMP/scan/frontend.tar" govmap-frontend:ci
           docker save -o "$RUNNER_TEMP/scan/backup.tar" govmap-backup:ci
+          docker save -o "$RUNNER_TEMP/scan/postgres.tar" govmap-postgres:ci
       - name: Scan images (gate)
         run: |
           status=0
-          for image in backend frontend backup; do
+          for image in backend frontend backup postgres; do
             echo "::group::grype $image"
             docker run --rm \
               -e GRYPE_DB_CACHE_DIR=/grype-db \

@@ -379,18 +379,20 @@ successful verification.
 Keep backup passphrases or private identities separately and recoverably.
 `/tank` or another filesystem on the same host is not an off-server backup.
 
-The production `backup` service in the Compose stack creates a private
-bundle every 30 minutes (`BACKUP_INTERVAL_MINUTES`) containing a verified
-logical database dump and logs. It prepares its
-own host directory and needs no shell setup once enabled through the deployment
-settings. Deployment configuration and secrets remain in the operator's vault,
-not in the bundle. The earlier host timer, script and environment file have
-been removed. The operator reports a local copy and two encrypted off-site
-destinations. A container bundle retrieved from off-site passed checksum,
+The production Compose stack now has opt-in configuration for a daily logical
+database dump and a local pgBackRest repository for WAL archiving, daily full
+backups and seven-day point-in-time recovery. Duplicati remains the only
+off-site copier and sends both `backups` and `pgbackrest` to the two encrypted
+destinations. This configuration must be bootstrapped and restored in dev
+before production.
+Deployment configuration and secrets remain in the operator's vault, not in
+either backup. The earlier host timer, script and environment file have been
+removed. A container bundle retrieved from off-site passed checksum,
 required-file and isolated PostgreSQL restore checks on 2026-11-11 UTC, at
-revision `0013`. Independent restores from both off-site destinations have
-not been recorded. The heartbeat ping and email test notification were
-verified; an actual missed-heartbeat alert has not been rehearsed.
+revision `0013`; that historical drill did not test pgBackRest. Independent
+restores from both off-site destinations and a PITR rehearsal are still
+required. The heartbeat ping and email test notification were verified; an
+actual missed-heartbeat alert has not been rehearsed.
 Recurring restore checks are tracked in [CODE-MANIFEST.md](CODE-MANIFEST.md).
 Keep the old local bundle until replacement copies and earlier-version
 retention satisfy the removal gates in the provider-neutral
@@ -450,12 +452,11 @@ together, followed by successful TCP authentication, application checks and
 a fresh backup-client connection. Dev uses a separate rotated database password.
 
 **Operational follow-ups:** confirm source status and freshness after backend
-restarts, including the daily jobs; observe the next scheduled backup
-heartbeat; and continue periodic recovery checks. The bundle schedule, off-site
-copying, heartbeat ping and test notification have been set up as described above.
-A previous `ok` row restored from an older database does
-not verify a job on the new server. `partial` is degraded, not an
-unconditional success.
+restarts, including the daily jobs; validate pgBackRest archive checks,
+full-backup heartbeats and Duplicati copies; rehearse PITR from each off-site
+destination; and continue periodic recovery checks. A previous `ok` row
+restored from an older database does not verify a job on the new server.
+`partial` is degraded, not an unconditional success.
 
 Keep the old VM powered off to avoid duplicate jobs, and confirm any other
 required workloads before starting or deleting it. Observe production for at
