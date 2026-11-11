@@ -4,8 +4,9 @@ FROM alpine:3.22@sha256:49340b346798875b5592e5d420241f2f9cfba5f47e62ebb1446a1b34
 
 # PostgreSQL 16 client tools match the postgres:16 server; bash, GNU
 # coreutils/findutils/tar and util-linux flock/setpriv match what the scripts
-# are tested against.
-RUN apk add --no-cache bash coreutils curl findutils flock postgresql16-client setpriv tar zlib=1.4-r0
+# are tested against. The zlib floor covers CVE-2026-4738 in the pinned base;
+# a floor, not an exact pin, because Alpine carries only the newest revision.
+RUN apk add --no-cache bash coreutils curl findutils flock postgresql16-client setpriv tar 'zlib>=1.4-r0'
 
 ENV PATH="/usr/libexec/postgresql16:${PATH}" \
     HOME=/tmp

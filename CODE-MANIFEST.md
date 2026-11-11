@@ -4,7 +4,7 @@ What's been built, in what order, and what's next. This is a living log — add 
 
 ## Build log
 
-**2026-11-11 — R0 Phase A: supply chain, request/parser bounds, migration safety (CI pending)**
+**2026-11-11 — R0 Phase A: supply chain, request/parser bounds, migration safety (CI green: [main run 42998076890](https://github.com/esotericlabs-connor/govmap.us/actions/runs/42998076890))**
 Completes the R0 items the first pass deferred (roadmap R0 items 4 and 6).
 No schema migration; the model changes only declare indexes migrations already
 create.
@@ -27,7 +27,12 @@ create.
   npm/npx/corepack/yarn (frontend), and CI asserts that. Bumped fastapi
   0.141.1, starlette 1.10.0 (multipart, Host-header and HTTPEndpoint
   advisories), urllib3 2.8.0 (streaming decompression and chunk-line
-  advisories), python-dotenv 1.2.2 and pytest 9.0.3.
+  advisories), python-dotenv 1.2.2 and pytest 9.0.3. The first scan found
+  zlib CVEs in the pinned Debian and Alpine bases that their digests had not
+  yet picked up. The backend and backup Dockerfiles now upgrade zlib and fail
+  the build below the fixed version. That is a floor, not an exact pin,
+  because distro mirrors keep only the newest revision. Remove each floor once
+  a Dependabot digest bump ships the fix.
 - *Request bounds:* a pure ASGI middleware refuses request bodies over 64 KiB
   with a 413, both when declared by Content-Length and while a chunked body
   streams. Pydantic's `max_length` checks only run after the whole body is
