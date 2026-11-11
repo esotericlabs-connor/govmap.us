@@ -8,6 +8,11 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 COPY requirements.txt .
+# The pinned base can lag behind security updates in Debian's package index.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends zlib1g=1:1.3.dfsg+really1.3.1-1+deb13u1 \
+    && rm -rf /var/lib/apt/lists/*
+
 # The packaging toolchain is only needed to install; nothing imports it at
 # runtime, so remove it rather than ship (and patch) it in production.
 RUN pip install --no-cache-dir -r requirements.txt \
