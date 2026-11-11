@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 
 import pytest
+import yaml
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="requires Linux Bash")
 
@@ -233,6 +234,29 @@ def test_pgbackrest_configuration_uses_seven_day_time_retention() -> None:
     assert "pg1-path=/var/lib/postgresql/data" in config
     assert "pg1-socket-path=/var/run/postgresql" in config
     assert "postgresql16 postgresql16-client" in dockerfile
+
+
+def test_both_images_bake_the_same_pgbackrest_configuration() -> None:
+    # PostgreSQL (archive-push) and the sidecar (backup, check) must agree on
+    # the repository, stanza and archive settings.
+    backup = (_REPO / "backup" / "pgbackrest.conf").read_text(encoding="utf-8")
+    database = (_REPO / "database" / "pgbackrest.conf").read_text(encoding="utf-8")
+    assert database == backup
+    for image in ("backup", "database"):
+        dockerfile = (_REPO / image / "Dockerfile").read_text(encoding="utf-8")
+        assert "COPY pgbackrest.conf /etc/pgbackrest/pgbackrest.conf" in dockerfile, image
+
+
+def test_paas_compose_never_bind_mounts_a_repository_file() -> None:
+    # Coolify resolves relative bind sources on the host, where repository
+    # files don't exist; Docker then creates an empty directory there and the
+    # container fails to start. Files must be baked into images instead.
+    compose = yaml.safe_load((_REPO / "docker-compose.PaaS.yml").read_text(encoding="utf-8"))
+    for name, service in compose["services"].items():
+        for volume in service.get("volumes", []):
+            source = volume.get("source", "") if isinstance(volume, dict) else str(volume).split(":", 1)[0]
+            if source.startswith("."):
+                assert not (_REPO / source).is_file(), f"{name}: {volume}"
 
 
 def _service_block(compose: str, name: str) -> str:

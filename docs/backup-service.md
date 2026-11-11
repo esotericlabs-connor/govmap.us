@@ -265,8 +265,9 @@ target.
    The command must finish successfully; do not run it against production or
    an existing data directory.
 4. Start only the isolated PostgreSQL instance with the restored repository
-   mounted at `/pgbackrest` and the same config at
-   `/etc/pgbackrest/pgbackrest.conf`. Keep external routes and the worker
+   mounted at `/pgbackrest`. Use the GovMap database image, which already
+   contains the config at `/etc/pgbackrest/pgbackrest.conf`; do not bind-mount
+   it from the repository. Keep external routes and the worker
    disabled. Confirm PostgreSQL completes recovery and is promoted at or just
    after the requested target. Query the migration revision and representative
    row counts, then record the Duplicati destination, restored version,

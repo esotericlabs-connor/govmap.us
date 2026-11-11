@@ -10,9 +10,13 @@ FROM postgres:16-alpine@sha256:aa6cb33cf4c19c765cefcf48d96176258800870a9a1e930ad
 # bump ships at least that version.
 RUN apk add --no-cache --virtual postgresql=16.0 \
     && apk add --no-cache pgbackrest \
-        'zlib>=1.4-r0' 'libxslt>=1.1.43-r4' 'krb5-libs>=1.22.3-r0' \
-    && mkdir -p /etc/pgbackrest
+        'zlib>=1.4-r0' 'libxslt>=1.1.43-r4' 'krb5-libs>=1.22.3-r0'
 
+# Baked in rather than bind-mounted: Coolify resolves relative bind sources on
+# the host, where repository files don't exist, so a file mount becomes an
+# empty directory and the container fails to start. Must stay identical to
+# backup/pgbackrest.conf (a unit test enforces it).
+COPY pgbackrest.conf /etc/pgbackrest/pgbackrest.conf
 COPY entrypoint.sh /usr/local/bin/govmap-postgres-entrypoint
 RUN chmod 755 /usr/local/bin/govmap-postgres-entrypoint
 

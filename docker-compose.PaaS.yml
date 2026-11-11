@@ -36,7 +36,6 @@ services:
       - postgres-data:/var/lib/postgresql/data
       - postgres-socket:/var/run/postgresql
       - ./pgbackrest:/pgbackrest
-      - ./backup/pgbackrest.conf:/etc/pgbackrest/pgbackrest.conf:ro
 
   backend:
     build:
@@ -239,7 +238,6 @@ services:
       - ./pgbackrest:/pgbackrest
       - postgres-data:/var/lib/postgresql/data:ro
       - postgres-socket:/var/run/postgresql
-      - ./backup/pgbackrest.conf:/etc/pgbackrest/pgbackrest.conf:ro
 
 volumes:
   postgres-data:

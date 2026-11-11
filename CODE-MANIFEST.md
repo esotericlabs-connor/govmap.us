@@ -47,6 +47,15 @@ database schema migration. No backup product beyond Duplicati was added.
   change. Dev acceptance (`stanza-create`, `check`, a full backup and a
   restore rehearsal) is the proof; move the sidecar to a newer Alpine
   afterwards.
+- The first Coolify deploy failed because Compose bind-mounted
+  `backup/pgbackrest.conf`. Coolify resolves relative bind sources on the
+  host, where repository files don't exist, so Docker created an empty
+  directory there and PostgreSQL could not start. Both images now bake the
+  config in (`database/pgbackrest.conf` must match `backup/pgbackrest.conf`),
+  and a unit test rejects any repository file bind mount in the PaaS Compose
+  file. On a host that hit the failure, the leftover empty
+  `backup/pgbackrest.conf` directory under the application directory is
+  unused and can be removed with `rmdir`.
 
 **2026-11-11 — R2 shared rolling-hour request budgets (migration 0015)**
 Implemented on `dev`; CI and dev deployment acceptance are pending. No local
