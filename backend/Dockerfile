@@ -7,12 +7,18 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-COPY requirements.txt .
-# The pinned base can lag behind security updates in Debian's package index.
+# The pinned base can lag Debian security updates. Enforce a floor rather than
+# an exact version: Debian's mirrors carry only the newest revision, so an
+# exact pin breaks the build as soon as the next update supersedes it. Drop
+# this once a base digest bump ships at least this zlib1g.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends zlib1g=1:1.3.dfsg+really1.3.1-1+deb13u1 \
+    && apt-get install -y --no-install-recommends --only-upgrade zlib1g \
+    && v="$(dpkg-query -W -f='${Version}' zlib1g)" \
+    && { dpkg --compare-versions "$v" ge '1:1.3.dfsg+really1.3.1-1+deb13u1' \
+         || { echo "zlib1g $v predates the CVE-2026-76844/CVE-2026-85091 fix" >&2; exit 1; }; } \
     && rm -rf /var/lib/apt/lists/*
 
+COPY requirements.txt .
 # The packaging toolchain is only needed to install; nothing imports it at
 # runtime, so remove it rather than ship (and patch) it in production.
 RUN pip install --no-cache-dir -r requirements.txt \

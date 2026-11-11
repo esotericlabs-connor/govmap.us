@@ -327,7 +327,7 @@ auth denial, readiness and source failure behavior work. No known high/critical
 exploitable vulnerability proceeds without remediation. A static review is
 not represented as a runtime penetration test.
 
-**Status (2026-11-11): first pass green in CI; Phase A in the working tree.**
+**Status (2026-11-11): first pass and Phase A green in CI.**
 See the R0 entries in the [build log](../CODE-MANIFEST.md). The first pass
 (items 1–3, with regression tests) passed CI on `dev` and `main`. Under item 2,
 trusted-proxy CIDRs remain deferred until the platform subnet is confirmed.
@@ -342,9 +342,9 @@ Phase A covers items 4 and 6:
   Postgres.
 
 Under item 5, release deployment is still manual, not CI-gated. None of the R0
-changes needed a migration. Acceptance still requires green CI on the Phase A
-commit, committing the hash lock it produces, and the dev-environment checks
-above.
+changes needed a migration. Phase A passed CI on `main` (merge of #12).
+Acceptance still requires committing the hash lock CI produces and the
+dev-environment checks above.
 
 ### R1: Correctness and provenance
 
