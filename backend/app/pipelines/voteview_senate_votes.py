@@ -56,6 +56,7 @@ from app.schemas.vote import (
     VoteviewRollcallRaw,
     VoteviewStagedVote,
 )
+from app.services.bounded_http import read_body
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +73,7 @@ _TIMEOUT = (10, 60)
 # S{c}_votes.csv is ~3 MB by the end of a Congress; anything far larger is not
 # the file we expect, so stop reading instead of buffering it.
 _MAX_CSV_BYTES = 32 * 1024 * 1024
+_BODY_DEADLINE_SECONDS = 300
 
 _ROLLCALL_COLUMNS = frozenset(
     {"congress", "chamber", "rollnumber", "date", "session", "clerk_rollnumber",
@@ -127,11 +129,12 @@ def _fetch_csv(kind: str, congress: int, required: frozenset[str]) -> list[dict[
     try:
         if resp.status_code != 200:
             raise RuntimeError(f"voteview {kind} returned HTTP {resp.status_code}")
-        body = bytearray()
-        for chunk in resp.iter_content(chunk_size=64 * 1024):
-            body.extend(chunk)
-            if len(body) > _MAX_CSV_BYTES:
-                raise RuntimeError(f"voteview {kind} is larger than {_MAX_CSV_BYTES} bytes")
+        body = read_body(
+            resp,
+            max_bytes=_MAX_CSV_BYTES,
+            deadline_s=_BODY_DEADLINE_SECONDS,
+            label=f"voteview {kind}",
+        )
     finally:
         resp.close()
     text = body.decode("utf-8-sig")

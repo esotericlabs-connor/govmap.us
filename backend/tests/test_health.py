@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 import asyncpg
 import pytest
 import yaml
+from fastapi.routing import iter_route_contexts
 from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.exc import OperationalError, SQLAlchemyError
@@ -136,15 +137,21 @@ def test_unexpected_error_is_not_swallowed(monkeypatch: pytest.MonkeyPatch) -> N
         asyncio.run(health.ready())
 
 
+def _registered_paths() -> list[str | None]:
+    # FastAPI >= 0.137 keeps included routers as a tree in app.routes, so walk
+    # the effective routes instead of assuming a flat list.
+    return [context.path for context in iter_route_contexts(main.app.routes)]
+
+
 def test_health_routes_are_registered() -> None:
-    paths = [getattr(route, "path", None) for route in main.app.routes]
+    paths = _registered_paths()
     assert paths.count("/health") == 1
     assert paths.count("/ready") == 1
 
 
 def test_api_docs_are_off_by_default_and_never_list_internal_routes() -> None:
     assert Settings(_env_file=None).api_docs_enabled is False
-    paths = {getattr(route, "path", None) for route in main.app.routes}
+    paths = set(_registered_paths())
     if not main.settings.api_docs_enabled:
         assert main.app.openapi_url is None
         assert not paths & {"/docs", "/redoc", "/openapi.json"}

@@ -8,6 +8,8 @@ early, degraded runs recorded as 'partial', and outages never retried blindly.
 
 import asyncio
 import json
+import threading
+from collections.abc import Iterator
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
@@ -27,6 +29,22 @@ from app.services import bill_enrich, upstream
 from app.services.upstream import UpstreamUnavailableError, _Budget
 
 _SECRET = "test-placeholder-key"
+
+
+class _StatusOnly:
+    """A streamed response with an empty body."""
+
+    def __init__(self, status_code: int) -> None:
+        self.status_code = status_code
+        self.headers: dict[str, str] = {}
+        self.raw = None
+        self.closed = False
+
+    def iter_content(self, chunk_size: int = 1) -> Iterator[bytes]:
+        return iter(())
+
+    def close(self) -> None:
+        self.closed = True
 
 
 def _outage() -> UpstreamUnavailableError:
@@ -62,12 +80,41 @@ def test_get_turns_timeouts_into_unretried_outage(
 def test_get_exhausted_server_errors_are_an_outage(
     congress_env: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    get = Mock(return_value=SimpleNamespace(status_code=503))
+    get = Mock(return_value=_StatusOnly(503))
     monkeypatch.setattr(congress_gov_bills._session, "get", get)
     monkeypatch.setattr(congress_gov_bills.time, "sleep", lambda _: None)
     with pytest.raises(UpstreamUnavailableError, match="HTTP 503"):
         congress_gov_bills._get("bill/119")
     assert get.call_count == congress_gov_bills._MAX_RETRIES
+    assert get.call_args.kwargs["stream"] is True
+    assert get.return_value.closed
+
+
+class _StalledBody(_StatusOnly):
+    """Headers arrive, then the body stalls until the reader shuts the socket."""
+
+    def __init__(self) -> None:
+        super().__init__(200)
+        self._released = threading.Event()
+        self.raw = SimpleNamespace(shutdown=self._released.set)
+
+    def iter_content(self, chunk_size: int = 1) -> Iterator[bytes]:
+        yield b"{"
+        self._released.wait(timeout=5)
+        raise requests.exceptions.ChunkedEncodingError("connection shut down")
+
+
+def test_get_body_deadline_is_an_unretried_outage(
+    congress_env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(congress_gov_bills, "_BODY_DEADLINE_SECONDS", 0.05)
+    get = Mock(return_value=_StalledBody())
+    monkeypatch.setattr(congress_gov_bills._session, "get", get)
+    with pytest.raises(UpstreamUnavailableError, match="BodyDeadlineError") as caught:
+        congress_gov_bills._get("bill/119")
+    assert get.call_count == 1
+    assert get.return_value.closed
+    assert caught.value.__suppress_context__
 
 
 def test_breaker_counts_only_consecutive_outages() -> None:

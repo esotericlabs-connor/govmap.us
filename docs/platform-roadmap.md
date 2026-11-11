@@ -327,15 +327,24 @@ auth denial, readiness and source failure behavior work. No known high/critical
 exploitable vulnerability proceeds without remediation. A static review is
 not represented as a runtime penetration test.
 
-**Status (2026-11-11): implemented in the working tree; acceptance pending.**
-See the R0 entry in the [build log](../CODE-MANIFEST.md). Items 1–3 are
-addressed with regression tests. Under item 2, trusted-proxy CIDRs are deferred
-until the platform subnet is confirmed. Item 4 has the existing npm audit gate;
-Python/image scanning and digest/hash pinning are deferred with a stated
-prerequisite. Under item 5, release deployment is still manual, not CI-gated.
-Under item 6, the bill-text fetch is now size-bounded; other parsers are
-unaudited. None of the R0 changes needed a migration. Acceptance still
-requires green CI on the pushed commit and the dev-environment checks above.
+**Status (2026-11-11): first pass green in CI; Phase A in the working tree.**
+See the R0 entries in the [build log](../CODE-MANIFEST.md). The first pass
+(items 1–3, with regression tests) passed CI on `dev` and `main`. Under item 2,
+trusted-proxy CIDRs remain deferred until the platform subnet is confirmed.
+Phase A covers items 4 and 6:
+- Item 4: images are pinned by digest and Actions by SHA. CI compiles a hash
+  lock. `pip-audit` and a Grype image scan now sit alongside the npm audit
+  gate, and Dependabot proposes bumps.
+- Item 6: request bodies are capped. Every upstream response is read under a
+  byte cap and a wall-clock deadline. XML entity declarations and YAML aliases
+  are refused, and HTML reduction is linear-time. Migrations run with a lock
+  timeout, and CI checks upgrade, drift, downgrade and re-upgrade against
+  Postgres.
+
+Under item 5, release deployment is still manual, not CI-gated. None of the R0
+changes needed a migration. Acceptance still requires green CI on the Phase A
+commit, committing the hash lock it produces, and the dev-environment checks
+above.
 
 ### R1: Correctness and provenance
 

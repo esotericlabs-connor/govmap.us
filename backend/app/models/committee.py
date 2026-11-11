@@ -43,6 +43,9 @@ class CommitteeMembership(Base):
     rank: Mapped[int | None] = mapped_column(Integer, nullable=True)
     side: Mapped[str | None] = mapped_column(String(10), nullable=True)  # majority / minority
 
+    # Member-first lookups; the composite PK leads with committee_id.
+    __table_args__ = (Index("ix_committee_memberships_bioguide", "bioguide_id"),)
+
 
 class CommitteeMeeting(Base):
     """A scheduled or held committee/subcommittee meeting (hearing, markup, …).

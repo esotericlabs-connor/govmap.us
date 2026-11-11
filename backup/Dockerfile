@@ -1,9 +1,11 @@
-FROM alpine:3.22
+# Base pinned by digest so a rebuild is reproducible and a re-pushed tag
+# can't change what ships; Dependabot proposes digest bumps.
+FROM alpine:3.22@sha256:49340b346798875b5592e5d420241f2f9cfba5f47e62ebb1446a1b34734e898f
 
 # PostgreSQL 16 client tools match the postgres:16 server; bash, GNU
 # coreutils/findutils/tar and util-linux flock/setpriv match what the scripts
 # are tested against.
-RUN apk add --no-cache bash coreutils curl findutils flock postgresql16-client setpriv tar
+RUN apk add --no-cache bash coreutils curl findutils flock postgresql16-client setpriv tar zlib=1.4-r0
 
 ENV PATH="/usr/libexec/postgresql16:${PATH}" \
     HOME=/tmp

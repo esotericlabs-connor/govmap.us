@@ -15,6 +15,7 @@ a resolvable committee) the endpoint degrades gracefully to whatever is cached
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from typing import Any, cast
@@ -31,6 +32,7 @@ from app.models.crosswalk import IdCrosswalk
 from app.models.finance import MemberFinance
 from app.models.member import Member
 from app.schemas.finance import ScheduleAPageRaw
+from app.services.bounded_http import read_body, text_excerpt
 from app.services.search import LIKE_ESCAPE, substring_pattern
 from app.services.upstream import UpstreamCapacityError, request_slot, run_upstream
 
@@ -39,6 +41,10 @@ logger = logging.getLogger(__name__)
 FEC_BASE = "https://api.open.fec.gov/v1"
 _TIMEOUT = 30
 _MAX_RETRIES = 3
+# A 100-receipt Schedule A page is a few hundred KiB; the deadline covers the
+# body only and stays short because a visitor's request is waiting on it.
+_MAX_BODY_BYTES = 8 * 1024 * 1024
+_BODY_DEADLINE_SECONDS = 30
 _PER_PAGE = 100  # FEC Schedule A max page size
 # Bound per-request latency: cache at most this many pages (×100 rows) on any one
 # request. Deeper paging continues on the next request from the stored cursor.
@@ -67,15 +73,26 @@ def _fec_get(path: str, **params: Any) -> dict:
     last_status = 0
     for attempt in range(1, _MAX_RETRIES + 1):
         with request_slot("fec"):
-            resp = _session.get(url, params=params, headers=headers, timeout=_TIMEOUT)
-        last_status = resp.status_code
-        if resp.status_code == 429 or resp.status_code >= 500:
+            resp = _session.get(
+                url, params=params, headers=headers, timeout=_TIMEOUT, stream=True
+            )
+            try:
+                status = resp.status_code
+                body = read_body(
+                    resp,
+                    max_bytes=_MAX_BODY_BYTES,
+                    deadline_s=_BODY_DEADLINE_SECONDS,
+                    label=f"openfec {path}",
+                )
+            finally:
+                resp.close()
+        last_status = status
+        if status == 429 or status >= 500:
             time.sleep(min(2**attempt, 10))
             continue
-        if not resp.ok:
-            body = " ".join(resp.text.split())[:200]
-            raise RuntimeError(f"openfec {path} -> HTTP {resp.status_code}: {body}")
-        return resp.json()
+        if status >= 400:
+            raise RuntimeError(f"openfec {path} -> HTTP {status}: {text_excerpt(body, 200)}")
+        return json.loads(body)
     raise RuntimeError(f"openfec {path} failing after {_MAX_RETRIES} attempts (HTTP {last_status})")
 
 

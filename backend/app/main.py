@@ -6,6 +6,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.body_limit import BodySizeLimitMiddleware
 from app.config import settings
 from app.logging_setup import setup_file_logging
 from app.routers import (
@@ -51,6 +52,9 @@ app = FastAPI(
     openapi_url="/openapi.json" if _docs_enabled else None,
 )
 
+# Added before CORS so CORS stays the outer layer and a 413 still carries the
+# CORS headers the browser needs to read it.
+app.add_middleware(BodySizeLimitMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,

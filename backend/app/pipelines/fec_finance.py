@@ -36,6 +36,7 @@ from app.config import settings
 from app.pipelines.congress_legislators import STAGING_LEGISLATORS
 from app.pipelines.staging import write_json_atomic
 from app.schemas.finance import CandidateTotalRaw
+from app.services.bounded_http import read_body, text_excerpt
 from app.services.upstream import UpstreamCapacityError, request_slot
 
 logger = logging.getLogger(__name__)
@@ -48,6 +49,9 @@ STAGING_PATH = STAGING_DIR / "member_finance_raw.json"
 
 _MAX_RETRIES = 4
 _TIMEOUT = 45  # OpenFEC's totals endpoint is occasionally slow; 30s wasn't enough.
+# A totals page is a few KiB; the deadline covers the body only.
+_MAX_BODY_BYTES = 8 * 1024 * 1024
+_BODY_DEADLINE_SECONDS = 60
 # Brief pause between per-candidate calls to stay polite under the throttle.
 # ~535 members × this delay is a few minutes and stays well under ~1000 req/hr.
 _PACE_SECONDS = 0.3
@@ -79,9 +83,21 @@ def _fec_get(path: str, **params: Any) -> dict:
     last_status = 0
     for attempt in range(1, _MAX_RETRIES + 1):
         with request_slot("fec"):
-            resp = _session.get(url, params=params, headers=headers, timeout=_TIMEOUT)
-        last_status = resp.status_code
-        if resp.status_code == 429:
+            resp = _session.get(
+                url, params=params, headers=headers, timeout=_TIMEOUT, stream=True
+            )
+            try:
+                status = resp.status_code
+                body = read_body(
+                    resp,
+                    max_bytes=_MAX_BODY_BYTES,
+                    deadline_s=_BODY_DEADLINE_SECONDS,
+                    label=f"openfec {path}",
+                )
+            finally:
+                resp.close()
+        last_status = status
+        if status == 429:
             # A couple of short retries cover a per-second burst; beyond that the
             # hourly budget is spent (backing off 30s won't help within the hour),
             # so raise and let run() abort fast instead of grinding every member.
@@ -89,21 +105,20 @@ def _fec_get(path: str, **params: Any) -> dict:
                 time.sleep(attempt)
                 continue
             raise _RateLimited(path)
-        if resp.status_code >= 500:
+        if status >= 500:
             wait = min(2**attempt, 30)
             logger.warning(
                 "openfec %s -> HTTP %d; backoff %ds (attempt %d/%d)",
-                path, resp.status_code, wait, attempt, _MAX_RETRIES,
+                path, status, wait, attempt, _MAX_RETRIES,
             )
             time.sleep(wait)
             continue
-        if not resp.ok:
+        if status >= 400:
             # Include the response body — OpenFEC's 4xx (esp. 422) says exactly
             # which parameter it rejected. No secret leaks: the key is a header,
             # and the body only echoes validation detail, not the key.
-            body = " ".join(resp.text.split())[:300]
-            raise RuntimeError(f"openfec {path} -> HTTP {resp.status_code}: {body}")
-        return resp.json()
+            raise RuntimeError(f"openfec {path} -> HTTP {status}: {text_excerpt(body, 300)}")
+        return json.loads(body)
     raise RuntimeError(
         f"openfec {path} still failing after {_MAX_RETRIES} attempts (HTTP {last_status})"
     )

@@ -29,6 +29,8 @@ import requests
 
 from app.config import settings
 from app.pipelines.staging import write_json_atomic
+from app.services.bounded_http import read_body, read_prefix
+from app.services.safe_parse import parse_xml
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +49,10 @@ _session = requests.Session()
 # XML declaration); the probe reads only this much of the body.
 _ROLL_ROOT = b"<rollcall-vote"
 _PROBE_BYTES = 1024
+_PROBE_DEADLINE_SECONDS = 20
+# A roll file is about 100 KiB (one <recorded-vote> per member).
+_MAX_ROLL_BYTES = 8 * 1024 * 1024
+_ROLL_DEADLINE_SECONDS = 60
 
 # House bill types map from the legis-num text (e.g. "H R 3076", "H J RES 1").
 _BILL_PREFIX = {
@@ -102,7 +108,12 @@ def _exists(year: int, n: int) -> bool:
             return False
         if resp.status_code != 200:
             raise RuntimeError(f"house clerk returned HTTP {resp.status_code} (roll {n}, {year})")
-        head = next(resp.iter_content(chunk_size=_PROBE_BYTES), b"")
+        head, _ = read_prefix(
+            resp,
+            max_bytes=_PROBE_BYTES,
+            deadline_s=_PROBE_DEADLINE_SECONDS,
+            label=f"house roll {n} probe",
+        )
         if _is_roll_document(head):
             return True
         if b"Error sanitizing" in head:
@@ -201,11 +212,15 @@ def run() -> int:
     lo = max(1, top - settings.votes_limit + 1)
     staged: list[dict] = []
     for n in range(top, lo - 1, -1):  # newest first
-        resp = _session.get(_roll_url(year, n), headers=_HEADERS, timeout=20)
+        resp = _session.get(_roll_url(year, n), headers=_HEADERS, timeout=20, stream=True)
         try:
             if resp.status_code != 200:
                 raise RuntimeError(f"house roll {n} returned HTTP {resp.status_code}")
-            root = ET.fromstring(resp.content)
+            label = f"house roll {n}"
+            body = read_body(
+                resp, max_bytes=_MAX_ROLL_BYTES, deadline_s=_ROLL_DEADLINE_SECONDS, label=label
+            )
+            root = parse_xml(body, label=label)
             vote = _parse(root, year, congress, session) if root.tag == "rollcall-vote" else None
             if not vote or vote["roll_number"] != n:
                 raise ValueError(f"house roll {n} is not a matching roll-call document")

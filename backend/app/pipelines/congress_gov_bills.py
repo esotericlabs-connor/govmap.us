@@ -30,6 +30,7 @@ from pydantic import BaseModel, ValidationError
 from app.config import settings
 from app.pipelines.batch import BatchResult, OutageBreaker
 from app.pipelines.staging import write_json_atomic
+from app.services.bounded_http import read_json
 from app.services.upstream import (
     UpstreamCapacityError,
     UpstreamUnavailableError,
@@ -57,6 +58,9 @@ _PAGE = 250  # Congress.gov max page size
 _MAX_RETRIES = 4
 _SUBRESOURCE_MAX_PAGES = 20  # generous safety cap (bills rarely exceed a page)
 _TIMEOUT = (10, 30)  # (connect, read) seconds
+# A full 250-item page is well under 1 MiB; the deadline covers the body only.
+_MAX_BODY_BYTES = 8 * 1024 * 1024
+_BODY_DEADLINE_SECONDS = 60
 
 _session = requests.Session()
 
@@ -66,9 +70,11 @@ def _get(path: str, **params: Any) -> dict:
     with the path only — never the URL/params — so the API key (sent as a
     header) and query never reach a log or status row.
 
-    A timeout or connection failure raises UpstreamUnavailableError at once:
-    retrying would spend another full timeout while the source is down, and the
-    batch loops' OutageBreaker handles stopping."""
+    A timeout or connection failure — including a body that misses its
+    deadline — raises UpstreamUnavailableError at once: retrying would spend
+    another full timeout while the source is down, and the batch loops'
+    OutageBreaker handles stopping. The body is read inside the request slot so
+    the concurrency budget covers the whole transfer."""
     params.setdefault("format", "json")
     url = f"{API_BASE}/{path}"
     headers = {"X-Api-Key": settings.congress_gov_api_key}
@@ -76,21 +82,37 @@ def _get(path: str, **params: Any) -> dict:
     for attempt in range(1, _MAX_RETRIES + 1):
         try:
             with request_slot("congress"):
-                resp = _session.get(url, params=params, headers=headers, timeout=_TIMEOUT)
+                resp = _session.get(
+                    url, params=params, headers=headers, timeout=_TIMEOUT, stream=True
+                )
+                try:
+                    status = resp.status_code
+                    payload = (
+                        read_json(
+                            resp,
+                            max_bytes=_MAX_BODY_BYTES,
+                            deadline_s=_BODY_DEADLINE_SECONDS,
+                            label=f"congress.gov {path}",
+                        )
+                        if 200 <= status < 300
+                        else None
+                    )
+                finally:
+                    resp.close()
         except (requests.Timeout, requests.ConnectionError) as exc:
             raise UpstreamUnavailableError("congress", f"{path}: {type(exc).__name__}") from None
-        last_status = resp.status_code
-        if resp.status_code == 429 or resp.status_code >= 500:
+        last_status = status
+        if status == 429 or status >= 500:
             wait = min(2**attempt, 30)
             logger.warning(
                 "congress.gov %s -> HTTP %d; backoff %ds (attempt %d/%d)",
-                path, resp.status_code, wait, attempt, _MAX_RETRIES,
+                path, status, wait, attempt, _MAX_RETRIES,
             )
             time.sleep(wait)
             continue
-        if not resp.ok:
-            raise RuntimeError(f"congress.gov {path} -> HTTP {resp.status_code}")
-        return resp.json()
+        if payload is None:
+            raise RuntimeError(f"congress.gov {path} -> HTTP {status}")
+        return payload
     raise UpstreamUnavailableError(
         "congress", f"{path} still failing after {_MAX_RETRIES} attempts (HTTP {last_status})"
     )

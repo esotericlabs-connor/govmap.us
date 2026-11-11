@@ -1,6 +1,7 @@
 import asyncio
 import json
 import threading
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
@@ -16,6 +17,21 @@ from app.routers import bills
 from app.routers import donations as donation_routes
 from app.services import bill_enrich, committees, donations, upstream
 from app.services.upstream import UpstreamCapacityError, _Budget
+
+
+class _Response:
+    def __init__(self, status_code: int, body: bytes = b"") -> None:
+        self.status_code = status_code
+        self._body = body
+        self.headers: dict[str, str] = {}
+        self.raw = None
+
+    def iter_content(self, chunk_size: int = 1) -> Iterator[bytes]:
+        for i in range(0, len(self._body), chunk_size):
+            yield self._body[i : i + chunk_size]
+
+    def close(self) -> None:
+        pass
 
 
 def test_hourly_attempt_limit_and_exact_expiry(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -73,7 +89,7 @@ def test_pipeline_and_public_fec_requests_share_budget(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setitem(upstream._BUDGETS, "fec", _Budget("fec", 1, 1))
-    response = SimpleNamespace(status_code=200, ok=True, json=lambda: {"results": []})
+    response = _Response(200, b'{"results": []}')
     pipeline_get = Mock(return_value=response)
     public_get = Mock(return_value=response)
     monkeypatch.setattr(fec_finance._session, "get", pipeline_get)
@@ -89,7 +105,7 @@ def test_retry_consumes_budget_before_another_http_attempt(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setitem(upstream._BUDGETS, "congress", _Budget("congress", 1, 1))
-    get = Mock(return_value=SimpleNamespace(status_code=503))
+    get = Mock(return_value=_Response(503))
     monkeypatch.setattr(congress_gov_bills._session, "get", get)
     monkeypatch.setattr(congress_gov_bills.time, "sleep", lambda _: None)
     with pytest.raises(UpstreamCapacityError):

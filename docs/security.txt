@@ -2,7 +2,7 @@
 # Publish through Cloudflare at https://govmap.us/.well-known/security.txt
 # Renew before the Expires date below; an expired file tells researchers to ignore it.
 Contact: https://github.com/esotericlabs-connor/govmap.us/security/advisories/new
-Contact: mailto:support@govmap.us
+Contact: mailto:confidential.hook11@mailx.net
 Expires: 2027-11-01T00:00:00.000Z
 Preferred-Languages: en
 Canonical: https://govmap.us/.well-known/security.txt

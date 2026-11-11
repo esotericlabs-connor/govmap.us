@@ -1,0 +1,64 @@
+# Dependabot version updates. Every dependency in this repo is pinned exactly
+# (package versions, image digests, action commit SHAs), so nothing moves on
+# its own; these weekly grouped PRs are how pins get bumped deliberately.
+# PRs target `dev` so they pass the full CI gate (tests, pip-audit, npm audit,
+# migrations, image scan) and a dev deploy before reaching `main`.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /backend
+    target-branch: dev
+    schedule:
+      interval: weekly
+    groups:
+      python:
+        patterns: ["*"]
+
+  - package-ecosystem: npm
+    directory: /frontend
+    target-branch: dev
+    schedule:
+      interval: weekly
+    groups:
+      frontend:
+        patterns: ["*"]
+
+  - package-ecosystem: docker
+    directories: [/backend, /frontend, /backup]
+    target-branch: dev
+    schedule:
+      interval: weekly
+    groups:
+      base-images:
+        patterns: ["*"]
+    ignore:
+      # Runtime majors/minors are platform decisions, not routine bumps:
+      # Python stays on 3.11 and Node on 24 LTS until deliberately moved.
+      - dependency-name: python
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      - dependency-name: node
+        update-types: ["version-update:semver-major"]
+      - dependency-name: alpine
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+
+  - package-ecosystem: docker-compose
+    directory: /
+    target-branch: dev
+    schedule:
+      interval: weekly
+    groups:
+      compose-images:
+        patterns: ["*"]
+    ignore:
+      # A Postgres major upgrade needs a dump/restore, never an image bump.
+      - dependency-name: postgres
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: dev
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]

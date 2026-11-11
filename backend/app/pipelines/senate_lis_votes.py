@@ -35,6 +35,8 @@ import requests
 from app.config import settings
 from app.pipelines.house_clerk_votes import bill_id_from_legis
 from app.pipelines.staging import write_json_atomic
+from app.services.bounded_http import read_body
+from app.services.safe_parse import parse_xml
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +49,10 @@ STAGING = STAGING_DIR / "senate_votes_raw.json"
 
 _HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; GovMap.us/1.0; +https://govmap.us)"}
 _session = requests.Session()
+
+# The full-session menu is about 170 KiB and a vote file about 30 KiB.
+_MAX_XML_BYTES = 8 * 1024 * 1024
+_BODY_DEADLINE_SECONDS = 60
 
 
 def _menu_url(congress: int, session: int) -> str:
@@ -69,15 +75,20 @@ def _menu_numbers(congress: int, session: int) -> list[int]:
     XML, or a parseable document that isn't a <vote_summary> menu is a block /
     soft-404 / bad response — raise so it surfaces (vs. looking like 'no votes',
     which would also suppress the Voteview fallback in refresh_votes)."""
-    resp = _session.get(_menu_url(congress, session), headers=_HEADERS, timeout=30)
-    if resp.status_code != 200:
-        raise RuntimeError(f"senate vote menu returned HTTP {resp.status_code} ({congress}_{session})")
+    label = f"senate vote menu {congress}_{session}"
+    resp = _session.get(_menu_url(congress, session), headers=_HEADERS, timeout=30, stream=True)
     try:
-        menu = ET.fromstring(resp.content)
+        if resp.status_code != 200:
+            raise RuntimeError(f"senate vote menu returned HTTP {resp.status_code} ({congress}_{session})")
+        body = read_body(
+            resp, max_bytes=_MAX_XML_BYTES, deadline_s=_BODY_DEADLINE_SECONDS, label=label
+        )
+    finally:
+        resp.close()
+    try:
+        menu = parse_xml(body, label=label)
     except ET.ParseError as exc:
-        raise RuntimeError(
-            f"senate vote menu not parseable (HTTP {resp.status_code}, {congress}_{session}): {exc}"
-        ) from exc
+        raise RuntimeError(f"senate vote menu not parseable ({congress}_{session}): {exc}") from exc
     if menu.tag != "vote_summary":
         raise RuntimeError(f"senate vote menu has unexpected root <{menu.tag}> ({congress}_{session})")
     if menu.find("votes") is None:
@@ -163,11 +174,15 @@ def run() -> int:
     numbers = sorted(set(numbers), reverse=True)[: settings.votes_limit]  # newest first
     staged: list[dict] = []
     for n in numbers:
-        resp = _session.get(_vote_url(congress, session, n), headers=_HEADERS, timeout=30)
+        resp = _session.get(_vote_url(congress, session, n), headers=_HEADERS, timeout=30, stream=True)
         try:
             if resp.status_code != 200:
                 raise RuntimeError(f"senate vote {n} returned HTTP {resp.status_code}")
-            root = ET.fromstring(resp.content)
+            label = f"senate vote {n}"
+            body = read_body(
+                resp, max_bytes=_MAX_XML_BYTES, deadline_s=_BODY_DEADLINE_SECONDS, label=label
+            )
+            root = parse_xml(body, label=label)
             if root.tag != "roll_call_vote" or _int(root.findtext("vote_number")) != n:
                 raise ValueError(f"senate vote {n} is not a matching roll-call document")
             vote = _parse(root, congress, session, n)

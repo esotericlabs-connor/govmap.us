@@ -53,13 +53,14 @@ _BILL_UPDATE_COLS = (
 
 def _strip_html(raw: str | None) -> str | None:
     """CRS summaries come as HTML; reduce to readable plain text so the frontend
-    never needs dangerouslySetInnerHTML. Lists → bullets, blocks → newlines."""
+    never needs dangerouslySetInnerHTML. Lists → bullets, blocks → newlines.
+    Tag patterns stop at the next "<" so malformed markup stays linear-time."""
     if not raw:
         return None
-    t = re.sub(r"(?i)<li[^>]*>", "\n• ", raw)
+    t = re.sub(r"(?i)<li[^<>]*>", "\n• ", raw)
     t = re.sub(r"(?i)</(p|div|li|ul|ol|h[1-6])>", "\n", t)
     t = re.sub(r"(?i)<br\s*/?>", "\n", t)
-    t = re.sub(r"<[^>]+>", "", t)
+    t = re.sub(r"<[^<>]+>", "", t)
     t = html.unescape(t)
     t = re.sub(r"[ \t]+", " ", t)
     t = re.sub(r"\n[ \t]*\n[ \t]*\n+", "\n\n", t)

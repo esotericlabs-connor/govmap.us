@@ -17,8 +17,8 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.11"
       # Pin ruff so a new release can't silently enable new rules in the
@@ -31,7 +31,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16-alpine
+        image: postgres:16-alpine@sha256:aa6cb33cf4c19c765cefcf48d96176258800870a9a1e930ad126200f9d825139
         env:
           POSTGRES_USER: govmap_ci
           POSTGRES_PASSWORD: ci-only-health-test
@@ -49,12 +49,131 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.11"
-      - run: pip install -r requirements.txt -r requirements-dev.txt
+      # Two installs: once requirements.txt is hash-locked, pip's hash-checking
+      # mode would otherwise demand hashes for the unlocked test-only pins too.
+      - run: pip install -r requirements.txt
+      - run: pip install -r requirements-dev.txt
       - run: pytest -q
+
+  # Known-vulnerability gate for the whole resolved Python tree (transitive
+  # packages included), resolved in an isolated environment the way the image
+  # installs it. --strict also fails on any package that couldn't be audited.
+  # Also compiles requirements.in into the hash-locked requirements.txt and
+  # uploads it, so the lock is always produced on Linux/Python 3.11 (the
+  # image's platform), never on a developer machine.
+  backend-audit:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.11"
+      - run: pip install pip-audit==2.10.1
+      - run: pip-audit --strict --progress-spinner off -r requirements.txt
+      - run: pip-audit --strict --progress-spinner off -r requirements-dev.txt
+      - name: Compile the hash-locked requirements.txt
+        id: lock
+        if: ${{ !cancelled() }}
+        run: |
+          python -m venv "$RUNNER_TEMP/lock-venv"
+          "$RUNNER_TEMP/lock-venv/bin/python" -m pip install --quiet pip==26.2 pip-tools==7.6.2
+          "$RUNNER_TEMP/lock-venv/bin/pip-compile" --quiet --generate-hashes --allow-unsafe \
+            --strip-extras --no-emit-index-url --output-file=requirements.txt requirements.in
+      - name: Upload the compiled lock
+        if: ${{ !cancelled() && steps.lock.outcome == 'success' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: backend-lock-${{ github.sha }}
+          path: backend/requirements.txt
+          if-no-files-found: error
+          retention-days: 7
+
+  # The backend runs `alembic upgrade head` on every start, so the migration
+  # chain is exercised against a real Postgres exactly as production runs it:
+  # fresh upgrade, no drift between the models and the migrated schema, every
+  # downgrade, and a clean re-upgrade.
+  backend-migrations:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine@sha256:aa6cb33cf4c19c765cefcf48d96176258800870a9a1e930ad126200f9d825139
+        env:
+          POSTGRES_USER: govmap_ci
+          POSTGRES_PASSWORD: ci-only-migration-test
+          POSTGRES_DB: govmap_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U govmap_ci -d govmap_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt
+      - name: Migrate up, check drift, down to base, and up again
+        run: |
+          export DATABASE_URL="postgresql+asyncpg://govmap_ci:ci-only-migration-test@127.0.0.1:5432/govmap_ci"
+          alembic upgrade head
+          alembic check
+          alembic downgrade base
+          alembic upgrade head
+          alembic check
+
+  # Builds the three images that ship and fails on any high/critical
+  # vulnerability that has a fix available. Grype runs from a digest-pinned
+  # image against saved tarballs: no third-party action and no Docker socket
+  # inside the scanner. A failure here means "bump the pinned base digest or
+  # the affected package", not "suppress".
+  images:
+    runs-on: ubuntu-latest
+    env:
+      GRYPE_IMAGE: anchore/grype:v0.121.3@sha256:13113eeceab017260370cf540e1d25442c59665fd07d1b09b66d63bb0c282887
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - name: Build images
+        run: |
+          docker build --build-arg SOURCE_COMMIT="$GITHUB_SHA" -t govmap-backend:ci backend
+          docker build --build-arg SOURCE_COMMIT="$GITHUB_SHA" -t govmap-frontend:ci frontend
+          docker build -t govmap-backup:ci backup
+      - name: Runtime images carry no package managers
+        run: |
+          docker run --rm --entrypoint sh govmap-backend:ci -c '! python -c "import pip" 2>/dev/null && ! python -c "import setuptools" 2>/dev/null'
+          docker run --rm --entrypoint sh govmap-frontend:ci -c '! command -v npm && ! command -v npx && ! command -v yarn && ! command -v corepack'
+      - name: Save images for scanning
+        run: |
+          mkdir -p "$RUNNER_TEMP/scan" "$RUNNER_TEMP/grype-db"
+          docker save -o "$RUNNER_TEMP/scan/backend.tar" govmap-backend:ci
+          docker save -o "$RUNNER_TEMP/scan/frontend.tar" govmap-frontend:ci
+          docker save -o "$RUNNER_TEMP/scan/backup.tar" govmap-backup:ci
+      - name: Scan images (gate)
+        run: |
+          status=0
+          for image in backend frontend backup; do
+            echo "::group::grype $image"
+            docker run --rm \
+              -e GRYPE_DB_CACHE_DIR=/grype-db \
+              -e GRYPE_CHECK_FOR_APP_UPDATE=false \
+              -v "$RUNNER_TEMP/grype-db:/grype-db" \
+              -v "$RUNNER_TEMP/scan:/scan:ro" \
+              "$GRYPE_IMAGE" "docker-archive:/scan/$image.tar" \
+              --only-fixed --fail-on high || status=1
+            echo "::endgroup::"
+          done
+          exit "$status"
 
   frontend-lint:
     runs-on: ubuntu-latest
@@ -64,8 +183,8 @@ jobs:
     env:
       NEXT_TELEMETRY_DISABLED: "1"
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: "24"
       # Bootstrap on dev without local commands or first deploying a manual
@@ -89,7 +208,7 @@ jobs:
         run: npm audit --json > npm-audit.json
       - name: Upload lockfile and security evidence
         if: ${{ always() }}
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: frontend-security-${{ github.sha }}
           path: |

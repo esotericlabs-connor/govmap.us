@@ -1,4 +1,6 @@
-FROM python:3.11-slim
+# Base pinned by digest so a rebuild is byte-for-byte reproducible and a
+# re-pushed tag can't change what ships; Dependabot proposes digest bumps.
+FROM python:3.11-slim@sha256:07d4824036af339fa1b6ef769cc99d9c10a141769538b52b3b597c84f7a7b535
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
@@ -6,7 +8,15 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# The pinned base can lag behind security updates in Debian's package index.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends zlib1g=1:1.3.dfsg+really1.3.1-1+deb13u1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# The packaging toolchain is only needed to install; nothing imports it at
+# runtime, so remove it rather than ship (and patch) it in production.
+RUN pip install --no-cache-dir -r requirements.txt \
+    && pip uninstall --no-cache-dir -y setuptools wheel pip
 
 COPY . .
 

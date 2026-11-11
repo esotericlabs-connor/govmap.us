@@ -3,16 +3,18 @@ from logging.config import fileConfig
 
 from alembic import context
 from sqlalchemy import pool
-from sqlalchemy.ext.asyncio import async_engine_from_config
+from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.config import settings
 from app.db import Base
 
 # Import every model module so all tables register on Base.metadata (needed for
-# autogenerate and for a complete target_metadata). Add new model modules here.
+# autogenerate and for a complete target_metadata). Add new model modules here;
+# tests/test_migration_safety.py fails if one is missing.
 from app.models import (  # noqa: F401
     bill,
     committee,
+    contribution,
     crosswalk,
     finance,
     member,
@@ -25,15 +27,21 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-config.set_main_option("sqlalchemy.url", settings.database_url)
+# Migrations run on every backend start while the previous container may
+# still be serving. A DDL statement queued behind a long-held lock would block
+# every later query on that table, so give up quickly instead; the container
+# exits non-zero, the deploy fails its health check and the old one stays up.
+LOCK_TIMEOUT = "5s"
 
 target_metadata = Base.metadata
 
 
 def run_migrations_offline() -> None:
-    url = config.get_main_option("sqlalchemy.url")
+    # The URL is read from settings directly, never round-tripped through
+    # alembic's ConfigParser, where a percent-encoded password would be
+    # misread as interpolation syntax.
     context.configure(
-        url=url,
+        url=settings.database_url,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
@@ -49,10 +57,10 @@ def do_run_migrations(connection) -> None:
 
 
 async def run_migrations_online() -> None:
-    connectable = async_engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
+    connectable = create_async_engine(
+        settings.database_url,
         poolclass=pool.NullPool,
+        connect_args={"server_settings": {"lock_timeout": LOCK_TIMEOUT}},
     )
     async with connectable.connect() as connection:
         await connection.run_sync(do_run_migrations)
