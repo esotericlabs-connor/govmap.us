@@ -34,6 +34,10 @@ from app.routers import pipeline_status
         (None, None, ValueError("bad"), ("error", "ValueError: bad")),
         (None, None, None, ("error", "no outcome recorded")),
         ("stale", "x", None, ("error", "unexpected status 'stale': x")),
+        # Cancelled by a stopping worker: interrupted, not failed.
+        (None, None, asyncio.CancelledError(), ("abandoned", "cancelled before it finished (the process was stopping)")),
+        ("ok", None, asyncio.CancelledError(), ("abandoned", "cancelled before it finished (the process was stopping)")),
+        ("partial", "1 of 4 failed", asyncio.CancelledError(), ("partial", "1 of 4 failed")),
     ],
 )
 def test_final_outcome(

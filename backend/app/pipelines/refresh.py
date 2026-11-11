@@ -7,7 +7,8 @@ refresh_* coroutine, adding it to REFRESHERS through runs.tracked, and giving it
 a scheduler job (tests/test_sources.py checks all three line up).
 
 Run directly: `python -m app.pipelines.refresh` (refreshes the core sources) — this
-is what scripts/deploy.sh invokes.
+is what scripts/deploy.sh invokes on the legacy VM. On the deployment platform,
+run it inside the `worker` container, which owns scheduled refreshes.
 """
 
 from __future__ import annotations
@@ -334,9 +335,12 @@ CORE_REFRESHERS: dict[str, TrackedRefresh] = {
 # each makes hundreds of third-party calls (and FEC is throttled to ~1000/hr),
 # so running them on every redeploy exhausts API budgets and drags the deploy
 # out. They run on their own scheduler cadence (see app/scheduler.py) and on
-# demand, e.g.:  docker compose exec backend python -m app.pipelines.refresh finance
-# (member_sponsored reads the legislators staging that refresh_members writes, so
-# a members refresh must have run first — it does, on every deploy.)
+# demand, e.g.:  docker compose exec worker python -m app.pipelines.refresh finance
+# (`backend` instead of `worker` on the legacy single-VM compose).
+# member_sponsored and finance read the legislators staging that refresh_members
+# writes in the same container, so a members refresh must have run there first:
+# the 07:00 members job precedes the 08:00 and 09:00 jobs, the worker's staging
+# volume keeps that file across redeploys, and the legacy deploy runs members.
 EXTRA_REFRESHERS: dict[str, TrackedRefresh] = {
     "sponsored_bills": tracked("member_sponsored", refresh_sponsored_bills),
     "finance": tracked("fec_finance", refresh_finance),

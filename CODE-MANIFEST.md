@@ -4,13 +4,69 @@ What's been built, in what order, and what's next. This is a living log — add 
 
 ## Build log
 
+**2026-11-11 — R2 worker split: scheduled refreshes leave the API process**
+Roadmap R2's first item and the ownership half of immediate work queue item 5.
+No schema migration. CI is the only test run; nothing was executed on the
+static checkout.
+
+- *Worker service:* `python -m app.worker` runs the eight refresh jobs in a new
+  `worker` service in `docker-compose.PaaS.yml`, built from the backend image.
+  The backend's `SCHEDULER_ENABLED` is fixed to `false` in that file, so
+  exactly one process schedules; the variable now controls the worker. The
+  legacy `docker-compose.yml` is unchanged and still schedules in-process.
+- *Schema gate:* the worker never migrates. With scheduling enabled it polls
+  `alembic_version` (5 s per check) for up to 5 minutes until it equals its
+  image's head, then starts the scheduler; otherwise it exits non-zero and the
+  restart policy retries. A database at another revision (say, after a
+  rollback) never matches, so no refresh writes to a schema its code wasn't
+  built for. While the database is unreachable it logs only the exception
+  type, never driver messages that can carry credentials. With scheduling off
+  it never connects.
+- *Health and shutdown:* a heartbeat file touched every 30 s backs the
+  container health check, which fails once it is 120 s old. SIGTERM stops
+  scheduling and gives refreshes in flight 15 s, inside a 30 s grace period,
+  to record their outcome and release their advisory locks. Each is cancelled
+  once: a second cancellation would interrupt that cleanup. A refresh
+  cancelled before recording a result is stored as `abandoned` rather than
+  `error`, and doesn't alert; one that already recorded `partial` stays
+  `partial`.
+- *Request budgets:* budgets are counted per process, so the PaaS compose
+  splits each hourly budget between `API_*` and `WORKER_*` variables:
+  Congress 1000/3500, FEC 250/650, GovInfo 500/100, each pair within the old
+  single-process default. A test fails if a pair's defaults exceed it. The
+  unprefixed variables are no longer read there.
+- *Least privilege:* the worker gets the database, source-key, alert and
+  refresh settings, not CORS, API docs, trusted proxies, internal-operations
+  credentials or the Turnstile secret. A test pins its environment to the
+  backend's minus exactly that set.
+- *Logs:* the worker writes `worker.log` in the shared log volume, and each
+  process rotates only its own file. `logsctl clear-logs` clears both, and
+  backups include it.
+- *Staging survives redeploys:* the worker's `/app/data/staging` is the named
+  `worker-staging` volume. `member_sponsored` (08:00 UTC) and `fec_finance`
+  (09:00 UTC) read the legislators staging the 07:00 members job writes, so a
+  redeploy between them no longer makes both fail. Staging writes were already
+  atomic (temp file, fsync, rename), so a stopped worker leaves the previous
+  snapshot or the new one, never a partial file. Only the worker mounts it, and
+  it is not backed up: each refresh rewrites it.
+
+Release gate: CI and the dev deployment checks are pending.
+
+**Operator note:** after deploying, remove any unprefixed
+`CONGRESS_REQUESTS_PER_HOUR`, `FEC_REQUESTS_PER_HOUR` or
+`GOVINFO_REQUESTS_PER_HOUR` from both resources' settings. Keep
+`SCHEDULER_ENABLED=false` on test, where it now idles the worker. Run manual
+refreshes with `docker compose exec worker python -m app.pipelines.refresh …`.
+The new staging volume starts empty. On production, run
+`… refresh members` in the worker after the first deploy so the next
+sponsored-bill and finance runs have their input.
+
 **2026-11-11 — R1 runtime and visibility: Python 3.13, run-history endpoint**
 Roadmap R1 follow-up. No schema migration. CI is the only test run; nothing
 was executed on the static checkout.
 
-Release gate: implementation is committed, but CI (including the Python 3.13
-lock artifact and image scan) and dev/production deployment acceptance are
-still pending. Release this step before the worker-container change.
+Released to `main` in #19 (merge `1ef900d`) after CI passed, ahead of the
+worker-container change.
 
 - *Python 3.11 → 3.13:* the backend image moves to `python:3.13-slim`
   (3.13.18, Debian 13), pinned by digest, and every CI job runs 3.13. This
@@ -991,7 +1047,7 @@ Adapted from the original end-to-end plan, reordered to prove the pipeline contr
 - **PACER costs money per page**, not a flat quarterly fee — the pipeline needs to scope queries tightly and track spend, not just cap at "$30/qtr" and assume it holds.
 - **OPM PLUM and White House scrapers are fragile by nature** (HTML scrapes with no API). They need to fail loudly on structural change, not silently return stale data — flagged in the original plan and still true.
 - **Pipeline status is persisted in Postgres** (the `pipeline_status` table / `PipelineStatusRow`), written by `record_run()` and read by `/internal/pipeline-status`, so it survives restarts and redeploys. This supersedes the old ephemeral `pipeline_status.json` (promoted to a table in schema 0002) — no volume/permission concern remains. A fresh DB simply shows no rows until each source's first run.
-- **2027 rollover: the tracked Congress/session/cycle are time-coupled and must be bumped together in January 2027.** All three are env-overridable (change the deploy `.env` + `docker-compose.yml` defaults, not code): `CONGRESS_NUMBER` 119 → 120, `CONGRESS_SESSION` 2 → 1 (120th's first session = 2027), and `FEC_CYCLE` 2026 → 2028. Defaults live in `backend/app/config.py`; the runtime values are wired in the backend `environment:` block of `docker-compose.yml`. Roll all three at once — a mismatch (e.g. new Congress but old cycle) silently pulls the wrong session's bills/votes or the wrong finance cycle. The per-run coverage caps (`CONGRESS_GOV_BILL_LIMIT`, `VOTES_LIMIT`) don't need touching; only these three values. The first members refresh of the new Congress will be withheld by the departure guard (more than 3 members leave); confirm it with `python -m app.pipelines.refresh members --allow-roster-turnover`.
+- **2027 rollover: the tracked Congress/session/cycle are time-coupled and must be bumped together in January 2027.** All three are env-overridable (change the deploy `.env` + `docker-compose.yml` defaults, not code): `CONGRESS_NUMBER` 119 → 120, `CONGRESS_SESSION` 2 → 1 (120th's first session = 2027), and `FEC_CYCLE` 2026 → 2028. Defaults live in `backend/app/config.py`; the runtime values are wired in the backend and worker `environment:` blocks of `docker-compose.PaaS.yml` (backend only in the legacy `docker-compose.yml`). Roll all three at once — a mismatch (e.g. new Congress but old cycle) silently pulls the wrong session's bills/votes or the wrong finance cycle. The per-run coverage caps (`CONGRESS_GOV_BILL_LIMIT`, `VOTES_LIMIT`) don't need touching; only these three values. The first members refresh of the new Congress will be withheld by the departure guard (more than 3 members leave); confirm it with `python -m app.pipelines.refresh members --allow-roster-turnover`.
 - **Marketing site has no real social handles or support/donation link.** `frontend/lib/site-config.ts` ships with `socialLinks: []` and `supportUrl: null` on purpose rather than placeholder/fake links — fill them in as real accounts and a donation link exist.
 - **Favicon is a stopgap crop**, not a designed icon mark — see README → *Sites & branding*. Fine for now, worth revisiting once there's a proper icon-only asset.
 - **DNS not yet configured** for the `app.` subdomain split. `frontend/middleware.ts` assumes `app.govmap.us` resolves to the same deployment as `govmap.us` — that DNS record (and matching `cloudflared` routing) needs to exist before the split works in production.
@@ -1009,3 +1065,9 @@ Adapted from the original end-to-end plan, reordered to prove the pipeline contr
   - *HUD page cap.* `zip_crosswalk` now fails rather than staging a partial set if HUD needs more than 60 pages. If that error appears, check the page-1 log's metadata and raise `_MAX_PAGES` deliberately.
   - *Python runtime CVEs below the gate.* Moving to Python 3.13.18 cleared 6 of the 9 medium/low CPython findings Grype reported on 3.11.18. CVE-2025-15367, CVE-2026-116566 and CVE-2026-103995 remain on 3.13.18 (no 3.13 fix version when checked); they close with a later 3.13 patch picked up by a Dependabot digest bump. Do not suppress them.
 - **R1 Phase B leftovers.** Stale `member_terms` rows (a term the upstream file later drops or re-dates) are not deleted. Only current members' terms load; historical members need the `legislators-historical` file. Run history is readable through `/internal/source-runs`.
+- **R2 worker split leftovers.**
+  - *Shared budget ledger.* The API/worker budget split is static. R2 calls for one budget per source account across processes; build that ledger when sustained backfill starts. Until then, a manual `exec` refresh runs with its own copy of the worker share, so lower it (`-e CONGRESS_REQUESTS_PER_HOUR=…`) for a large manual run.
+  - *Staging is a latest-only snapshot.* The worker's staging volume keeps
+    each source's most recent file, not a history; replaying older input
+    needs the retained, versioned raw storage in roadmap R2.
+  - *Threads outlive a cancel.* Synchronous pipeline steps run in threads that keep going after their refresh is cancelled. The process then exits when Docker kills it at the end of the grace period, and the run is still recorded as `abandoned` first.

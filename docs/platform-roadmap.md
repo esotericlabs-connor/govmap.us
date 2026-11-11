@@ -101,7 +101,7 @@ Important code facts shaping this plan:
 
 | Evidence | Consequence |
 | --- | --- |
-| [Scheduler](../backend/app/scheduler.py) runs eight refresh jobs in the API process. | Restarts, concurrency and worker ownership need explicit treatment before scaling ingestion. |
+| [Scheduler](../backend/app/scheduler.py) runs eight refresh jobs; on the deployment platform they run in a separate [worker](../backend/app/worker.py) (2026-11-11), not the API process. | Restarts, concurrency and worker ownership need explicit treatment before scaling ingestion. |
 | [Bill pull](../backend/app/pipelines/congress_gov_bills.py) uses a capped recent-update listing. | Repeated recent-page pulls do not prove all changes or historical bills are eventually covered. |
 | [Pipeline status](../backend/app/models/pipeline_status.py) stores one latest row per source. | Run history, durable checkpoints and completeness evidence are not yet represented by that table alone. |
 | [Batch policy](../backend/app/pipelines/batch.py) can classify some item failures as `ok`. | Successful transport, coverage completeness and source freshness need distinct semantics. |
@@ -230,8 +230,8 @@ Do not launch parallel crawlers that each assume they own the same API quota.
 Use bounded retries with jitter, Retry-After handling, circuit breakers,
 request deadlines and restart-safe leases.
 
-As ingestion expands, move scheduling into a dedicated container worker using
-the existing backend code, not an immediate microservice rewrite. Start with
+Scheduling runs in a dedicated container worker built from the existing
+backend code (2026-11-11), not a microservice rewrite. Next comes
 PostgreSQL-backed work ownership/checkpoints. The API and worker must not both
 schedule the same job. A broker, Redis, separate search engine or streaming
 platform requires demonstrated need and a separate design decision.
@@ -411,6 +411,16 @@ legislators.
 silent omissions, double-counted money, lost newer revisions or duplicate
 concurrent ownership. Current-lane objectives hold while backfills run.
 Capacity and restore measurements cover the next planned data slice.
+
+**Status (2026-11-11, worker split):** scheduled refreshes run in a separate
+`worker` service on the deployment platform, the only scheduler owner there.
+It starts only once the database is at its image's migration head, exposes a
+heartbeat health check, and records refreshes cancelled at shutdown as
+`abandoned`. Each process has a static share of each source's hourly budget,
+and the worker's latest staging snapshots persist across redeploys.
+Not yet done: a shared budget ledger across processes, stage checkpoints,
+replay/quarantine, retained versioned raw input, and the failure exercises
+above.
 
 ### F1-F4: Vertical slices, not disconnected scrapers
 
@@ -629,7 +639,7 @@ Execute these before promising additional production coverage:
 | 2 | Finish the focused code review: donation concurrency, safe source parsing, migration safety, URL handling and dependencies. | Ranked findings, reproductions, fixes or explicit accepted deferrals; no hidden severe blocker. |
 | 3 | Define source-run/provenance and office-term/history contracts with additive migrations. | Approved models, migration/replay tests, unresolved identity policy. |
 | 4 | Make one existing source fully enumerated and restart-resumable in current and historical lanes. | Reconciled partition counts, interrupted-run recovery, no stale overwrite. Prefer legislative bills/votes as the first proof. |
-| 5 | Introduce worker ownership/budgets when sustained backfill starts. | No duplicate scheduler, quotas honored, API capacity preserved. |
+| 5 | Introduce worker ownership/budgets when sustained backfill starts. Worker ownership and a static per-process budget split done (2026-11-11); a shared ledger remains. | No duplicate scheduler, quotas honored, API capacity preserved. |
 | 6 | Build the initial federal catalog and source rights/access register. | All section 7 domains assessed; candidate sources have real evidence, not assumed licenses. |
 | 7 | Deliver the first executive vertical slice and its history. | Federal Register/GovInfo access decision, agency identity, source links, CI and dev reconciliation. |
 

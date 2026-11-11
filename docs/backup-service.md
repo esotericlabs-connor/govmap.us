@@ -40,6 +40,9 @@ the PostgreSQL 16 server.
 tunnel token and other credentials are kept in the operator's vault and must
 be recoverable independently of the server.
 
+The worker's `worker-staging` volume is not included either: it holds only the
+latest source snapshots, which the next refresh of each source rewrites.
+
 ### Destination
 
 The bundle is written to `/backups` in the container. It is bind-mounted from
@@ -115,7 +118,7 @@ directories and the lock file from the off-site selection.
 | Item | Purpose |
 | --- | --- |
 | `database.dump` | Consistent custom-format dump of the `govmap` PostgreSQL database |
-| `logs.tar` | Backend `/app/logs`, including application and bug-report logs |
+| `logs.tar` | The shared `/app/logs` volume: API (`app.log`), refresh worker (`worker.log`) and bug-report logs |
 | `MANIFEST.txt` | Creation time, backup target, PostgreSQL server and `pg_dump` versions, Alembic revision |
 | `SHA256SUMS` | Checksums of the recorded files |
 | `RESTORE.txt` | Basic restore notes for that bundle |

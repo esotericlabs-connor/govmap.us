@@ -214,7 +214,8 @@ project/team configuration that could also affect production:
 | `NEXT_PUBLIC_APP_URL` (build) | `https://govmap.us` | `https://dev.govmap.us` |
 | `NEXT_PUBLIC_MARKETING_URL` (build) | `https://govmap.us` | `https://dev.govmap.us` |
 | `CORS_ORIGINS` | `https://govmap.us` | `https://dev.govmap.us` |
-| `SCHEDULER_ENABLED` (runtime) | `true` (default) | `false` for the approved snapshot-only setup |
+| `SCHEDULER_ENABLED` (runtime, worker) | `true` (default) | `false` for the approved snapshot-only setup |
+| `API_*` / `WORKER_*` `_REQUESTS_PER_HOUR` (runtime) | Defaults (see below) | Defaults; separate source keys keep test off production quotas |
 | `NEXT_PUBLIC_TURNSTILE_SITE_KEY` (build) / `TURNSTILE_SECRET_KEY` (runtime) | Paired production widget keys | Separate paired test widget keys, or both empty behind restricted test access |
 | `API_DOCS_ENABLED` (runtime) | `false` (default) | `false`; enable only temporarily for schema inspection, then redeploy with it off |
 | `CONGRESS_GOV_API_KEY`, `FEC_API_KEY`, `HUD_API_TOKEN` | Production credentials | Separate credentials if running keyed refreshes; do not compete for production API quotas |
@@ -226,14 +227,53 @@ The frontend also has `API_INTERNAL_URL=http://backend:8000` at runtime.
 Keep `INTERNAL_USER` and `INTERNAL_PASSWORD` empty unless deliberately
 configuring authenticated internal operations.
 
-The backend runs Alembic migrations before serving. `SCHEDULER_ENABLED`
-defaults to `true`, preserving production's scheduled refreshes. Set it
-explicitly to `false` on snapshot-only test resources before starting the
-backend; startup logs that scheduled refreshes are disabled. Invalid boolean
-values fail settings validation. Missing API keys **do not disable the
+The backend runs Alembic migrations before serving. Scheduled refreshes run in
+the separate `worker` service from the same image; the backend's own scheduler
+is fixed off in the Compose file, so exactly one process schedules refreshes.
+`SCHEDULER_ENABLED` controls the worker and defaults to `true`, preserving
+production's scheduled refreshes. Set it explicitly to `false` on
+snapshot-only test resources: the worker then logs that scheduled refreshes
+are disabled and stays idle without connecting to the database. Invalid
+boolean values fail settings validation. Missing API keys **do not disable the
 scheduler**; keyed jobs record failures and unkeyed jobs can still fetch data.
 This switch controls background scheduling only, not CLI refreshes,
 request-triggered fetches or application writes.
+
+The worker never migrates. With scheduling enabled, it waits up to five
+minutes for the database to reach the Alembic revision built into its image
+(the backend applies it), then logs `scheduler started with 8 job(s)`. If the
+revision does not arrive, it exits and the restart policy retries; it never
+writes to a schema it was not built for. Its health check reads a heartbeat
+file touched every 30 seconds, so a blocked event loop turns it unhealthy; a
+healthy worker does not mean refreshes succeed, which `source_runs` shows. On
+stop it gives refreshes in flight 15 seconds, within a 30-second grace period,
+to record their outcome; a cancelled run is recorded as `abandoned`. It gets
+the database, source-key, alert and refresh settings, not the API's CORS,
+proxy, internal-operations or Turnstile settings. It logs to `worker.log`
+beside the API's `app.log` in the `govmap-logs` volume;
+`python -m app.logsctl clear-logs` empties both. Its staging JSON lives in the
+worker-only `worker-staging` volume, so a redeploy between the 07:00 UTC
+members refresh and the 08:00/09:00 sponsored-bill and finance refreshes no
+longer leaves them without the legislators file they read. A new volume is
+empty until the next members refresh; run
+`docker compose exec worker python -m app.pipelines.refresh members` to seed it
+sooner.
+
+Run manual refreshes in the worker:
+`docker compose exec worker python -m app.pipelines.refresh <source>` (or
+`all`). A per-source advisory lock records an overlapping run as `skipped`
+rather than loading the same source twice.
+
+Upstream request budgets are counted per process, so the API and the worker
+take separate shares of each key's hourly limit: `API_*` and `WORKER_*`
+prefixed `CONGRESS_REQUESTS_PER_HOUR` (defaults 1000 / 3500),
+`FEC_REQUESTS_PER_HOUR` (250 / 650) and `GOVINFO_REQUESTS_PER_HOUR`
+(500 / 100). Keep each pair's sum at or below the single-process defaults of
+4500, 900 and 600. A manual refresh is another process with its own copy of
+the worker share; for a large one, lower it with
+`-e CONGRESS_REQUESTS_PER_HOUR=500` (or the FEC equivalent) on the `exec`. The
+deployment Compose file no longer reads the unprefixed variables; remove any
+that are still set in the deployment settings.
 
 The test environment is a **separate deployment resource** seeded from a
 production database snapshot, with its own log volume and credentials,
@@ -266,11 +306,13 @@ approving the target and data replacement:
    production history, not jobs executed in test.
 6. Publish only `dev.govmap.us` through `govmap-dev`, with the old dev
    connector stopped. Verify the DNS tunnel target, Access challenge/denial when
-   signed out, authorized browser/API access, scheduler-disabled startup
-   and absence of test writes/jobs against production.
+   signed out, authorized browser/API access, an idle worker (scheduled
+   refreshes disabled) and absence of test writes/jobs against production.
 
 After a manual deployment, check the internal backend health and
-database revision, then the public frontend and `/api/summary`. HTTP 200 on
+database revision, then the public frontend and `/api/summary`, then that the
+worker is healthy and logged its scheduler start (production) or idle message
+(test). HTTP 200 on
 the frontend does not establish pipeline health. Query `pipeline_status`
 for `source`, `status`, `last_run`, `last_success` and `record_count`; do not
 publish its raw `detail` field or application logs. Confirm timestamps
@@ -300,9 +342,11 @@ Keep a protected recovery copy of the environment configuration and required
 decryption credentials separately from the server. Restoring environment
 variables or reconnecting a tunnel does not restore database or log contents.
 
-Postgres persists in the resource's `postgres-data` volume. Application and
-bug-report logs persist in its `govmap-logs` volume and may contain private
-information. Do not copy production logs or secrets into a test environment.
+Postgres persists in the resource's `postgres-data` volume. API, refresh-worker
+and bug-report logs persist in its `govmap-logs` volume and may contain private
+information. The worker's latest source snapshots persist in `worker-staging`;
+each refresh rewrites them, so they are not backed up. Do not copy production
+logs or secrets into a test environment.
 
 Use consistent logical Postgres dumps and separate log archives, keep
 off-server copies encrypted, verify transferred checksums, and test restoration
@@ -404,8 +448,10 @@ credentials valid.
 legacy VM tooling, not the current deployment path. The script syncs
 `origin/main`, builds services, runs migrations and refreshes core data with
 a bounded timeout. Do not run it on the production server or use it as a
-restore shortcut. A production backend restart runs migrations and starts the
-scheduler; it does not execute that script's deploy-time refresh.
+restore shortcut. A production redeploy migrates in the backend and starts
+the scheduler in the worker; neither executes that script's deploy-time
+refresh. The legacy compose has no worker: its backend still runs the
+scheduler in-process with the single-process request budgets.
 
 ### Credential rotation and Group 0 release gates
 
