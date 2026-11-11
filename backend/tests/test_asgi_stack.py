@@ -25,6 +25,11 @@ from app.config import settings
 from app.db import get_db
 from app.models.source_run import SourceRun
 from app.routers import report
+from app.services.upstream import (
+    UpstreamBudgetInitializingError,
+    UpstreamBudgetUnavailableError,
+    UpstreamCapacityError,
+)
 
 
 async def _call(
@@ -102,6 +107,40 @@ def _echo_app(calls: list[str], max_bytes: int = 32) -> FastAPI:
 
 
 _JSON = ("content-type", "application/json")
+
+
+@pytest.mark.parametrize(
+    ("error", "detail"),
+    [
+        (
+            UpstreamCapacityError("congress", 42),
+            "Upstream request capacity exhausted; try again later",
+        ),
+        (
+            UpstreamBudgetInitializingError("congress", 3600),
+            "Upstream request budget initializing; wait for the one-hour rollout hold",
+        ),
+        (
+            UpstreamBudgetUnavailableError("congress", 5),
+            "Upstream shared request budget unavailable; try again later",
+        ),
+    ],
+)
+def test_budget_errors_use_the_registered_handler_and_never_expose_exception_text(
+    error: UpstreamCapacityError, detail: str,
+) -> None:
+    app = FastAPI(exception_handlers=main.app.exception_handlers)
+    error.args = ("private-placeholder",)
+
+    @app.get("/probe")
+    async def probe() -> None:
+        raise error
+
+    status, headers, body = asyncio.run(_call(app, "GET", "/probe"))
+    assert status == 503
+    assert headers["retry-after"] == str(error.retry_after)
+    assert json.loads(body) == {"detail": detail}
+    assert b"private-placeholder" not in body
 
 
 def test_body_within_limit_reaches_route() -> None:
