@@ -239,7 +239,8 @@ platform requires demonstrated need and a separate design decision.
 Raw storage will outgrow transient staging. First measure growth and restore
 cost, then choose versioned filesystem or object storage with hashes,
 retention, access controls and off-site recovery. Do not put an unbounded
-federal archive into the existing daily bundle by default.
+federal archive into the existing recovery bundle by default; it is rebuilt
+and uploaded every 30 minutes.
 
 ## 7. Federal coverage map
 
@@ -632,8 +633,11 @@ an unbounded all-history download without this estimate.
 
 Backups remain a working foundation, not a completed-forever task. New raw
 archives, worker state, source registry and history stores must enter the
-recovery inventory. Current daily backups do not imply a sub-day recovery point
-objective; approve any tighter RPO/RTO and storage changes separately.
+recovery inventory. The backup service dumps the database every 30 minutes and
+Duplicati copies each bundle to two off-site destinations, so the recovery
+point is about 30 minutes plus upload time. This is not point-in-time
+recovery; approve continuous archiving, a tighter RPO/RTO or storage changes
+separately.
 
 ## 14. Immediate work queue
 
