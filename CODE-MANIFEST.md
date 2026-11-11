@@ -14,9 +14,8 @@ create.
   digest, and every GitHub Action by commit SHA. Hand-edited top-level pins
   move to `backend/requirements.in`, and `backend/requirements.txt` becomes
   the install set. The `backend-audit` job compiles it with hashes on
-  Linux/Python 3.11 and uploads it as the `backend-lock-<sha>` artifact. Until
-  that artifact is committed, `requirements.txt` is a plain copy of
-  `requirements.in`, and `test_dependency_pins.py` fails if the two disagree.
+  Linux/Python 3.11 and uploads it as the `backend-lock-<sha>` artifact;
+  `test_dependency_pins.py` fails if the two files disagree on a pin.
   Dependabot opens weekly grouped bump PRs against `dev` for pip, npm, Docker,
   compose and Actions. Runtime majors (Python 3.11, Node 24, Postgres 16) are
   excluded from those PRs; changing them is a deliberate platform decision.
@@ -84,9 +83,21 @@ create.
   `ChunkedEncodingError` from Congress.gov still counts as an ordinary
   failure, not an outage, as before.
 
-Second round (after this commit's CI): commit the `backend-lock-<sha>`
-artifact as `backend/requirements.txt`, then make the image install and
-`pip-audit` require hashes.
+Released to dev and production as `0dee472` (merged via #16). On dev,
+`/health` reported that SHA for both frontend and backend, and a throwaway
+backup to a scratch directory on the new backup image dumped, verified and
+compressed the 159 MB database.
+
+Second round, the hash lock: `backend/requirements.txt` is now the lock CI
+compiled for `38c9954` (artifact digest checked on download). It holds 34
+packages, every transitive one pinned with hashes. The image installs it with
+`--require-hashes`, and `pip-audit --require-hashes --disable-pip` audits it
+exactly as committed instead of re-resolving it. CI keeps compiling the lock
+from the committed pins and warns, without failing, when a fresh compile
+differs. That is informational because an index can add files to an existing
+release. A test now fails, naming the package, if any lock entry loses its
+hashes. Transitive packages that used to float to their newest release are
+now fixed until a reviewed lock bump.
 
 **2026-11-11 — R0: release reconciliation and hardening (CI green)**
 Roadmap step 1. `dev` commit `6727148` had added regression tests without the
@@ -923,7 +934,7 @@ Adapted from the original end-to-end plan, reordered to prove the pipeline contr
 - **Ruff is pinned via `backend/ruff.toml`.** CI runs an unpinned `pip install ruff`, whose default rule set shifts between releases; without a config, a new ruff version turned the lint red on unchanged code (B008 on every FastAPI `Depends`, UP on Alembic boilerplate, BLE/DTZ on intentional patterns). The config sets a deterministic `select = [E, F, UP, B]`, ignores `B008` (FastAPI idiom), and excludes `migrations/`.
 - **ZIP crosswalk uses HUD (needs `HUD_API_TOKEN`).** Confirmed via directory listing that Census publishes **no** ZCTA↔CD relationship file (`rel2020/zcta520/` pairs ZCTA with county/place/tract/tabblock/cousub only). `zip_crosswalk.py` now uses the authoritative **HUD USPS ZIP→CD crosswalk** (huduser.gov, type 5), token as a Bearer header. Free token from huduser.gov; must also be in the backend `environment:` block (it is: `HUD_API_TOKEN`). Fail-soft without it — `/api/lookup` returns empty and the `/congress` ZIP box shows "couldn't match" until it's set + `refresh zip_districts` runs.
 - **R0 deferred hardening (2026-11-11).** Each needs an operator decision or infrastructure fact first, not just code:
-  - *Supply-chain pinning.* Done in R0 Phase A (2026-11-11): images are pinned by digest, Actions by SHA, and the hash lock is compiled in CI. What remains is committing the first `backend-lock-<sha>` artifact and switching the image install and `pip-audit` to `--require-hashes`. After that, review and merge Dependabot's weekly PRs on `dev`, because pins that are never bumped become their own risk.
+  - *Supply-chain pinning.* Done in R0 Phase A (2026-11-11): images are pinned by digest, Actions by SHA, and the backend installs and audits a hash-locked `requirements.txt`. What remains is upkeep: review and merge Dependabot's weekly PRs on `dev`, because pins that are never bumped become their own risk. Remove the zlib floors in the backend and backup Dockerfiles once a base digest bump ships the fix.
   - *Trusted-proxy CIDRs.* `TRUSTED_PROXY_CIDRS` must name the PaaS's actual private subnet. A guessed range could trust a neighboring network's forged client IP headers; read the real subnet from the deployment before setting it.
   - *Committee-meeting history.* The meetings table is fully replaced with each chamber's 300 most-recently-updated meetings (`committee_meetings_limit`), so older meetings drop out. Keeping history needs an append/upsert model and a migration (roadmap history lane).
   - *Script/style CSP.* Only `frame-ancestors` is enforced. A full CSP needs per-request nonces (making pages dynamic) plus Cloudflare Turnstile allowances; roll it out report-only first.

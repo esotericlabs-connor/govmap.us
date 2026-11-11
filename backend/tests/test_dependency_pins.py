@@ -29,3 +29,22 @@ def test_every_top_level_pin_matches_the_lock() -> None:
         if locked.get(name) != version
     }
     assert mismatched == {}
+
+
+def test_every_locked_package_carries_a_hash() -> None:
+    # The image installs with --require-hashes; a plain copy of requirements.in
+    # committed over the lock should fail here, with the package named, before
+    # it fails the image build.
+    text = (_BACKEND / "requirements.txt").read_text(encoding="utf-8")
+    entries = [
+        " ".join(part.strip() for part in entry.split("\\\n"))
+        for entry in re.split(r"(?<!\\)\n", text)
+        if entry.strip() and not entry.lstrip().startswith("#")
+    ]
+    assert entries, "requirements.txt has no entries"
+    unhashed = [
+        entry.split()[0]
+        for entry in entries
+        if not re.search(r"--hash=sha256:[0-9a-f]{64}\b", entry)
+    ]
+    assert unhashed == []

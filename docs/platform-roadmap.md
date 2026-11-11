@@ -332,9 +332,10 @@ See the R0 entries in the [build log](../CODE-MANIFEST.md). The first pass
 (items 1–3, with regression tests) passed CI on `dev` and `main`. Under item 2,
 trusted-proxy CIDRs remain deferred until the platform subnet is confirmed.
 Phase A covers items 4 and 6:
-- Item 4: images are pinned by digest and Actions by SHA. CI compiles a hash
-  lock. `pip-audit` and a Grype image scan now sit alongside the npm audit
-  gate, and Dependabot proposes bumps.
+- Item 4: images are pinned by digest and Actions by SHA. The backend installs
+  and audits a hash-locked `requirements.txt` compiled in CI. `pip-audit` and
+  a Grype image scan now sit alongside the npm audit gate, and Dependabot
+  proposes bumps.
 - Item 6: request bodies are capped. Every upstream response is read under a
   byte cap and a wall-clock deadline. XML entity declarations and YAML aliases
   are refused, and HTML reduction is linear-time. Migrations run with a lock
@@ -342,9 +343,11 @@ Phase A covers items 4 and 6:
   Postgres.
 
 Under item 5, release deployment is still manual, not CI-gated. None of the R0
-changes needed a migration. Phase A passed CI on `main` (merge of #12).
-Acceptance still requires committing the hash lock CI produces and the
-dev-environment checks above.
+changes needed a migration. Phase A passed CI on `main` (merges of #12 and
+#16) and is deployed to dev and production. On dev, `/health` reported the
+released SHA and a scratch backup on the new image succeeded. The hash lock is
+committed. Acceptance still requires the remaining dev-environment checks
+above.
 
 ### R1: Correctness and provenance
 

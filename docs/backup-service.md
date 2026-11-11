@@ -201,6 +201,31 @@ local bundle and sends a heartbeat when configured; ensure an older bundle
 you need has been copied off-site first. It does not run the off-site job. A
 manual monitor ping is not a backup test and can mask a missed run.
 
+To check a new backup image in an environment with backups disabled (for
+example dev before a release), don't enable backups or change the folder's
+owner. A plain run there fails by design: `BACKUP_TARGET` is `unconfigured`
+and the `backups` folder was never handed to the backup user. Instead, write
+one throwaway bundle to a scratch directory in the container's `/tmp`, with
+the heartbeat blanked so it can't ping another environment's monitor. `/tmp`
+is memory-backed, so check the database size first:
+
+```bash
+sudo docker exec --user 70:70 "$BACKUP_CONTAINER" \
+  psql -h postgres -U govmap -d govmap -Atc "select pg_size_pretty(pg_database_size(current_database()))"
+```
+
+If it's well under the host's free memory (about 1 GB or less), run:
+
+```bash
+sudo docker exec --user 70:70 -e BACKUP_TARGET=dev -e BACKUP_HEARTBEAT_URL= -e BACKUP_DIR=/tmp/backup-test \
+  "$BACKUP_CONTAINER" bash -c 'mkdir -p "$BACKUP_DIR" && { govmap-backup; s=$?; rm -rf -- "$BACKUP_DIR"; exit $s; }'
+```
+
+Printing `/tmp/backup-test/govmap-backup.tar.gz` means the dump, its
+`pg_restore --list` check, compression and the archive check all passed. The
+scratch copy is then deleted. This doesn't test the schedule, the real
+`backups` folder or the off-site job.
+
 ```bash
 unset BACKUP_CONTAINER
 ```
