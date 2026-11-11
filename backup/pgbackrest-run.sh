@@ -72,7 +72,7 @@ run_check() {
 
 latest_full_timestamp() {
   pgbackrest --stanza=govmap info --output=json \
-    | jq -er '[.[].db[]?.backup[]? | select(.type == "full") | .timestamp.stop] | max // 0'
+    | jq -er '[.[].backup[]? | select(.type == "full") | .timestamp.stop] | max // 0'
 }
 
 run_full_backup() {

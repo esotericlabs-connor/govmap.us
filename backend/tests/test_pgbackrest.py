@@ -1,5 +1,7 @@
+import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -219,6 +221,48 @@ def test_pgbackrest_scheduler_does_not_ping_after_failed_archive_check(
     assert "archive check failed" in result.stdout
     assert "info --output=json" in "\n".join(_lines(pgbackrest_log))
     assert _lines(curl_log) == []
+
+
+def _info(*backups: tuple[str, int]) -> str:
+    # Shape of `pgbackrest info --output=json`: `backup` and `db` are siblings
+    # on each stanza object (src/command/info/info.c).
+    return json.dumps(
+        [
+            {
+                "name": "govmap",
+                "db": [{"id": 1, "repo-key": 1, "system-id": 7, "version": "16"}],
+                "backup": [
+                    {"label": f"b{stop}", "type": kind, "timestamp": {"start": stop - 60, "stop": stop}}
+                    for kind, stop in backups
+                ],
+                "status": {"code": 0, "message": "ok"},
+            }
+        ]
+    )
+
+
+@pytest.mark.parametrize(
+    ("info", "expected"),
+    [
+        (_info(("full", 1000), ("incr", 3000), ("full", 2000), ("diff", 4000)), "2000"),
+        (_info(), "0"),
+        (_info(("incr", 3000)), "0"),
+    ],
+)
+def test_scheduler_reads_the_latest_full_backup_from_real_info_json(
+    info: str, expected: str
+) -> None:
+    # Runs the scheduler's own filter through the real jq, so a wrong path into
+    # pgBackRest's JSON cannot hide behind the scheduler tests' fake jq.
+    script = _SCHEDULER.read_text(encoding="utf-8")
+    match = re.search(r"\| jq -er '([^']+)'", script)
+    assert match is not None
+    jq = shutil.which("jq")
+    assert jq is not None, "jq is required to test the pgBackRest scheduler filter"
+    result = subprocess.run(
+        [jq, "-er", match[1]], input=info, capture_output=True, text=True, check=True
+    )
+    assert result.stdout.strip() == expected
 
 
 def test_pgbackrest_configuration_uses_seven_day_time_retention() -> None:

@@ -66,6 +66,13 @@ database schema migration. No backup product beyond Duplicati was added.
   container, including the frontend and cloudflared, receives every Coolify
   variable and secret; Compose cannot opt out, so keep only deployment values
   in Coolify and treat all GovMap containers as one trust boundary.
+- Before acceptance, a source check found the scheduler read full-backup
+  times from `.[].db[].backup[]`, but pgBackRest's `info` JSON puts `backup`
+  beside `db` on each stanza. The scheduler would have seen no full backup
+  and taken an extra one on every container restart. It now reads
+  `.[].backup[]`, and a test runs the script's own filter through real `jq`
+  against JSON in pgBackRest's shape; the scheduler-flow tests' fake `jq` had
+  masked the error.
 
 **2026-11-11 — R2 shared rolling-hour request budgets (migration 0015)**
 Implemented on `dev`; CI and dev deployment acceptance are pending. No local
