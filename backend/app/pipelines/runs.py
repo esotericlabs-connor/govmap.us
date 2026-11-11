@@ -2,13 +2,15 @@
 
 `tracked(source, fn)` wraps a refresh coroutine. While it runs it holds a
 Postgres advisory lock for the source on its own connection, so a manual
-`docker exec` refresh and the in-process scheduler can't load the same source
-at the same time. The lock is released if that connection dies, so a crashed
+`docker exec` refresh and the scheduler can't load the same source at the
+same time. The lock is released if that connection dies, so a crashed
 run never leaves it stuck.
 
 A run that can't take the lock is recorded as 'skipped' and raises
 RunSkippedError. Once the lock is held, any row of this source still marked
-'running' belongs to a process that died, and is marked 'abandoned'.
+'running' belongs to a process that died, and is marked 'abandoned'. A run
+cancelled before recording a result (its worker is stopping) is marked
+'abandoned' too.
 
 record_run() (app.pipelines.status) reports each refresh's outcome here
 through note_outcome(); batch pulls add item counts through note_batch().
@@ -150,10 +152,13 @@ def input_manifest(paths: tuple[Path, ...]) -> list[dict]:
 
 def final_outcome(run: _ActiveRun, error: BaseException | None) -> tuple[str, str | None]:
     """The outcome to store. A refresh that raised after recording 'partial'
-    (an incomplete vote batch, a withheld roster change) stays 'partial'."""
+    (an incomplete vote batch, a withheld roster change) stays 'partial'. One
+    cancelled before it recorded a result was interrupted, not failed."""
     outcome, detail = run.outcome, run.detail
     if outcome is not None and outcome not in FINAL_OUTCOMES:
         return "error", f"unexpected status {outcome!r}: {detail or ''}".rstrip(": ")
+    if isinstance(error, asyncio.CancelledError) and outcome in (None, "ok"):
+        return "abandoned", "cancelled before it finished (the process was stopping)"
     if error is not None and outcome in (None, "ok"):
         return "error", detail or f"{type(error).__name__}: {error}"
     if outcome is None:

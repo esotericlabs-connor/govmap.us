@@ -4,7 +4,15 @@
 # - no fixed container names; the deployment system manages container and volume names, so
 #   separate dev/production resources on one server never collide;
 # - cloudflared always runs and reads its token from the environment;
-# - POSTGRES_PASSWORD and CLOUDFLARE_TUNNEL_TOKEN are required (no defaults).
+# - POSTGRES_PASSWORD and CLOUDFLARE_TUNNEL_TOKEN are required (no defaults);
+# - scheduled refreshes run in the separate `worker` service, never in the
+#   backend (SCHEDULER_ENABLED is fixed to false there and controls the worker).
+#
+# Upstream request budgets are counted per process, so the API's and the
+# worker's shares of each key's hourly limit are set separately. Keep each
+# API_* + WORKER_* pair at or below the old single-process default
+# (congress 4500, fec 900, govinfo 600); a manual refresh exec'd into the
+# worker gets its own copy of the worker share.
 #
 # Only the frontend is published (tunnel route -> http://frontend:3000). Browser
 # "/api/*" calls are proxied by the frontend to the backend over the private
@@ -41,13 +49,13 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://govmap:${POSTGRES_PASSWORD:?}@postgres:5432/govmap
       CORS_ORIGINS: ${CORS_ORIGINS:-https://govmap.us}
-      SCHEDULER_ENABLED: ${SCHEDULER_ENABLED:-true}
+      SCHEDULER_ENABLED: "false"
       API_DOCS_ENABLED: ${API_DOCS_ENABLED:-false}
       TRUSTED_PROXY_CIDRS: ${TRUSTED_PROXY_CIDRS:-}
       UPSTREAM_MAX_CONCURRENT_REQUESTS: ${UPSTREAM_MAX_CONCURRENT_REQUESTS:-4}
-      CONGRESS_REQUESTS_PER_HOUR: ${CONGRESS_REQUESTS_PER_HOUR:-4500}
-      FEC_REQUESTS_PER_HOUR: ${FEC_REQUESTS_PER_HOUR:-900}
-      GOVINFO_REQUESTS_PER_HOUR: ${GOVINFO_REQUESTS_PER_HOUR:-600}
+      CONGRESS_REQUESTS_PER_HOUR: ${API_CONGRESS_REQUESTS_PER_HOUR:-1000}
+      FEC_REQUESTS_PER_HOUR: ${API_FEC_REQUESTS_PER_HOUR:-250}
+      GOVINFO_REQUESTS_PER_HOUR: ${API_GOVINFO_REQUESTS_PER_HOUR:-500}
       INTERNAL_USER: ${INTERNAL_USER:-}
       INTERNAL_PASSWORD: ${INTERNAL_PASSWORD:-}
       ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
@@ -67,6 +75,50 @@ services:
       - govmap-logs:/app/logs
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=5).close()"]
+      interval: 30s
+      timeout: 6s
+      retries: 3
+      start_period: 120s
+
+  # Runs the scheduled source refreshes (app/worker.py). Same image as the
+  # backend; it never migrates, and waits for the backend to bring the schema
+  # to its revision first. Idle when SCHEDULER_ENABLED=false. Manual refreshes
+  # run here: docker compose exec worker python -m app.pipelines.refresh <source>
+  worker:
+    build:
+      context: ./backend
+      args:
+        SOURCE_COMMIT: ${SOURCE_COMMIT:-unknown}
+    command: ["python", "-m", "app.worker"]
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://govmap:${POSTGRES_PASSWORD:?}@postgres:5432/govmap
+      SCHEDULER_ENABLED: ${SCHEDULER_ENABLED:-true}
+      UPSTREAM_MAX_CONCURRENT_REQUESTS: ${UPSTREAM_MAX_CONCURRENT_REQUESTS:-4}
+      CONGRESS_REQUESTS_PER_HOUR: ${WORKER_CONGRESS_REQUESTS_PER_HOUR:-3500}
+      FEC_REQUESTS_PER_HOUR: ${WORKER_FEC_REQUESTS_PER_HOUR:-650}
+      GOVINFO_REQUESTS_PER_HOUR: ${WORKER_GOVINFO_REQUESTS_PER_HOUR:-100}
+      ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
+      CONGRESS_GOV_API_KEY: ${CONGRESS_GOV_API_KEY:-}
+      FEC_API_KEY: ${FEC_API_KEY:-}
+      FEC_CYCLE: ${FEC_CYCLE:-2026}
+      HUD_API_TOKEN: ${HUD_API_TOKEN:-}
+      CONGRESS_NUMBER: ${CONGRESS_NUMBER:-119}
+      CONGRESS_SESSION: ${CONGRESS_SESSION:-2}
+      CONGRESS_GOV_BILL_LIMIT: ${CONGRESS_GOV_BILL_LIMIT:-250}
+      CONGRESS_GOV_BILLS_MAX_SECONDS: ${CONGRESS_GOV_BILLS_MAX_SECONDS:-600}
+      CONGRESS_MAX_CONSECUTIVE_FAILURES: ${CONGRESS_MAX_CONSECUTIVE_FAILURES:-5}
+      VOTES_LIMIT: ${VOTES_LIMIT:-100}
+      VOTEVIEW_MIN_REFETCH_HOURS: ${VOTEVIEW_MIN_REFETCH_HOURS:-6}
+    volumes:
+      - govmap-logs:/app/logs
+    # Room for refreshes in flight to record their outcome after SIGTERM.
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os, sys, time; sys.exit(time.time() - os.stat('/tmp/govmap-worker-heartbeat').st_mtime > 120)"]
       interval: 30s
       timeout: 6s
       retries: 3

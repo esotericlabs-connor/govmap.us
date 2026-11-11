@@ -1,9 +1,11 @@
-"""In-process job scheduler.
+"""Refresh job scheduler.
 
-Runs each source's refresh on its cadence via APScheduler, inside the FastAPI
-process. Single uvicorn worker = single scheduler instance, which is the current
-deployment. Each refresh also holds a per-source Postgres advisory lock
-(app.pipelines.runs), so a manual run or a second worker can't load the same
+Runs each source's refresh on its cadence via APScheduler. On the deployment
+platform the scheduled-refresh worker (app.worker) owns it and the API's copy
+stays off (SCHEDULER_ENABLED=false on the backend), so exactly one process
+schedules refreshes. The legacy single-VM compose still runs it inside the
+FastAPI process. Each refresh also holds a per-source Postgres advisory lock
+(app.pipelines.runs), so a manual run or a second scheduler can't load the same
 source concurrently; the overlapping run is recorded as 'skipped'.
 
 Cadences follow the planning-doc cadence table. Add a source by registering its
@@ -12,8 +14,10 @@ tracked refresher (app.pipelines.refresh.REFRESHERS) in JOBS with a trigger.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Awaitable, Callable
+from typing import Any
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
@@ -35,6 +39,10 @@ def new_scheduler() -> AsyncIOScheduler:
 
 
 scheduler = new_scheduler()
+
+# Tasks of the scheduled refreshes in flight, so a stopping worker can let them
+# record their outcome and release their locks before it exits.
+_running_jobs: set[asyncio.Task[Any]] = set()
 
 # (job id, coroutine, APScheduler trigger kwargs).
 JOBS: list[tuple[str, Callable[[], Awaitable[None]], dict]] = [
@@ -109,6 +117,9 @@ def _guarded(
     alive and logs. Runs started here are recorded with trigger 'schedule'."""
 
     async def wrapper() -> None:
+        task = asyncio.current_task()
+        if task is not None:
+            _running_jobs.add(task)
         token = run_trigger.set("schedule")
         try:
             await fn()
@@ -118,6 +129,8 @@ def _guarded(
             logger.exception("scheduled job %s failed", job_id)
         finally:
             run_trigger.reset(token)
+            if task is not None:
+                _running_jobs.discard(task)
 
     return wrapper
 
@@ -132,3 +145,20 @@ def start_scheduler() -> None:
 def stop_scheduler() -> None:
     if scheduler.running:
         scheduler.shutdown(wait=False)
+
+
+async def stop_scheduler_and_wait(timeout: float) -> None:
+    """Stop scheduling and wait up to `timeout` seconds for the refreshes in
+    flight to finish. AsyncIOScheduler.shutdown runs on the next loop iteration
+    and cancels each running job once; they are not cancelled again here, as a
+    second cancellation would interrupt the cleanup that records the run's
+    outcome and releases its advisory lock."""
+    jobs = {task for task in _running_jobs if not task.done()}
+    stop_scheduler()
+    if not jobs:
+        await asyncio.sleep(0)  # let the deferred shutdown run
+        return
+    logger.info("waiting up to %ss for %d running refresh(es) to stop", timeout, len(jobs))
+    _, pending = await asyncio.wait(jobs, timeout=timeout)
+    if pending:
+        logger.warning("%d refresh(es) did not stop within %ss", len(pending), timeout)

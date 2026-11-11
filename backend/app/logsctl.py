@@ -5,10 +5,11 @@ Two independent clear commands, run inside the backend container:
     docker compose exec backend python -m app.logsctl clear-logs
     docker compose exec backend python -m app.logsctl clear-bugs
 
-`clear-logs` empties app.log (and removes its rotations); `clear-bugs` empties
-bug_reports.log. Truncating to zero is safe while the app holds the file open —
-the logger writes in append mode (O_APPEND), so its next write lands at the new
-end of the empty file (no sparse gap).
+`clear-logs` empties app.log and worker.log (and removes their rotations);
+`clear-bugs` empties bug_reports.log. The worker shares the log volume, so
+either container can run it. Truncating to zero is safe while a process holds
+the file open — the logger writes in append mode (O_APPEND), so its next write
+lands at the new end of the empty file (no sparse gap).
 """
 
 from __future__ import annotations
@@ -18,8 +19,8 @@ import os
 import sys
 
 from app.config import settings
+from app.logging_setup import APP_LOG, WORKER_LOG
 
-_APP_LOG = "app.log"
 _BUG_LOG = "bug_reports.log"
 
 
@@ -32,14 +33,15 @@ def _truncate(path: str) -> bool:
 
 
 def clear_logs() -> None:
-    base = os.path.join(settings.log_dir, _APP_LOG)
-    _truncate(base)
-    for rotated in glob.glob(base + ".*"):  # app.log.1, app.log.2, …
-        try:
-            os.remove(rotated)
-        except OSError:
-            pass
-    print(f"cleared {_APP_LOG} (+ rotations) in {settings.log_dir}")
+    for name in (APP_LOG, WORKER_LOG):
+        base = os.path.join(settings.log_dir, name)
+        _truncate(base)
+        for rotated in glob.glob(base + ".*"):  # app.log.1, app.log.2, …
+            try:
+                os.remove(rotated)
+            except OSError:
+                pass
+    print(f"cleared {APP_LOG} and {WORKER_LOG} (+ rotations) in {settings.log_dir}")
 
 
 def clear_bugs() -> None:
