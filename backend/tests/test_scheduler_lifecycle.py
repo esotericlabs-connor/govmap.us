@@ -38,6 +38,9 @@ def test_scheduled_jobs_never_stack_and_tolerate_a_busy_loop(
 def test_scheduler_is_enabled_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("SCHEDULER_ENABLED", raising=False)
     assert Settings(_env_file=None).scheduler_enabled is True
+    # Empty means unset, as Compose's ${SCHEDULER_ENABLED:-true} already does.
+    monkeypatch.setenv("SCHEDULER_ENABLED", "")
+    assert Settings(_env_file=None).scheduler_enabled is True
 
 
 @pytest.mark.parametrize(
@@ -51,7 +54,7 @@ def test_scheduler_setting_reads_environment(
     assert Settings(_env_file=None).scheduler_enabled is expected
 
 
-@pytest.mark.parametrize("value", ["", "invalid"])
+@pytest.mark.parametrize("value", ["invalid", "enabled"])
 def test_invalid_scheduler_setting_is_rejected(
     monkeypatch: pytest.MonkeyPatch, value: str
 ) -> None:

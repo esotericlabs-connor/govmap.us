@@ -26,7 +26,7 @@ services:
       POSTGRES_USER: govmap
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
       POSTGRES_DB: govmap
-      PGBACKREST_ENABLED: ${PGBACKREST_ENABLED:-false}
+      GOVMAP_PGBACKREST_ENABLED: ${GOVMAP_PGBACKREST_ENABLED:-false}
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U govmap"]
       interval: 10s
@@ -36,7 +36,6 @@ services:
       - postgres-data:/var/lib/postgresql/data
       - postgres-socket:/var/run/postgresql
       - ./pgbackrest:/pgbackrest
-      - ./backup/pgbackrest.conf:/etc/pgbackrest/pgbackrest.conf:ro
 
   backend:
     build:
@@ -227,10 +226,10 @@ services:
         condition: service_healthy
     environment:
       BACKUP_TARGET: ${BACKUP_TARGET:-unconfigured}
-      PGBACKREST_ENABLED: ${PGBACKREST_ENABLED:-false}
-      PGBACKREST_TIME_UTC: ${PGBACKREST_TIME_UTC:-03:30}
-      PGBACKREST_ARCHIVE_HEARTBEAT_URL: ${PGBACKREST_ARCHIVE_HEARTBEAT_URL:-}
-      PGBACKREST_BACKUP_HEARTBEAT_URL: ${PGBACKREST_BACKUP_HEARTBEAT_URL:-}
+      GOVMAP_PGBACKREST_ENABLED: ${GOVMAP_PGBACKREST_ENABLED:-false}
+      GOVMAP_PGBACKREST_TIME_UTC: ${GOVMAP_PGBACKREST_TIME_UTC:-03:30}
+      GOVMAP_PGBACKREST_ARCHIVE_HEARTBEAT_URL: ${GOVMAP_PGBACKREST_ARCHIVE_HEARTBEAT_URL:-}
+      GOVMAP_PGBACKREST_BACKUP_HEARTBEAT_URL: ${GOVMAP_PGBACKREST_BACKUP_HEARTBEAT_URL:-}
       PGHOST: /var/run/postgresql
       PGPORT: "5432"
       PGUSER: govmap
@@ -239,7 +238,6 @@ services:
       - ./pgbackrest:/pgbackrest
       - postgres-data:/var/lib/postgresql/data:ro
       - postgres-socket:/var/run/postgresql
-      - ./backup/pgbackrest.conf:/etc/pgbackrest/pgbackrest.conf:ro
 
 volumes:
   postgres-data:

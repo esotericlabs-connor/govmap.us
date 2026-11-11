@@ -17,7 +17,8 @@ Two backup services run in the same Compose stack:
 
 1. `pgbackrest` continuously archives WAL from PostgreSQL, checks the archive
    every 15 minutes, and creates a full cluster backup daily at
-   `PGBACKREST_TIME_UTC` (default `03:30` UTC). pgBackRest expires backups
+   `GOVMAP_PGBACKREST_TIME_UTC` (default `03:30` UTC). pgBackRest expires
+   backups
    using a seven-day time-based full-backup retention policy. Its repository
    is local to this resource, under `./pgbackrest`.
 2. `backup` creates a separate logical `pg_dump` bundle and logs daily at
@@ -40,9 +41,12 @@ The database image gets pgBackRest from Alpine 3.24 (currently 2.58) and the
 sidecar gets it from Alpine 3.22 (currently 2.55). The two exchange only
 repository files and never use pgBackRest's remote protocol, where matching
 versions are required, and the 2.56 to 2.58 release notes list no
-repository-format change. Dev acceptance and the restore rehearsal below are
-the proof (stanza, archive check, full backup and restore); after them, move
-the sidecar to a newer Alpine so both match.
+repository-format change. Keep the shared config limited to options both
+versions support: `archive-push-batch-size` is not recognized by the Alpine
+3.22 sidecar and causes `info` to report an invalid configuration. Dev
+acceptance and the restore rehearsal below are the proof (stanza, archive
+check, full backup and restore); after them, move the sidecar to a newer
+Alpine so both match.
 
 **Deployment configuration and secrets are not included.** The `.env` values,
 tunnel token and other credentials are kept in the operator's vault and must
@@ -98,20 +102,19 @@ continuously when pgBackRest is enabled; its sidecar checks the archive every
 - `BACKUP_ENABLED=true`: it runs daily at `BACKUP_TIME_UTC` (`02:30` UTC by
   default). The bundle is created immediately on startup only if missing or
   at least 24 hours old.
-- `PGBACKREST_ENABLED=false` (the default): PostgreSQL archiving stays off and
-  the pgBackRest scheduler idles. Do not turn it on until the stanza has been
-  created; see [Bootstrap pgBackRest](#bootstrap-pgbackrest).
-- `PGBACKREST_ENABLED=true`: PostgreSQL archives WAL with a 5-minute
+- `GOVMAP_PGBACKREST_ENABLED=false` (the default): PostgreSQL archiving stays
+  off and the pgBackRest scheduler idles. Do not turn it on until the stanza
+  has been created; see [Bootstrap pgBackRest](#bootstrap-pgbackrest).
+- `GOVMAP_PGBACKREST_ENABLED=true`: PostgreSQL archives WAL with a 5-minute
   `archive_timeout`. The sidecar runs `pgbackrest check` every 15 minutes and
-  a full backup daily at `PGBACKREST_TIME_UTC` (`03:30` UTC by default). It
-  catches up at startup if no full backup exists or the last one is at least
-  24 hours old. Failed archive checks are logged and retried after 15 minutes.
-  Failed full backups are logged and retried every 15 minutes until one
-  succeeds; neither failure sends its corresponding heartbeat.
+  a full backup daily at `GOVMAP_PGBACKREST_TIME_UTC` (`03:30` UTC by
+  default). It catches up at startup if no full backup exists or the last one
+  is at least 24 hours old. Failed archive checks are logged and retried after
+  15 minutes. Failed full backups are logged and retried every 15 minutes
+  until one succeeds; neither failure sends its corresponding heartbeat.
 - Stopping or redeploying the container interrupts a run in progress; the
   previous bundle is kept and the scratch directory is removed.
 - Asynchronous archiving enables the `archive-push-queue-max=4GiB` safeguard.
-  Push runs are bounded to 1 GiB so the queue limit is rechecked regularly.
   If the queue exceeds the limit, pgBackRest discards queued WAL rather than
   allowing `pg_wal` to fill and stop PostgreSQL. That creates a PITR gap; a
   new successful full backup is required to restore complete recovery
@@ -129,10 +132,17 @@ Run only one enabled backup stack per environment.
 | `BACKUP_INTERVAL_MINUTES` | `1440` | Logical dump interval; 1440 is once daily |
 | `BACKUP_TIME_UTC` | `02:30` | Daily logical dump time in UTC |
 | `BACKUP_HEARTBEAT_URL` | empty | Private `https` dead-man's-switch URL; store it as a secret |
-| `PGBACKREST_ENABLED` | `false` | Enables PostgreSQL WAL archiving and pgBackRest schedules; stanza must already exist |
-| `PGBACKREST_TIME_UTC` | `03:30` | Daily full backup time in UTC |
-| `PGBACKREST_ARCHIVE_HEARTBEAT_URL` | empty | Optional `https` heartbeat after each successful 15-minute archive check |
-| `PGBACKREST_BACKUP_HEARTBEAT_URL` | empty | Optional `https` heartbeat after each successful full backup |
+| `GOVMAP_PGBACKREST_ENABLED` | `false` | Enables PostgreSQL WAL archiving and pgBackRest schedules; stanza must already exist |
+| `GOVMAP_PGBACKREST_TIME_UTC` | `03:30` | Daily full backup time in UTC |
+| `GOVMAP_PGBACKREST_ARCHIVE_HEARTBEAT_URL` | empty | Optional `https` heartbeat after each successful 15-minute archive check |
+| `GOVMAP_PGBACKREST_BACKUP_HEARTBEAT_URL` | empty | Optional `https` heartbeat after each successful full backup |
+
+Use the `GOVMAP_`-prefixed names exactly. pgBackRest reserves the
+`PGBACKREST_` environment prefix for its own options, and Coolify injects its
+configured environment variables into every Compose container. Remove any
+old `PGBACKREST_ENABLED`, `PGBACKREST_TIME_UTC`,
+`PGBACKREST_ARCHIVE_HEARTBEAT_URL` or `PGBACKREST_BACKUP_HEARTBEAT_URL`
+variables from Coolify so pgBackRest does not interpret them as options.
 
 The heartbeat URL is passed to `curl` on stdin so its token never appears in
 the process list. The database password comes from `POSTGRES_PASSWORD`.
@@ -167,12 +177,14 @@ independently of the server.
 ## Bootstrap pgBackRest
 
 Do this in dev first on a reviewed, CI-green revision. Keep
-`PGBACKREST_ENABLED=false` during the initial deployment so PostgreSQL starts
-without archiving while the repository is initialized.
+`GOVMAP_PGBACKREST_ENABLED=false` during the initial deployment so PostgreSQL
+starts without archiving while the repository is initialized.
 
-1. Deploy the new PostgreSQL image and Compose services with
-   `PGBACKREST_ENABLED=false`. Confirm PostgreSQL becomes healthy from the
-   rebuilt image and the application's health checks still pass. The
+1. In Coolify, remove the old `PGBACKREST_*` application variables and use
+   the `GOVMAP_PGBACKREST_*` names from the settings table instead. Deploy the
+   new PostgreSQL image and Compose services with
+   `GOVMAP_PGBACKREST_ENABLED=false`. Confirm PostgreSQL becomes healthy from
+   the rebuilt image and the application's health checks still pass. The
    PostgreSQL entrypoint prepares the local `pgbackrest` folder as private
    uid/gid `70:70`. Do not deploy the code directly to production before this
    dev acceptance.
@@ -187,9 +199,11 @@ without archiving while the repository is initialized.
    ```
 
    Confirm `stanza-create` succeeds and `info` identifies the intended
-   environment. Do not initialize production using a dev repository or vice
-   versa.
-3. Set `PGBACKREST_ENABLED=true` only after that succeeds, then redeploy.
+   environment. `info` may report `status: error (no valid backups)` and
+   `wal archive min/max: none present` at this stage; that is expected before
+   the first backup and WAL archive. The commands must not emit invalid-option
+   warnings. Do not initialize production using a dev repository or vice versa.
+3. Set `GOVMAP_PGBACKREST_ENABLED=true` only after that succeeds, then redeploy.
    This restarts PostgreSQL and enables WAL archiving. Confirm the PostgreSQL
    logs show successful archive pushes and the pgBackRest logs show a
    successful archive check and initial full backup. Stop and investigate if
@@ -208,15 +222,34 @@ Keep monitor URLs secret and do not ping them manually to simulate success.
 
 ## Off-site copies with Duplicati
 
-Duplicati is the only off-site copier and should use the existing two
-destinations. For each existing job, add both the `backups` folder and the
-`pgbackrest` folder from the same resource. Do not select their parent, which
-contains deployment settings and secrets.
+Duplicati is the only off-site copier. Its job for a resource selects both the
+`backups` folder and the `pgbackrest` folder from that resource. Do not select
+their parent, which contains deployment settings and secrets.
 
-- **Schedule**: run every 15 minutes. WAL is archived continuously and
-  `archive_timeout` is 5 minutes; the archive-check monitor separately tests
-  that the archiving path still works. Leave enough Duplicati runtime that
-  successive runs do not overlap.
+To keep copies in more than one place, Duplicati 2.3.0.0 and later lets one job
+have several destinations ("Add another destination"). It backs up to the
+first destination, then after each successful run copies the backup files to
+the others, so each destination can be restored on its own. Keep every
+additional destination in the default `inline` mode so each run reaches all of
+them; `interval` or `counting` mode leaves that destination with an older
+recovery point. Older Duplicati versions need one job per destination with the
+same two folders.
+
+- **Schedule**: choose an interval based on the desired recovery point and
+  measured runtime. Dev is configured for every 30 minutes; observe an
+  automatic run and allow enough time for copies to all destinations before
+  the next run. The five-minute WAL archive timeout, upload and copy time,
+  and failures add delay, so the interval alone is not an off-site recovery
+  guarantee.
+- **Host service**: if Duplicati runs under systemd, enable it at boot and
+  set a restart delay compatible with its start-rate limits. Verify behavior
+  after a reboot; an enabled, active service does not prove that scheduled
+  jobs or remote copies succeed.
+- **Verify every destination**: Duplicati does not document how a failed
+  copy to an additional destination affects the job result. A successful job
+  and matching file timestamps alone do not prove that every destination has
+  a complete, recoverable copy. Check each destination and rehearse recovery
+  from it independently.
 - **Exclusions**: for the logical folder, exclude `.govmap-backup-work-*`
   and `.govmap-backup.lock`. Do not exclude files from the pgBackRest
   repository.
@@ -237,20 +270,29 @@ by the WAL archive delay (normally at most five minutes plus processing).
 
 ## Rehearse a pgBackRest point-in-time restore
 
-Do this in dev or another isolated PostgreSQL 16 target, once from each
-Duplicati destination. Restoring a repository is not proof of recovery; the
-isolated PostgreSQL instance must actually start and reach the requested
-target.
+Do this in dev or another isolated PostgreSQL 16 target, independently from
+each destination relied on for recovery. When its connection details are
+available, Duplicati's **Restore** followed by **Direct restore from backup
+files** can specify a particular destination. A normal job restore can also
+exercise recovery, but does not independently verify a destination if the
+source is unidentified. A small-file restore can check access and the
+passphrase, but does not prove the full repository or its required WAL is
+recoverable. Restoring the complete repository is not enough either: the
+isolated PostgreSQL instance must actually start and reach the requested target.
 
 1. Use Duplicati to restore the complete `pgbackrest` source to a new private
    scratch directory. Do not write it over the live repository. Restore the
    logical `backups` folder separately if you also want to test the fallback.
-2. Provide that scratch repository to a disposable PostgreSQL 16 container
-   with the same pgBackRest configuration, a new empty data volume and the
-   local socket directory. Never mount the live `postgres-data` volume. Ensure
-   the scratch repository and new data volume are private and accessible to
-   uid/gid `70:70`. Keep source API credentials and scheduled refreshes out of
-   the isolated target.
+2. Provide that scratch repository read-only to a disposable PostgreSQL 16
+   container with the same pgBackRest configuration, a newly created empty
+   data volume and a private writable socket directory. Never mount the live
+   `postgres-data` volume. Ensure the scratch repository and new data volume
+   are private and accessible to uid/gid `70:70`. Disable networking and
+   archiving, and keep source API credentials and scheduled refreshes out of
+   the isolated target. Start `postgres` directly as uid/gid `70:70`: the
+   GovMap image's normal entrypoint changes repository permissions and cannot
+   be used with a read-only repository mount. Provide a writable temporary
+   directory for pgBackRest's spool and locks.
 3. Before starting PostgreSQL, run `pgbackrest --stanza=govmap info` against
    the restored repository and confirm it reports the expected stanza and a
    completed full backup. Then, with the disposable PostgreSQL data directory
@@ -261,16 +303,23 @@ target.
      --target='2026-11-11 12:00:00+00' --target-action=promote restore
    ```
 
-   Replace the example timestamp with a known time in the recovered window.
-   The command must finish successfully; do not run it against production or
-   an existing data directory.
+   Replace the example timestamp with a known time after the selected full
+   backup completed and before an archived commit or abort record. File
+   modification times alone do not establish the WAL's transaction-time
+   boundaries. The command must finish successfully; do not run it against
+   production or an existing data directory. An LSN-targeted restore can also
+   exercise replay to a specific WAL position, but does not by itself verify
+   recovery to a clock-time target.
 4. Start only the isolated PostgreSQL instance with the restored repository
-   mounted at `/pgbackrest` and the same config at
-   `/etc/pgbackrest/pgbackrest.conf`. Keep external routes and the worker
-   disabled. Confirm PostgreSQL completes recovery and is promoted at or just
-   after the requested target. Query the migration revision and representative
-   row counts, then record the Duplicati destination, restored version,
-   requested target, actual recovery time and results.
+   mounted at `/pgbackrest`. Use the GovMap database image, which already
+   contains the config at `/etc/pgbackrest/pgbackrest.conf`; do not bind-mount
+   it from the repository. Keep external routes and the worker
+   disabled. Check the recovery log for the stopping record and promotion,
+   and confirm the last replayed transaction is at or before the target.
+   Query the migration revision and representative row counts, then record
+   the Duplicati destination, restored version, requested target, last
+   replayed transaction time and results. WAL-only markers test the time
+   boundary but do not demonstrate rollback of application-row changes.
 5. Stop the disposable instance and remove only the named scratch repository
    and data volume created for the rehearsal. Keep production database files
    and its pgBackRest repository untouched.

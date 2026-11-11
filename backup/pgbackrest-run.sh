@@ -24,21 +24,21 @@ pause() {
   child=""
 }
 
-if [[ "${PGBACKREST_ENABLED:-false}" != "true" ]]; then
-  log "pgBackRest is disabled (PGBACKREST_ENABLED is not \"true\"); idling."
+if [[ "${GOVMAP_PGBACKREST_ENABLED:-false}" != "true" ]]; then
+  log "pgBackRest is disabled (GOVMAP_PGBACKREST_ENABLED is not \"true\"); idling."
   while true; do
     pause 86400
   done
 fi
 
-time_utc="${PGBACKREST_TIME_UTC:-03:30}"
+time_utc="${GOVMAP_PGBACKREST_TIME_UTC:-03:30}"
 if [[ ! "$time_utc" =~ ^([01][0-9]|2[0-3]):[0-5][0-9]$ ]]; then
-  log "ERROR: PGBACKREST_TIME_UTC must be HH:MM in 24-hour UTC."
+  log "ERROR: GOVMAP_PGBACKREST_TIME_UTC must be HH:MM in 24-hour UTC."
   exit 1
 fi
 
-heartbeat_archive="${PGBACKREST_ARCHIVE_HEARTBEAT_URL:-}"
-heartbeat_backup="${PGBACKREST_BACKUP_HEARTBEAT_URL:-}"
+heartbeat_archive="${GOVMAP_PGBACKREST_ARCHIVE_HEARTBEAT_URL:-}"
+heartbeat_backup="${GOVMAP_PGBACKREST_BACKUP_HEARTBEAT_URL:-}"
 heartbeat_pattern='^https://[^[:space:]"\\]+$'
 for value in "$heartbeat_archive" "$heartbeat_backup"; do
   if [[ -n "$value" && ! "$value" =~ $heartbeat_pattern ]]; then
@@ -72,7 +72,7 @@ run_check() {
 
 latest_full_timestamp() {
   pgbackrest --stanza=govmap info --output=json \
-    | jq -er '[.[].db[]?.backup[]? | select(.type == "full") | .timestamp.stop] | max // 0'
+    | jq -er '[.[].backup[]? | select(.type == "full") | .timestamp.stop] | max // 0'
 }
 
 run_full_backup() {

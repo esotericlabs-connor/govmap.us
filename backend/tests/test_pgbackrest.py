@@ -1,11 +1,14 @@
+import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
 from pathlib import Path
 
 import pytest
+import yaml
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="requires Linux Bash")
 
@@ -73,10 +76,10 @@ def scheduler(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Pa
     monkeypatch.setenv("FAKE_CURL_LOG", str(curl_log))
     monkeypatch.setenv("FAKE_PGBACKREST_LAST_FULL", str(int(time.time())))
     for name in (
-        "PGBACKREST_ENABLED",
-        "PGBACKREST_TIME_UTC",
-        "PGBACKREST_ARCHIVE_HEARTBEAT_URL",
-        "PGBACKREST_BACKUP_HEARTBEAT_URL",
+        "GOVMAP_PGBACKREST_ENABLED",
+        "GOVMAP_PGBACKREST_TIME_UTC",
+        "GOVMAP_PGBACKREST_ARCHIVE_HEARTBEAT_URL",
+        "GOVMAP_PGBACKREST_BACKUP_HEARTBEAT_URL",
         "FAKE_PGBACKREST_BACKUP_FAIL",
         "FAKE_PGBACKREST_CHECK_FAIL",
         "FAKE_CURL_EXIT",
@@ -116,10 +119,10 @@ def test_pgbackrest_scheduler_checks_archive_and_waits_for_daily_slot(
     scheduler: tuple[Path, Path, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     pgbackrest_log, sleep_log, curl_log = scheduler
-    monkeypatch.setenv("PGBACKREST_ENABLED", "true")
-    monkeypatch.setenv("PGBACKREST_TIME_UTC", "03:30")
-    monkeypatch.setenv("PGBACKREST_ARCHIVE_HEARTBEAT_URL", "https://hc.example.test/archive")
-    monkeypatch.setenv("PGBACKREST_BACKUP_HEARTBEAT_URL", "https://hc.example.test/full")
+    monkeypatch.setenv("GOVMAP_PGBACKREST_ENABLED", "true")
+    monkeypatch.setenv("GOVMAP_PGBACKREST_TIME_UTC", "03:30")
+    monkeypatch.setenv("GOVMAP_PGBACKREST_ARCHIVE_HEARTBEAT_URL", "https://hc.example.test/archive")
+    monkeypatch.setenv("GOVMAP_PGBACKREST_BACKUP_HEARTBEAT_URL", "https://hc.example.test/full")
 
     result = _run_scheduler()
 
@@ -135,9 +138,9 @@ def test_pgbackrest_scheduler_catches_up_a_stale_full_backup(
     scheduler: tuple[Path, Path, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     pgbackrest_log, _, curl_log = scheduler
-    monkeypatch.setenv("PGBACKREST_ENABLED", "true")
+    monkeypatch.setenv("GOVMAP_PGBACKREST_ENABLED", "true")
     monkeypatch.setenv("FAKE_PGBACKREST_LAST_FULL", str(int(time.time()) - 25 * 3600))
-    monkeypatch.setenv("PGBACKREST_BACKUP_HEARTBEAT_URL", "https://hc.example.test/full")
+    monkeypatch.setenv("GOVMAP_PGBACKREST_BACKUP_HEARTBEAT_URL", "https://hc.example.test/full")
 
     result = _run_scheduler()
 
@@ -151,10 +154,10 @@ def test_pgbackrest_scheduler_retries_a_failed_catch_up_backup(
     scheduler: tuple[Path, Path, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     pgbackrest_log, sleep_log, curl_log = scheduler
-    monkeypatch.setenv("PGBACKREST_ENABLED", "true")
+    monkeypatch.setenv("GOVMAP_PGBACKREST_ENABLED", "true")
     monkeypatch.setenv("FAKE_PGBACKREST_LAST_FULL", "0")
     monkeypatch.setenv("FAKE_PGBACKREST_BACKUP_FAIL", "1")
-    monkeypatch.setenv("PGBACKREST_BACKUP_HEARTBEAT_URL", "https://hc.example.test/full")
+    monkeypatch.setenv("GOVMAP_PGBACKREST_BACKUP_HEARTBEAT_URL", "https://hc.example.test/full")
 
     result = _run_scheduler()
 
@@ -173,13 +176,13 @@ def test_pgbackrest_scheduler_rejects_invalid_time(
     value: str,
 ) -> None:
     pgbackrest_log, sleep_log, _ = scheduler
-    monkeypatch.setenv("PGBACKREST_ENABLED", "true")
-    monkeypatch.setenv("PGBACKREST_TIME_UTC", value)
+    monkeypatch.setenv("GOVMAP_PGBACKREST_ENABLED", "true")
+    monkeypatch.setenv("GOVMAP_PGBACKREST_TIME_UTC", value)
 
     result = _run_scheduler()
 
     assert result.returncode == 1
-    assert "PGBACKREST_TIME_UTC" in result.stdout
+    assert "GOVMAP_PGBACKREST_TIME_UTC" in result.stdout
     assert _lines(pgbackrest_log) == []
     assert _lines(sleep_log) == []
 
@@ -194,8 +197,8 @@ def test_pgbackrest_scheduler_rejects_malformed_heartbeat_url(
     value: str,
 ) -> None:
     pgbackrest_log, sleep_log, _ = scheduler
-    monkeypatch.setenv("PGBACKREST_ENABLED", "true")
-    monkeypatch.setenv("PGBACKREST_ARCHIVE_HEARTBEAT_URL", value)
+    monkeypatch.setenv("GOVMAP_PGBACKREST_ENABLED", "true")
+    monkeypatch.setenv("GOVMAP_PGBACKREST_ARCHIVE_HEARTBEAT_URL", value)
 
     result = _run_scheduler()
 
@@ -209,7 +212,7 @@ def test_pgbackrest_scheduler_does_not_ping_after_failed_archive_check(
     scheduler: tuple[Path, Path, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     pgbackrest_log, _, curl_log = scheduler
-    monkeypatch.setenv("PGBACKREST_ENABLED", "true")
+    monkeypatch.setenv("GOVMAP_PGBACKREST_ENABLED", "true")
     monkeypatch.setenv("FAKE_PGBACKREST_CHECK_FAIL", "1")
 
     result = _run_scheduler()
@@ -220,6 +223,48 @@ def test_pgbackrest_scheduler_does_not_ping_after_failed_archive_check(
     assert _lines(curl_log) == []
 
 
+def _info(*backups: tuple[str, int]) -> str:
+    # Shape of `pgbackrest info --output=json`: `backup` and `db` are siblings
+    # on each stanza object (src/command/info/info.c).
+    return json.dumps(
+        [
+            {
+                "name": "govmap",
+                "db": [{"id": 1, "repo-key": 1, "system-id": 7, "version": "16"}],
+                "backup": [
+                    {"label": f"b{stop}", "type": kind, "timestamp": {"start": stop - 60, "stop": stop}}
+                    for kind, stop in backups
+                ],
+                "status": {"code": 0, "message": "ok"},
+            }
+        ]
+    )
+
+
+@pytest.mark.parametrize(
+    ("info", "expected"),
+    [
+        (_info(("full", 1000), ("incr", 3000), ("full", 2000), ("diff", 4000)), "2000"),
+        (_info(), "0"),
+        (_info(("incr", 3000)), "0"),
+    ],
+)
+def test_scheduler_reads_the_latest_full_backup_from_real_info_json(
+    info: str, expected: str
+) -> None:
+    # Runs the scheduler's own filter through the real jq, so a wrong path into
+    # pgBackRest's JSON cannot hide behind the scheduler tests' fake jq.
+    script = _SCHEDULER.read_text(encoding="utf-8")
+    match = re.search(r"\| jq -er '([^']+)'", script)
+    assert match is not None
+    jq = shutil.which("jq")
+    assert jq is not None, "jq is required to test the pgBackRest scheduler filter"
+    result = subprocess.run(
+        [jq, "-er", match[1]], input=info, capture_output=True, text=True, check=True
+    )
+    assert result.stdout.strip() == expected
+
+
 def test_pgbackrest_configuration_uses_seven_day_time_retention() -> None:
     config = (_REPO / "backup" / "pgbackrest.conf").read_text(encoding="utf-8")
     dockerfile = (_REPO / "backup" / "Dockerfile").read_text(encoding="utf-8")
@@ -227,12 +272,35 @@ def test_pgbackrest_configuration_uses_seven_day_time_retention() -> None:
     assert "repo1-retention-full=7" in config
     assert "repo1-retention-full-type=time" in config
     assert "archive-async=y" in config
-    assert "archive-push-batch-size=1GiB" in config
+    assert "archive-push-batch-size" not in config
     assert "archive-push-queue-max=4GiB" in config
     assert "spool-path=/tmp/pgbackrest" in config
     assert "pg1-path=/var/lib/postgresql/data" in config
     assert "pg1-socket-path=/var/run/postgresql" in config
     assert "postgresql16 postgresql16-client" in dockerfile
+
+
+def test_both_images_bake_the_same_pgbackrest_configuration() -> None:
+    # PostgreSQL (archive-push) and the sidecar (backup, check) must agree on
+    # the repository, stanza and archive settings.
+    backup = (_REPO / "backup" / "pgbackrest.conf").read_text(encoding="utf-8")
+    database = (_REPO / "database" / "pgbackrest.conf").read_text(encoding="utf-8")
+    assert database == backup
+    for image in ("backup", "database"):
+        dockerfile = (_REPO / image / "Dockerfile").read_text(encoding="utf-8")
+        assert "COPY pgbackrest.conf /etc/pgbackrest/pgbackrest.conf" in dockerfile, image
+
+
+def test_paas_compose_never_bind_mounts_a_repository_file() -> None:
+    # Coolify resolves relative bind sources on the host, where repository
+    # files don't exist; Docker then creates an empty directory there and the
+    # container fails to start. Files must be baked into images instead.
+    compose = yaml.safe_load((_REPO / "docker-compose.PaaS.yml").read_text(encoding="utf-8"))
+    for name, service in compose["services"].items():
+        for volume in service.get("volumes", []):
+            source = volume.get("source", "") if isinstance(volume, dict) else str(volume).split(":", 1)[0]
+            if source.startswith("."):
+                assert not (_REPO / source).is_file(), f"{name}: {volume}"
 
 
 def _service_block(compose: str, name: str) -> str:
@@ -243,12 +311,13 @@ def _service_block(compose: str, name: str) -> str:
 
 
 def test_pgbackrest_compose_mounts_private_repo_and_read_only_database_files() -> None:
-    compose = (_REPO / "docker-compose.PaaS.yml").read_text(encoding="utf-8")
-    database = _service_block(compose, "postgres")
-    service = _service_block(compose, "pgbackrest")
+    compose_text = (_REPO / "docker-compose.PaaS.yml").read_text(encoding="utf-8")
+    compose = yaml.safe_load(compose_text)
+    database = _service_block(compose_text, "postgres")
+    service = _service_block(compose_text, "pgbackrest")
 
     assert "build: ./database" in database
-    assert "PGBACKREST_ENABLED: ${PGBACKREST_ENABLED:-false}" in database
+    assert "GOVMAP_PGBACKREST_ENABLED: ${GOVMAP_PGBACKREST_ENABLED:-false}" in database
     assert "- ./pgbackrest:/pgbackrest" in database
     assert "- postgres-socket:/var/run/postgresql" in database
     assert "entrypoint: [\"/usr/local/bin/govmap-pgbackrest-scheduler\"]" in service
@@ -257,6 +326,8 @@ def test_pgbackrest_compose_mounts_private_repo_and_read_only_database_files() -
     assert "- ./pgbackrest:/pgbackrest" in service
     assert "docker.sock" not in service
     assert "privileged" not in service
+    for name, config in compose["services"].items():
+        assert not any(key.startswith("PGBACKREST_") for key in config.get("environment", {})), name
 
 
 def test_database_image_declares_postgresql_provider_before_installing_pgbackrest() -> None:
@@ -272,7 +343,7 @@ def test_database_image_declares_postgresql_provider_before_installing_pgbackres
 def test_postgres_entrypoint_enables_archiving_only_after_explicit_opt_in() -> None:
     entrypoint = (_REPO / "database" / "entrypoint.sh").read_text(encoding="utf-8")
 
-    assert 'PGBACKREST_ENABLED:-false' in entrypoint
+    assert 'GOVMAP_PGBACKREST_ENABLED:-false' in entrypoint
     assert "archive_mode=on" in entrypoint
     assert "archive_timeout=300" in entrypoint
     assert "archive-push %p" in entrypoint

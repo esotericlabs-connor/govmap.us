@@ -10,8 +10,8 @@ repository=/pgbackrest
 uid=70
 gid=70
 
-[[ "${PGBACKREST_ENABLED:-false}" == "true" || "${PGBACKREST_ENABLED:-false}" == "false" ]] \
-  || die "PGBACKREST_ENABLED must be true or false."
+[[ "${GOVMAP_PGBACKREST_ENABLED:-false}" == "true" || "${GOVMAP_PGBACKREST_ENABLED:-false}" == "false" ]] \
+  || die "GOVMAP_PGBACKREST_ENABLED must be true or false."
 [[ -d "$repository" && ! -L "$repository" ]] \
   || die "The pgBackRest repository must be an existing directory (not a symlink)."
 
@@ -36,7 +36,7 @@ else
     || die "Could not restrict pgBackRest repository permissions."
 fi
 
-if [[ "${PGBACKREST_ENABLED:-false}" == "true" && "${1:-}" == "postgres" ]]; then
+if [[ "${GOVMAP_PGBACKREST_ENABLED:-false}" == "true" && "${1:-}" == "postgres" ]]; then
   set -- "$@" \
     -c archive_mode=on \
     -c 'archive_command=pgbackrest --stanza=govmap archive-push %p' \

@@ -5,28 +5,51 @@ What's been built, in what order, and what's next. This is a living log — add 
 ## Build log
 
 **2026-11-11 — Local pgBackRest PITR with Duplicati off-site**
-Implemented on `dev`; CI and dev deployment acceptance are pending. No
-database schema migration. No backup product beyond Duplicati was added.
+Implemented on `dev`; CI is green and services are healthy in dev. In dev,
+the stanza is created, WAL archiving and the archive check succeed, the first
+full backup completed and `pgbackrest info` reports `ok`. One Duplicati job
+completed without warnings. Isolated restores of job-selected snapshots
+replayed WAL to a post-backup LSN and to a clock-time target between two
+WAL-only marker commits. PostgreSQL 16.15 promoted at revision `0015`;
+representative row counts matched dev. The source destinations were not
+identified, and independent destination restores and application-row rollback
+remain to be verified. Dev's logical-backup service is enabled and its
+catch-up run published a bundle. A job-selected copy passed checksums and
+restored into an isolated PostgreSQL instance at revision `0015`, with the
+same representative counts. Its source destination was not identified.
+Production is unchanged. No database schema migration. No backup product
+beyond Duplicati was added.
 
 - A custom PostgreSQL 16 image installs pgBackRest. Archiving remains off
-  unless `PGBACKREST_ENABLED=true`, and the repository directory is prepared
-  as private uid/gid `70:70`. Create the stanza while archiving is still off
-  before enabling it.
+  unless `GOVMAP_PGBACKREST_ENABLED=true`, and the repository directory is
+  prepared as private uid/gid `70:70`. Create the stanza while archiving is
+  still off before enabling it.
 - The pgBackRest sidecar shares the repository and socket plus read-only
   PostgreSQL data files. It checks archiving every 15 minutes, retries failed
   full backups every 15 minutes, creates daily full backups, and uses
   seven-day time-based full-backup retention. WAL archiving is asynchronous
-  with 1 GiB push batches, a 5-minute timeout and a 4 GiB queue cap that
-  protects the database disk by dropping excess WAL; a cap event creates a
-  PITR gap.
-- The independent logical `pg_dump` bundle returns to once daily. Duplicati
-  copies both `backups` and `pgbackrest` to the existing two destinations.
-  Bootstrap, heartbeat, sizing, restore and operator deployment steps are in
+  with a 5-minute timeout and a 4 GiB queue cap that protects the database
+  disk by dropping excess WAL; a cap event creates a PITR gap.
+- The independent logical `pg_dump` bundle returns to once daily. One
+  Duplicati job copies both `backups` and `pgbackrest`; Duplicati 2.3+ backs
+  up to its first destination and copies the files to each additional
+  destination after a successful run. Bootstrap, heartbeat, sizing, restore
+  and operator deployment steps are in
   [docs/backup-service.md](docs/backup-service.md).
 - Off-site PITR is bounded by the most recent complete Duplicati copy of the
   repository, not by the local WAL archive. CI builds and scans the custom
   database image and tests scheduler/config/Compose behavior. The operator
-  must still deploy and rehearse a restore from each destination.
+  must still independently restore and recover from each destination relied
+  on for disaster recovery. The clock-time drill did not modify application
+  rows, so it did not demonstrate rolling back an application-data change.
+- Dev's Duplicati job is configured for a 30-minute schedule. Its host
+  systemd service is enabled and active, with a 15-second restart delay. One
+  automatic job run completed without warnings or errors; service recovery
+  after reboot and the next scheduled pgBackRest full backup remain to be
+  observed.
+- Dev uses separate heartbeat checks for archive checks, pgBackRest full
+  backups and logical bundles. The archive and logical checks received
+  successful job pings; the full-backup check awaits its first scheduled run.
 - The first CI run failed two checks, both repaired. The backup Compose test
   sliced the backup service to the end of the file and picked up the new
   `pgbackrest` service; service blocks now end at the next service or
@@ -44,9 +67,42 @@ database schema migration. No backup product beyond Duplicati was added.
   sidecar gets Alpine 3.22's (currently 2.55). They exchange only repository
   files and never use pgBackRest's remote protocol, where matching versions
   are required, and the 2.56 to 2.58 release notes list no repository-format
-  change. Dev acceptance (`stanza-create`, `check`, a full backup and a
-  restore rehearsal) is the proof; move the sidecar to a newer Alpine
-  afterwards.
+  change. Dev has completed stanza creation, a check, a full backup and
+  isolated LSN- and clock-time-targeted restores; per-destination recovery
+  remains open. Move the sidecar to a newer Alpine after acceptance.
+- The first dev `info` call exposed two incompatibilities: the 2.55 sidecar
+  rejects `archive-push-batch-size`, and pgBackRest interprets application
+  variables named `PGBACKREST_*` as its own options. The unsupported setting
+  was removed from the shared config, application controls now use
+  `GOVMAP_PGBACKREST_*`, and the operator must remove the old names from
+  Coolify. Before the first backup, `info` reporting no valid backups and no
+  WAL is expected; invalid-option warnings are not.
+- The first Coolify deploy failed because Compose bind-mounted
+  `backup/pgbackrest.conf`. Coolify resolves relative bind sources on the
+  host, where repository files don't exist, so Docker created an empty
+  directory there and PostgreSQL could not start. Both images now bake the
+  config in (`database/pgbackrest.conf` must match `backup/pgbackrest.conf`),
+  and a unit test rejects any repository file bind mount in the PaaS Compose
+  file. On a host that hit the failure, the leftover empty
+  `backup/pgbackrest.conf` directory under the application directory is
+  unused and can be removed with `rmdir`.
+- The next dev deploy started everything except the worker, which crashed
+  parsing an empty `API_DOCS_ENABLED`. Coolify adds its whole `.env` to every
+  Compose service through `env_file`, so the worker received an API-only
+  variable its own `environment` block never sets, while the backend's
+  `${API_DOCS_ENABLED:-false}` turned the same empty value into `false`.
+  Settings now treat empty environment values as unset (`env_ignore_empty`);
+  non-empty invalid values still fail startup. The same injection means every
+  container, including the frontend and cloudflared, receives every Coolify
+  variable and secret; Compose cannot opt out, so keep only deployment values
+  in Coolify and treat all GovMap containers as one trust boundary.
+- Before acceptance, a source check found the scheduler read full-backup
+  times from `.[].db[].backup[]`, but pgBackRest's `info` JSON puts `backup`
+  beside `db` on each stanza. The scheduler would have seen no full backup
+  and taken an extra one on every container restart. It now reads
+  `.[].backup[]`, and a test runs the script's own filter through real `jq`
+  against JSON in pgBackRest's shape; the scheduler-flow tests' fake `jq` had
+  masked the error.
 
 **2026-11-11 — R2 shared rolling-hour request budgets (migration 0015)**
 Implemented on `dev`; CI and dev deployment acceptance are pending. No local
