@@ -13,6 +13,7 @@ from app.routers import (
     committees,
     congress,
     donations,
+    health,
     members,
     pipeline_status,
     report,
@@ -84,8 +85,4 @@ app.include_router(search.router)
 app.include_router(congress.router)
 app.include_router(pipeline_status.router)
 app.include_router(report.router)
-
-
-@app.get("/health")
-async def health() -> dict:
-    return {"status": "ok"}
+app.include_router(health.router)

@@ -268,27 +268,22 @@ successful verification.
 Keep backup passphrases or private identities separately and recoverably.
 `/tank` or another filesystem on the same host is not an off-server backup.
 
-A systemd timer on the production server is configured to create one
-root-only bundle every night. The bundle holds the database dump, logs and
-deployment configuration. The operator reported Duplicati copying it,
-encrypted, to two off-server destinations. On 2026-11-10 a bundle was
-restored into a scratch database and matched production. The backup heartbeat
-and email test notification were subsequently verified. A bundle restored
-from one Duplicati destination passed its recorded checksums; the second
-destination has not been independently restored. Recurring monthly restore
-checks are tracked in [CODE-MANIFEST.md](CODE-MANIFEST.md). A database dump
-alone does not recreate the deployment; protect configuration and recovery
-credentials separately. The host timer is being replaced by a `backup`
-service inside the Compose stack, which prepares its own host directory,
-writes the database dump and logs there, and leaves deployment configuration
-and secrets in the operator's vault. Once enabled through the deployment's
-environment settings it needs no shell access. The host timer is removed
-after the container has published its first bundle, and the old local bundle
-is removed only after the new one has been restored successfully from
-off-site. The
-provider-neutral
-[backup service guide](docs/backup-service.md) covers operation and safe
-restore rehearsals without private host details.
+The production `backup` service in the Compose stack creates a private daily
+bundle containing a verified logical database dump and logs. It prepares its
+own host directory and needs no shell setup once enabled through the deployment
+settings. Deployment configuration and secrets remain in the operator's vault,
+not in the bundle. The earlier host timer, script and environment file have
+been removed. The operator reports a local copy and two encrypted off-site
+destinations. A container bundle retrieved from off-site passed checksum,
+required-file and isolated PostgreSQL restore checks on 2026-11-11 UTC, at
+revision `0013`. Independent restores from both off-site destinations have
+not been recorded. The heartbeat ping and email test notification were
+verified; an actual missed-heartbeat alert has not been rehearsed.
+Recurring restore checks are tracked in [CODE-MANIFEST.md](CODE-MANIFEST.md).
+Keep the old local bundle until replacement copies and earlier-version
+retention satisfy the removal gates in the provider-neutral
+[backup service guide](docs/backup-service.md), which covers operation and
+safe restore rehearsals without private host details.
 
 ### Migration and recovery verification: 2026-11-09
 
@@ -332,11 +327,20 @@ restore rehearsals without private host details.
 - GitHub reports the legacy Deploy workflow disabled and Lint active. The
   operator reported the old VM shut down and no legacy agents running.
 
-**Still pending:** verify the actual production deployment SHA against its CI
-run; confirm source status and freshness after the latest backend start,
-including the daily jobs; observe the next scheduled backup heartbeat; and
-continue periodic recovery checks. The daily bundle, off-site copying,
-heartbeat ping and test notification have been set up as described above.
+On 2026-11-10, the operator matched production's deployment SHA
+`1e6867429226f395c31eaee369ef64314977cee5` to successful
+[CI run 42958859237](https://github.com/esotericlabs-connor/govmap.us/actions/runs/42958859237).
+The test resource uses the PaaS Compose file with scheduled refreshes and
+backups disabled; the retired VM runner was removed from GitHub.
+Source, Turnstile and notification credential rotations were confirmed.
+Production's database role password and deployment settings were rotated
+together, followed by successful TCP authentication, application checks and
+a fresh backup-client connection. Dev uses a separate rotated database password.
+
+**Operational follow-ups:** confirm source status and freshness after backend
+restarts, including the daily jobs; observe the next scheduled backup
+heartbeat; and continue periodic recovery checks. The daily bundle, off-site
+copying, heartbeat ping and test notification have been set up as described above.
 A previous `ok` row restored from an older database does
 not verify a job on the new server. `partial` is degraded, not an
 unconditional success.
@@ -358,6 +362,89 @@ legacy VM tooling, not the current deployment path. The script syncs
 a bounded timeout. Do not run it on the production server or use it as a
 restore shortcut. A production backend restart runs migrations and starts the
 scheduler; it does not execute that script's deploy-time refresh.
+
+### Credential rotation and Group 0 release gates
+
+Keep production and test credentials separate. Inventory credential names and
+whether they were carried over from the old VM; never paste their values into
+issues, logs or chat. Rotate one credential at a time, update the protected
+vault and the affected deployment settings, and verify its consumer before
+revoking the old credential when the provider permits overlap.
+
+- Source keys: `CONGRESS_GOV_API_KEY`, `FEC_API_KEY` and `HUD_API_TOKEN`.
+  Verify an authenticated source refresh after redeploy; an older successful
+  database status is not evidence that the replacement key works.
+- Internal operations: rotate `INTERNAL_USER` / `INTERNAL_PASSWORD` together
+  and update authorized operator clients. Leave both unset if unused.
+- Turnstile: coordinate the backend secret with the frontend site key and
+  rebuild when the site key changes. Verify an actual report submission.
+- Tunnel: rotate only the intended environment's token, redeploy its
+  connector and verify public routing. Provider rotation may invalidate the
+  old token immediately; plan recovery before starting.
+- PostgreSQL: updating `POSTGRES_PASSWORD` does not alter the role password
+  in an initialized volume. Use a supervised database password change and
+  coordinate the backend, backup service and vault. Expect a maintenance
+  window; do not delete the volume or put passwords in command arguments.
+- Notification and backup credentials: rotate any inherited webhook tokens,
+  storage credentials and administrative access separately. Preserve recovery
+  access to earlier encrypted backups; do not discard their decryption keys.
+
+Release gates are green CI for the exact promoted commit, that SHA in the
+production deployment record, the correct Compose path in both environments,
+and `SCHEDULER_ENABLED=false` / `BACKUP_ENABLED=false` in test. The legacy
+GitHub Deploy workflow must remain disabled and the retired VM runner must
+not accept jobs. Keep the old VM powered off through the 30-day retention
+period following the 2026-11-09 cutover (until at least 2026-12-09), then
+delete it only with operator approval and independent recovery materials.
+
+### Application health and release identification
+
+The backend's `/health` is a liveness check: it reports whether the API can
+respond, even if the database is unavailable. Its `/ready` performs a read-only,
+three-second-bounded ORM query against the pipeline status table. It returns
+200 only when that query succeeds; missing schema, authentication, connection
+and timeout failures return 503 without database details. An empty status table
+is valid. Readiness does not certify the contents of every table, source
+freshness, scheduler progress, backups or notification delivery.
+
+The public frontend `/health` makes an uncached, five-second-bounded request
+to backend readiness. It returns 503 for an unavailable backend, invalid
+response or different known frontend/backend commits. Responses contain only
+status and build commit identifiers, never database records or credentials.
+All health responses use `Cache-Control: no-store`; exclude `/health` from any
+custom edge rule that forces caching. Existing `/api/*` routing is unchanged.
+
+Both Compose files define backend and frontend container health checks every
+30 seconds, with three failed checks required after a 120-second startup grace
+period. These report health to the deployment platform; Docker's
+`restart: unless-stopped` does not restart a process merely because its health
+check fails. No auto-healing service is installed. Keep the tunnel route pointed
+at the frontend and do not publish the backend or database to monitor them.
+
+Images record `SOURCE_COMMIT` at build time as `APP_COMMIT_SHA`. Enable the
+deployment platform's source-commit availability during builds for both
+environments, then rebuild. Do not enter a fixed SHA that becomes stale on
+the next deployment. A build with no supplied commit reports `null`, not a
+fabricated release identifier; it may still be ready. For manual Compose
+builds, supply `SOURCE_COMMIT` as the exact full Git SHA being built.
+Compare both identifiers in `https://govmap.us/health` with the successful
+deployment and CI commit. The stamp is deployment evidence, not cryptographic
+image attestation.
+
+Deploy to test first with scheduled refreshes and backups disabled. Confirm
+frontend and backend containers become healthy, `/health` returns 200 with
+matching commit identifiers, and normal data pages still work. In isolated
+test only, stop the backend in the deployment UI and confirm the frontend
+health route returns 503; restore it and require recovery to 200. Do not
+interrupt production to rehearse failures. Test site access controls still
+apply to `/health`. Promote only after CI and test checks pass; after promotion
+repeat the healthy checks in production. Roll back by deploying the previous
+CI-tested commit; these changes need no schema migration.
+
+Group 1's additional external uptime service, stale-pipeline alerts, webhook
+work and disk-space thresholds are explicitly on hold at the operator's
+request. The existing backup heartbeat remains in use; application health
+checks neither send its ping nor establish backup success.
 
 ## Documentation
 

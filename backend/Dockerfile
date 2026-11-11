@@ -10,6 +10,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
+ARG SOURCE_COMMIT=unknown
+ENV APP_COMMIT_SHA=$SOURCE_COMMIT
+RUN python -c "import os, re; sha = os.environ['APP_COMMIT_SHA']; assert re.fullmatch(r'unknown|[a-f0-9]{40}', sha), 'SOURCE_COMMIT must be a full Git SHA or unknown'"
+
 # Pre-create the operator log dir so the named `govmap-logs` volume mounted
 # here inherits appuser ownership (a non-root container can't write a
 # root-owned mount). Holds app.log + bug_reports.log at runtime.
