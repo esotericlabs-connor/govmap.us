@@ -20,7 +20,8 @@ tests, builds or application runs. No new dependency or database service.
 - All three existing budgeted clients use the same admission path. JSON
   redirects are disabled; validated bill-text redirects each reserve again.
   Admission has a five-second timeout and no fail-open fallback. Database
-  errors log only their type and return a sanitized capacity error/503.
+  errors log only their type. Public 503 responses distinguish exhaustion,
+  the initial hold and an unavailable ledger, without exposing exception text.
 - Approved transition: a one-time 60-minute upstream hold begins with the
   migration, because old in-memory usage cannot be reconstructed. Stop old
   API/worker containers before migrating, never run mixed versions. Ordinary

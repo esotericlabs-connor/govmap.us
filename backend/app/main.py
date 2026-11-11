@@ -22,7 +22,11 @@ from app.routers import (
     votes,
 )
 from app.scheduler import start_scheduler, stop_scheduler
-from app.services.upstream import UpstreamCapacityError
+from app.services.upstream import (
+    UpstreamBudgetInitializingError,
+    UpstreamBudgetUnavailableError,
+    UpstreamCapacityError,
+)
 
 logger = logging.getLogger("app.main")
 
@@ -81,9 +85,15 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
 async def upstream_capacity_handler(
     request: Request, exc: UpstreamCapacityError
 ) -> JSONResponse:
+    if isinstance(exc, UpstreamBudgetInitializingError):
+        detail = "Upstream request budget initializing; wait for the one-hour rollout hold"
+    elif isinstance(exc, UpstreamBudgetUnavailableError):
+        detail = "Upstream shared request budget unavailable; try again later"
+    else:
+        detail = "Upstream request capacity exhausted; try again later"
     return JSONResponse(
         status_code=503,
-        content={"detail": "Upstream request capacity exhausted; try again later"},
+        content={"detail": detail},
         headers={"Retry-After": str(exc.retry_after)},
     )
 
