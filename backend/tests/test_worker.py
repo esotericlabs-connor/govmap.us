@@ -19,6 +19,7 @@ from sqlalchemy.pool import NullPool
 from app import logging_setup, logsctl, worker
 from app import scheduler as scheduler_module
 from app.config import Settings
+from app.sources import SOURCES
 
 ROOT = Path(__file__).resolve().parents[2]
 HEAD = "test_head"
@@ -345,6 +346,7 @@ def test_worker_service_runs_the_backend_image_without_api_settings() -> None:
     assert worker_service["depends_on"] == {"postgres": {"condition": "service_healthy"}}
     assert "ports" not in worker_service
     assert "govmap-logs:/app/logs" in worker_service["volumes"]
+    assert "worker-staging:/app/data/staging" in worker_service["volumes"]
 
     api_env, worker_env = backend["environment"], worker_service["environment"]
     assert not set(worker_env) & _API_ONLY
@@ -352,6 +354,21 @@ def test_worker_service_runs_the_backend_image_without_api_settings() -> None:
     for key, value in worker_env.items():
         if key not in _BUDGETS and key != "SCHEDULER_ENABLED":
             assert value == api_env[key], key
+
+
+def test_only_the_worker_keeps_staging_across_redeploys() -> None:
+    compose = yaml.safe_load((ROOT / "docker-compose.PaaS.yml").read_text(encoding="utf-8"))
+    assert "worker-staging" in compose["volumes"]
+    # The image's WORKDIR is /app, so the mount must cover every staging file.
+    backend_dir = ROOT / "backend"
+    for spec in SOURCES.values():
+        for path in spec.staging_files:
+            assert path.parent.relative_to(backend_dir) == Path("data", "staging"), path
+    for name, service in compose["services"].items():
+        if name != "worker":
+            assert not any(
+                str(volume).startswith("worker-staging:") for volume in service.get("volumes", [])
+            ), name
 
 
 @pytest.mark.parametrize(("variable", "field"), sorted(_BUDGETS.items()))

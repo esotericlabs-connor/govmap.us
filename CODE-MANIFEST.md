@@ -42,20 +42,31 @@ static checkout.
 - *Logs:* the worker writes `worker.log` in the shared log volume, and each
   process rotates only its own file. `logsctl clear-logs` clears both, and
   backups include it.
+- *Staging survives redeploys:* the worker's `/app/data/staging` is the named
+  `worker-staging` volume. `member_sponsored` (08:00 UTC) and `fec_finance`
+  (09:00 UTC) read the legislators staging the 07:00 members job writes, so a
+  redeploy between them no longer makes both fail. Staging writes were already
+  atomic (temp file, fsync, rename), so a stopped worker leaves the previous
+  snapshot or the new one, never a partial file. Only the worker mounts it, and
+  it is not backed up: each refresh rewrites it.
+
+Release gate: CI and the dev deployment checks are pending.
 
 **Operator note:** after deploying, remove any unprefixed
 `CONGRESS_REQUESTS_PER_HOUR`, `FEC_REQUESTS_PER_HOUR` or
 `GOVINFO_REQUESTS_PER_HOUR` from both resources' settings. Keep
 `SCHEDULER_ENABLED=false` on test, where it now idles the worker. Run manual
 refreshes with `docker compose exec worker python -m app.pipelines.refresh …`.
+The new staging volume starts empty. On production, run
+`… refresh members` in the worker after the first deploy so the next
+sponsored-bill and finance runs have their input.
 
 **2026-11-11 — R1 runtime and visibility: Python 3.13, run-history endpoint**
 Roadmap R1 follow-up. No schema migration. CI is the only test run; nothing
 was executed on the static checkout.
 
-Release gate: implementation is committed, but CI (including the Python 3.13
-lock artifact and image scan) and dev/production deployment acceptance are
-still pending. Release this step before the worker-container change.
+Released to `main` in #19 (merge `1ef900d`) after CI passed, ahead of the
+worker-container change.
 
 - *Python 3.11 → 3.13:* the backend image moves to `python:3.13-slim`
   (3.13.18, Debian 13), pinned by digest, and every CI job runs 3.13. This
@@ -1056,5 +1067,7 @@ Adapted from the original end-to-end plan, reordered to prove the pipeline contr
 - **R1 Phase B leftovers.** Stale `member_terms` rows (a term the upstream file later drops or re-dates) are not deleted. Only current members' terms load; historical members need the `legislators-historical` file. Run history is readable through `/internal/source-runs`.
 - **R2 worker split leftovers.**
   - *Shared budget ledger.* The API/worker budget split is static. R2 calls for one budget per source account across processes; build that ledger when sustained backfill starts. Until then, a manual `exec` refresh runs with its own copy of the worker share, so lower it (`-e CONGRESS_REQUESTS_PER_HOUR=…`) for a large manual run.
-  - *Container-local staging.* `member_sponsored` (08:00 UTC) and `fec_finance` (09:00 UTC) read the legislators staging the 07:00 members job writes inside the worker container. A redeploy between 07:00 and 09:00 UTC recreates the container without it, so those runs fail (error and alert) until the next day. This was already true of the backend container; fix it before adding sources that depend on another source's staging.
+  - *Staging is a latest-only snapshot.* The worker's staging volume keeps
+    each source's most recent file, not a history; replaying older input
+    needs the retained, versioned raw storage in roadmap R2.
   - *Threads outlive a cancel.* Synchronous pipeline steps run in threads that keep going after their refresh is cancelled. The process then exits when Docker kills it at the end of the grace period, and the run is still recorded as `abandoned` first.

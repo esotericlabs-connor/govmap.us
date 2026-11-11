@@ -230,8 +230,8 @@ Do not launch parallel crawlers that each assume they own the same API quota.
 Use bounded retries with jitter, Retry-After handling, circuit breakers,
 request deadlines and restart-safe leases.
 
-As ingestion expands, move scheduling into a dedicated container worker using
-the existing backend code, not an immediate microservice rewrite. Start with
+Scheduling runs in a dedicated container worker built from the existing
+backend code (2026-11-11), not a microservice rewrite. Next comes
 PostgreSQL-backed work ownership/checkpoints. The API and worker must not both
 schedule the same job. A broker, Redis, separate search engine or streaming
 platform requires demonstrated need and a separate design decision.
@@ -416,9 +416,11 @@ Capacity and restore measurements cover the next planned data slice.
 `worker` service on the deployment platform, the only scheduler owner there.
 It starts only once the database is at its image's migration head, exposes a
 heartbeat health check, and records refreshes cancelled at shutdown as
-`abandoned`. Each process has a static share of each source's hourly budget.
+`abandoned`. Each process has a static share of each source's hourly budget,
+and the worker's latest staging snapshots persist across redeploys.
 Not yet done: a shared budget ledger across processes, stage checkpoints,
-replay/quarantine, durable staging, and the failure exercises above.
+replay/quarantine, retained versioned raw input, and the failure exercises
+above.
 
 ### F1-F4: Vertical slices, not disconnected scrapers
 

@@ -251,7 +251,13 @@ to record their outcome; a cancelled run is recorded as `abandoned`. It gets
 the database, source-key, alert and refresh settings, not the API's CORS,
 proxy, internal-operations or Turnstile settings. It logs to `worker.log`
 beside the API's `app.log` in the `govmap-logs` volume;
-`python -m app.logsctl clear-logs` empties both.
+`python -m app.logsctl clear-logs` empties both. Its staging JSON lives in the
+worker-only `worker-staging` volume, so a redeploy between the 07:00 UTC
+members refresh and the 08:00/09:00 sponsored-bill and finance refreshes no
+longer leaves them without the legislators file they read. A new volume is
+empty until the next members refresh; run
+`docker compose exec worker python -m app.pipelines.refresh members` to seed it
+sooner.
 
 Run manual refreshes in the worker:
 `docker compose exec worker python -m app.pipelines.refresh <source>` (or
@@ -338,7 +344,9 @@ variables or reconnecting a tunnel does not restore database or log contents.
 
 Postgres persists in the resource's `postgres-data` volume. API, refresh-worker
 and bug-report logs persist in its `govmap-logs` volume and may contain private
-information. Do not copy production logs or secrets into a test environment.
+information. The worker's latest source snapshots persist in `worker-staging`;
+each refresh rewrites them, so they are not backed up. Do not copy production
+logs or secrets into a test environment.
 
 Use consistent logical Postgres dumps and separate log archives, keep
 off-server copies encrypted, verify transferred checksums, and test restoration

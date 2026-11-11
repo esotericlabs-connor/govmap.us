@@ -337,10 +337,10 @@ CORE_REFRESHERS: dict[str, TrackedRefresh] = {
 # out. They run on their own scheduler cadence (see app/scheduler.py) and on
 # demand, e.g.:  docker compose exec worker python -m app.pipelines.refresh finance
 # (`backend` instead of `worker` on the legacy single-VM compose).
-# member_sponsored reads the legislators staging that refresh_members writes in
-# the same container, so a members refresh must have run there first: the
-# 07:00 members job precedes the 08:00 sponsored job, and the legacy deploy
-# runs it too.
+# member_sponsored and finance read the legislators staging that refresh_members
+# writes in the same container, so a members refresh must have run there first:
+# the 07:00 members job precedes the 08:00 and 09:00 jobs, the worker's staging
+# volume keeps that file across redeploys, and the legacy deploy runs members.
 EXTRA_REFRESHERS: dict[str, TrackedRefresh] = {
     "sponsored_bills": tracked("member_sponsored", refresh_sponsored_bills),
     "finance": tracked("fec_finance", refresh_finance),

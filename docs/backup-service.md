@@ -40,6 +40,9 @@ the PostgreSQL 16 server.
 tunnel token and other credentials are kept in the operator's vault and must
 be recoverable independently of the server.
 
+The worker's `worker-staging` volume is not included either: it holds only the
+latest source snapshots, which the next refresh of each source rewrites.
+
 ### Destination
 
 The bundle is written to `/backups` in the container. It is bind-mounted from

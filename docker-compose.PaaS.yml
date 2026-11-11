@@ -115,6 +115,10 @@ services:
       VOTEVIEW_MIN_REFETCH_HOURS: ${VOTEVIEW_MIN_REFETCH_HOURS:-6}
     volumes:
       - govmap-logs:/app/logs
+      # Staging JSON outlives a redeploy, so the 08:00/09:00 UTC jobs still
+      # find the legislators staging the 07:00 members job wrote. Worker only
+      # (the API runs no pipelines); each refresh rewrites it, so no backup.
+      - worker-staging:/app/data/staging
     # Room for refreshes in flight to record their outcome after SIGTERM.
     stop_grace_period: 30s
     healthcheck:
@@ -195,3 +199,4 @@ services:
 volumes:
   postgres-data:
   govmap-logs:
+  worker-staging:
