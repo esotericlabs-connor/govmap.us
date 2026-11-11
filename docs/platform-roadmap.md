@@ -239,8 +239,9 @@ platform requires demonstrated need and a separate design decision.
 Raw storage will outgrow transient staging. First measure growth and restore
 cost, then choose versioned filesystem or object storage with hashes,
 retention, access controls and off-site recovery. Do not put an unbounded
-federal archive into the existing recovery bundle by default; it is rebuilt
-and uploaded every 30 minutes.
+federal archive into either database-recovery directory by default. The
+logical bundle is replaced daily and the pgBackRest repository is reserved
+for PostgreSQL base backups and WAL.
 
 ## 7. Federal coverage map
 
@@ -633,11 +634,12 @@ an unbounded all-history download without this estimate.
 
 Backups remain a working foundation, not a completed-forever task. New raw
 archives, worker state, source registry and history stores must enter the
-recovery inventory. The backup service dumps the database every 30 minutes and
-Duplicati copies each bundle to two off-site destinations, so the recovery
-point is about 30 minutes plus upload time. This is not point-in-time
-recovery; approve continuous archiving, a tighter RPO/RTO or storage changes
-separately.
+recovery inventory. PostgreSQL now has a local pgBackRest WAL archive and
+daily full backups with seven-day retention; the daily logical dump remains an
+independent fallback. Duplicati copies both directories to two off-site
+destinations. Local PITR depends on continuous archive health, and off-site
+PITR depends on the latest complete Duplicati repository copy. Both still
+require a rehearsed restore and measured storage/restore times.
 
 ## 14. Immediate work queue
 

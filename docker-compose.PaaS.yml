@@ -20,14 +20,13 @@
 # set it to the site's own public hostname: "/api/*" would proxy to itself.
 services:
   postgres:
-    # Images are pinned by digest: a redeploy must not silently pull a
-    # different build. Bump deliberately (Dependabot proposes the PRs).
-    image: postgres:16-alpine@sha256:aa6cb33cf4c19c765cefcf48d96176258800870a9a1e930ad126200f9d825139
+    build: ./database
     restart: unless-stopped
     environment:
       POSTGRES_USER: govmap
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
       POSTGRES_DB: govmap
+      PGBACKREST_ENABLED: ${PGBACKREST_ENABLED:-false}
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U govmap"]
       interval: 10s
@@ -35,6 +34,9 @@ services:
       retries: 5
     volumes:
       - postgres-data:/var/lib/postgresql/data
+      - postgres-socket:/var/run/postgresql
+      - ./pgbackrest:/pgbackrest
+      - ./backup/pgbackrest.conf:/etc/pgbackrest/pgbackrest.conf:ro
 
   backend:
     build:
@@ -165,8 +167,8 @@ services:
     depends_on:
       - frontend
 
-  # Recovery bundle every BACKUP_INTERVAL_MINUTES (default 30) on a UTC grid
-  # anchored at BACKUP_TIME_UTC (see docs/backup-service.md). Idle unless
+  # Daily logical recovery bundle plus the pgBackRest service below (see
+  # docs/backup-service.md). Idle unless
   # BACKUP_ENABLED=true. Writes to "backups" in this resource's own directory
   # on the host. The deployment platform rejects variables in volume sources,
   # and a relative source keeps each resource's backups separate. The
@@ -198,14 +200,49 @@ services:
       BACKUP_ENABLED: ${BACKUP_ENABLED:-false}
       BACKUP_TARGET: ${BACKUP_TARGET:-unconfigured}
       BACKUP_TIME_UTC: ${BACKUP_TIME_UTC:-02:30}
-      BACKUP_INTERVAL_MINUTES: ${BACKUP_INTERVAL_MINUTES:-30}
+      BACKUP_INTERVAL_MINUTES: ${BACKUP_INTERVAL_MINUTES:-1440}
       BACKUP_HEARTBEAT_URL: ${BACKUP_HEARTBEAT_URL:-}
       PGPASSWORD: ${POSTGRES_PASSWORD:?}
     volumes:
       - ./backups:/backups
       - govmap-logs:/logs:ro
 
+  # Local pgBackRest repository and daily full-backup scheduler. PostgreSQL
+  # and this service share only the private repository, read-only PGDATA and
+  # the local socket; no Docker socket or published port is needed.
+  pgbackrest:
+    build: ./backup
+    entrypoint: ["/usr/local/bin/govmap-pgbackrest-scheduler"]
+    user: "70:70"
+    restart: unless-stopped
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      BACKUP_TARGET: ${BACKUP_TARGET:-unconfigured}
+      PGBACKREST_ENABLED: ${PGBACKREST_ENABLED:-false}
+      PGBACKREST_TIME_UTC: ${PGBACKREST_TIME_UTC:-03:30}
+      PGBACKREST_ARCHIVE_HEARTBEAT_URL: ${PGBACKREST_ARCHIVE_HEARTBEAT_URL:-}
+      PGBACKREST_BACKUP_HEARTBEAT_URL: ${PGBACKREST_BACKUP_HEARTBEAT_URL:-}
+      PGHOST: /var/run/postgresql
+      PGPORT: "5432"
+      PGUSER: govmap
+      PGDATABASE: govmap
+    volumes:
+      - ./pgbackrest:/pgbackrest
+      - postgres-data:/var/lib/postgresql/data:ro
+      - postgres-socket:/var/run/postgresql
+      - ./backup/pgbackrest.conf:/etc/pgbackrest/pgbackrest.conf:ro
+
 volumes:
   postgres-data:
+  postgres-socket:
   govmap-logs:
   worker-staging:

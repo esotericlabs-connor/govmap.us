@@ -506,7 +506,7 @@ def test_compose_backup_service_is_hardened_and_fails_closed() -> None:
     service = compose.split("\n  backup:\n", 1)[1].split("\nvolumes:\n", 1)[0]
     assert "BACKUP_ENABLED: ${BACKUP_ENABLED:-false}" in service
     assert "BACKUP_TARGET: ${BACKUP_TARGET:-unconfigured}" in service
-    assert "BACKUP_INTERVAL_MINUTES: ${BACKUP_INTERVAL_MINUTES:-30}" in service
+    assert "BACKUP_INTERVAL_MINUTES: ${BACKUP_INTERVAL_MINUTES:-1440}" in service
     assert "- ./backups:/backups" in service
     assert "${" not in service.split("volumes:", 1)[1]
     assert "- govmap-logs:/logs:ro" in service

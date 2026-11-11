@@ -4,38 +4,37 @@ This guide describes the repository's backup service without identifying a
 particular host or deployment provider. It is intended for an operator who
 needs to create, monitor and rehearse recovery of a GovMap backup.
 
-**Protect the backup:** A bundle is not encrypted on the server and contains
-database contents and private logs. Keep it and any extracted copies in
-private directories. Do not put credentials, passphrases, monitor URLs,
-private hostnames or actual resource identifiers in the repository,
-screenshots or support messages.
+**Protect the backups:** Neither local backup directory is encrypted. The
+logical bundle contains database contents and private logs; the pgBackRest
+repository contains the database cluster and its WAL. Keep both directories
+and any restored copies private. Duplicati encrypts off-site copies. Do not
+put credentials, passphrases, monitor URLs, private hostnames or actual
+resource identifiers in the repository, screenshots or support messages.
 
 ## What it does
 
-The `backup` service in [docker-compose.PaaS.yml](../docker-compose.PaaS.yml)
-runs inside the same Compose stack as the application. It is built from
-[backup/](../backup/) and creates a compressed recovery bundle every 30
-minutes by default. It
-is a logical PostgreSQL backup plus the backend logs, not a full server or
-disk image. Each run:
+Two backup services run in the same Compose stack:
 
-1. Connects to the stack's `postgres` service by name with the stack's own
-   database password. It needs no Docker socket and no host scripts.
-2. Creates a consistent custom-format `pg_dump`, checks its table of contents
-   with `pg_restore --list`, and archives the backend logs from a read-only
-   mount of the log volume. An unreadable log file is skipped with a warning.
-3. Writes a manifest, checksums and short restore notes. It builds the
-   archive in a private scratch directory and atomically replaces the
-   published file only when the new archive is complete. A failure leaves the
-   previous published bundle in place.
-4. Optionally sends a success heartbeat after publication. A failed heartbeat
-   produces a warning but does not undo the backup.
+1. `pgbackrest` continuously archives WAL from PostgreSQL, checks the archive
+   every 15 minutes, and creates a full cluster backup daily at
+   `PGBACKREST_TIME_UTC` (default `03:30` UTC). pgBackRest expires backups
+   using a seven-day time-based full-backup retention policy. Its repository
+   is local to this resource, under `./pgbackrest`.
+2. `backup` creates a separate logical `pg_dump` bundle and logs daily at
+   `BACKUP_TIME_UTC` (default `02:30` UTC) under `./backups`. It is an
+   independent fallback, not the source of PITR.
 
-The container starts as root only long enough to prepare its host directory,
-then drops to uid/gid `70` (no capabilities) for the scheduler and every
-backup. It has a read-only root filesystem, all other Linux capabilities
-dropped and `no-new-privileges`. It uses PostgreSQL 16 client tools to match
-the PostgreSQL 16 server.
+The pgBackRest sidecar shares only the private repository, a read-only mount
+of PostgreSQL data files, and a private local socket. PostgreSQL sends WAL to
+the same repository from its own container. Neither service needs a published
+database port, Docker socket or host script. Duplicati copies the two folders
+off-site; it remains the only off-site backup product.
+
+The logical bundle is assembled in a private scratch directory and atomically
+replaces its previous copy only after verification. The scheduler and
+pgBackRest sidecar run as uid/gid `70` without capabilities on a read-only
+root filesystem. PostgreSQL uses a custom image based on the existing
+digest-pinned PostgreSQL 16 Alpine image, with pgBackRest added.
 
 **Deployment configuration and secrets are not included.** The `.env` values,
 tunnel token and other credentials are kept in the operator's vault and must
@@ -53,24 +52,20 @@ against the same keys. Isolated dev/restore exercises need separate keys.
 
 ### Destination
 
-The bundle is written to `/backups` in the container. It is bind-mounted from
-`./backups`, which the deployment platform resolves to a `backups` folder
-inside **that resource's own directory** on the host. The platform rejects
-variables in volume sources, and the relative path gives every resource
-(production, test) its own folder automatically. No host setup is needed:
-on first deploy the directory is created either root-owned (by Docker) or
-owned by the platform's SSH user (when the platform pre-creates it), and the
-entrypoint changes it to mode `700`, owner `70:70`. It does this only when
-backups are enabled for a named target and the directory is root-owned or
-empty; a non-empty directory owned by any other user is left alone.
+`./backups` and `./pgbackrest` are separate directories inside **that
+resource's own directory** on the host. Relative paths give dev and
+production separate data directories automatically. No host setup is needed:
+the PostgreSQL entrypoint prepares the pgBackRest directory as mode `700`,
+owner `70:70`, adopting only a root-owned or empty directory. The logical
+backup entrypoint prepares `./backups` when logical backups are enabled.
+A non-empty directory owned by another user is never adopted.
 
-A run refuses to start, and sends no heartbeat, unless `BACKUP_TARGET` names
-the environment (lowercase letters, digits and hyphens, up to 32 characters,
-not `unconfigured`) and the directory is a real directory owned by uid `70`.
-Group or other access is removed automatically. The path stays the same
-across redeploys, so the off-site job keeps copying the right folder. It
-changes only if the resource is deleted and recreated; deleting a resource
-can also delete its directory, so keep off-site copies.
+A logical backup refuses to start, and sends no heartbeat, unless
+`BACKUP_TARGET` names the environment (lowercase letters, digits and hyphens,
+up to 32 characters, not `unconfigured`) and its directory is a real
+directory owned by uid `70`. Group or other access is removed automatically.
+Keep off-site copies: deleting and recreating a resource can delete both
+local directories.
 
 Find the host path from the running container (see
 [Monitor and run a backup](#monitor-and-run-a-backup)):
@@ -79,64 +74,68 @@ Find the host path from the running container (see
 sudo docker inspect --format '{{range .Mounts}}{{if eq .Destination "/backups"}}{{.Source}}{{end}}{{end}}' "$BACKUP_CONTAINER"
 ```
 
-The resource's directory also holds its deployment settings, including
-secrets. Point the off-site job at the `backups` folder only, never its
-parent.
+For pgBackRest, replace `/backups` with `/pgbackrest` and use the pgBackRest
+container name. The resource's directory also holds deployment settings,
+including secrets. Select only `backups` and `pgbackrest` in Duplicati, never
+the resource directory or its parent.
 
 ### Schedule
 
-`backup/run.sh` is the container's entry point:
+The backup service runs a daily logical dump. PostgreSQL archives WAL
+continuously when pgBackRest is enabled; its sidecar checks the archive every
+15 minutes and runs the daily full backup:
 
 - `BACKUP_ENABLED` other than `true` (the default): it logs that backups are
   disabled and idles. Use this for test environments.
-- `BACKUP_ENABLED=true`: it runs every `BACKUP_INTERVAL_MINUTES` on a fixed
-  UTC grid anchored at `BACKUP_TIME_UTC` (`HH:MM`). The Compose file sets 30
-  minutes, so with the default anchor of `02:30` runs start at `:00` and
-  `:30` past every hour. `1440` restores one run a day at `BACKUP_TIME_UTC`.
-  When the container starts, it runs a catch-up backup only if the published
-  bundle is missing or at least one interval old, so routine redeploys do not
-  each create a backup.
-- A failed run is logged and the schedule continues at the next slot; the
-  missing heartbeat raises the alert. If a run outlasts the interval, the slot
-  it overlapped is skipped. An invalid `BACKUP_TIME_UTC` or
-  `BACKUP_INTERVAL_MINUTES` stops the container with an error.
+- `BACKUP_ENABLED=true`: it runs daily at `BACKUP_TIME_UTC` (`02:30` UTC by
+  default). The bundle is created immediately on startup only if missing or
+  at least 24 hours old.
+- `PGBACKREST_ENABLED=false` (the default): PostgreSQL archiving stays off and
+  the pgBackRest scheduler idles. Do not turn it on until the stanza has been
+  created; see [Bootstrap pgBackRest](#bootstrap-pgbackrest).
+- `PGBACKREST_ENABLED=true`: PostgreSQL archives WAL with a 5-minute
+  `archive_timeout`. The sidecar runs `pgbackrest check` every 15 minutes and
+  a full backup daily at `PGBACKREST_TIME_UTC` (`03:30` UTC by default). It
+  catches up at startup if no full backup exists or the last one is at least
+  24 hours old. Failed archive checks are logged and retried after 15 minutes.
+  Failed full backups are logged and retried every 15 minutes until one
+  succeeds; neither failure sends its corresponding heartbeat.
 - Stopping or redeploying the container interrupts a run in progress; the
   previous bundle is kept and the scratch directory is removed.
-- While a dump runs it holds shared locks on every table. Normal reads, writes
-  and refreshes are unaffected, but a database migration that alters a table
-  waits at most 5 seconds and then fails the backend start (the previous
-  containers keep running unless they were stopped first). Deploy releases
-  that include a migration between slots, after the backup service logs
-  `Backup completed.` for the current slot; if the start fails on a lock
-  timeout, redeploy once the run finishes.
+- Asynchronous archiving enables the `archive-push-queue-max=4GiB` safeguard.
+  Push runs are bounded to 1 GiB so the queue limit is rechecked regularly.
+  If the queue exceeds the limit, pgBackRest discards queued WAL rather than
+  allowing `pg_wal` to fill and stop PostgreSQL. That creates a PITR gap; a
+  new successful full backup is required to restore complete recovery
+  coverage. Monitor PostgreSQL logs, archive-check heartbeats, repository
+  free space and Duplicati job reports.
 
-Run only one enabled backup service per environment.
+Run only one enabled backup stack per environment.
 
 ### Settings
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `BACKUP_ENABLED` | `false` | `true` turns on the schedule |
+| `BACKUP_ENABLED` | `false` | `true` turns on the daily logical dump |
 | `BACKUP_TARGET` | `unconfigured` | Environment name; recorded in the manifest and required before any run |
-| `BACKUP_INTERVAL_MINUTES` | `30` | Minutes between runs, 5–1440; must divide 1440 evenly (for example 15, 30, 60 or 1440) |
-| `BACKUP_TIME_UTC` | `02:30` | UTC anchor of the schedule grid; the daily start time when the interval is 1440 |
+| `BACKUP_INTERVAL_MINUTES` | `1440` | Logical dump interval; 1440 is once daily |
+| `BACKUP_TIME_UTC` | `02:30` | Daily logical dump time in UTC |
 | `BACKUP_HEARTBEAT_URL` | empty | Private `https` dead-man's-switch URL; store it as a secret |
+| `PGBACKREST_ENABLED` | `false` | Enables PostgreSQL WAL archiving and pgBackRest schedules; stanza must already exist |
+| `PGBACKREST_TIME_UTC` | `03:30` | Daily full backup time in UTC |
+| `PGBACKREST_ARCHIVE_HEARTBEAT_URL` | empty | Optional `https` heartbeat after each successful 15-minute archive check |
+| `PGBACKREST_BACKUP_HEARTBEAT_URL` | empty | Optional `https` heartbeat after each successful full backup |
 
 The heartbeat URL is passed to `curl` on stdin so its token never appears in
 the process list. The database password comes from `POSTGRES_PASSWORD`.
 
 ### Bundle contents
 
-The published file is `govmap-backup.tar.gz` in the backup directory. Only one
-local bundle is retained; a successful run replaces it in a single atomic
-rename, so a copy taken at any moment sees either the previous or the new
-complete file, never a partial one. A separate backup product such as
-Duplicati encrypts and copies that file off-site and retains older versions
-(see [Off-site copies with Duplicati](#off-site-copies-with-duplicati)). Its
-schedule, encryption, credentials, retention and failures must be checked
-separately. The heartbeat does **not** prove an off-site copy exists or can
-be restored. Exclude the temporary `.govmap-backup-work-*` directories and the
-lock file from the off-site selection.
+The logical backup is `backups/govmap-backup.tar.gz`. The pgBackRest
+repository is a directory tree under `pgbackrest/` containing full backups,
+metadata and WAL archives. Neither heartbeat proves that an off-site copy
+exists or can be restored. Duplicati copies both trees; exclude
+`.govmap-backup-work-*` and `.govmap-backup.lock` from its selection.
 
 | Item | Purpose |
 | --- | --- |
@@ -157,72 +156,127 @@ external routes or policies, PostgreSQL cluster-wide roles, or the deployed
 source commit. Record the deployed commit and keep recovery credentials
 independently of the server.
 
-## Enable it for an environment
+## Bootstrap pgBackRest
 
-Use a reviewed, CI-green revision. Everything is configured in the deployment
-platform; no shell access is needed. The examples use the target name
-`production`.
+Do this in dev first on a reviewed, CI-green revision. Keep
+`PGBACKREST_ENABLED=false` during the initial deployment so PostgreSQL starts
+without archiving while the repository is initialized.
 
-1. In the deployment's environment settings for that resource only, set
-   `BACKUP_ENABLED=true`, `BACKUP_TARGET=production` and the private
-   `BACKUP_HEARTBEAT_URL`, then deploy. Leave other environments at the
-   defaults; their `backups` folder stays empty.
-2. The first start finds no bundle and runs a catch-up backup immediately.
-   Check the backup service's logs in the deployment platform for
-   `Backup completed.` and confirm the heartbeat monitor received a ping.
-3. Find the host path (shown under the resource's persistent storage, or with
-   the `docker inspect` command in [Destination](#destination)). In the
-   off-site backup product, add that `backups` folder as a source, excluding
-   `.govmap-backup-work-*` and `.govmap-backup.lock`.
+1. Deploy the new PostgreSQL image and Compose services with
+   `PGBACKREST_ENABLED=false`. The PostgreSQL entrypoint prepares the local
+   `pgbackrest` folder as private uid/gid `70:70`. Do not deploy the code
+   directly to production before this dev acceptance.
+2. Find the pgBackRest container, then create the stanza while PostgreSQL is
+   running but WAL archiving is still disabled:
 
-Configure the heartbeat monitor to expect a ping every
-`BACKUP_INTERVAL_MINUTES` (30 minutes by default), with a grace period that
-covers the backup's runtime plus a few minutes. After that, redeploys need no
-backup steps: the folder, schedule and heartbeat carry over.
+   ```bash
+   sudo docker ps --format '{{.Names}}' --filter name=pgbackrest
+   read -r -p 'pgBackRest container: ' PGBACKREST_CONTAINER
+   sudo docker exec "$PGBACKREST_CONTAINER" pgbackrest --stanza=govmap stanza-create
+   sudo docker exec "$PGBACKREST_CONTAINER" pgbackrest --stanza=govmap info
+   ```
+
+   Confirm `stanza-create` succeeds and `info` identifies the intended
+   environment. Do not initialize production using a dev repository or vice
+   versa.
+3. Set `PGBACKREST_ENABLED=true` only after that succeeds, then redeploy.
+   This restarts PostgreSQL and enables WAL archiving. Confirm the PostgreSQL
+   logs show successful archive pushes and the pgBackRest logs show a
+   successful archive check and initial full backup. Stop and investigate if
+   PostgreSQL logs repeated `archive command failed` messages.
+4. In that resource's environment settings, set `BACKUP_ENABLED=true`,
+   `BACKUP_TARGET` to the environment name, and the appropriate heartbeat
+   URLs. Set `BACKUP_INTERVAL_MINUTES=1440` (or leave it unset) for the daily
+   logical dump. Configure dev and production separately.
+
+The archive-check heartbeat is sent every 15 minutes only after a successful
+`pgbackrest check`; its monitor should have a 15-minute period plus enough
+grace for the check and deployment restart. The full-backup heartbeat is sent
+only after a successful daily full backup; monitor it independently with a
+daily period and runtime grace. The logical-bundle heartbeat is also daily.
+Keep monitor URLs secret and do not ping them manually to simulate success.
 
 ## Off-site copies with Duplicati
 
-Duplicati is the only off-site copier: it uploads the published bundle to two
-independent destinations. Duplicati only copies what is in the folder, so the
-dump frequency is set by `BACKUP_INTERVAL_MINUTES`, not by Duplicati. Running
-Duplicati more often than the dumps only re-checks an unchanged file and adds
-no new version.
+Duplicati is the only off-site copier and should use the existing two
+destinations. For each existing job, add both the `backups` folder and the
+`pgbackrest` folder from the same resource. Do not select their parent, which
+contains deployment settings and secrets.
 
-For each destination's job:
-
-- **Source**: only the `backups` folder, excluding `.govmap-backup-work-*`
-  and `.govmap-backup.lock`.
-- **Schedule**: run again every 30 minutes (matching the interval), starting
-  about 5 minutes after a dump slot, for example at `02:35` UTC so runs fall
-  at `:05` and `:35`. Check the backup log for how long a run takes and leave
-  more offset if it is near 5 minutes. A run that starts mid-dump still copies
-  the previous complete bundle.
-- **Retention**: keep history, not just the latest copy, because the newest
-  dump can already contain bad data. A custom policy of `2D:U,14D:1D` keeps
-  every version for 2 days and then one per day for 14 days; widen it if
-  storage allows.
+- **Schedule**: run every 15 minutes. WAL is archived continuously and
+  `archive_timeout` is 5 minutes; the archive-check monitor separately tests
+  that the archiving path still works. Leave enough Duplicati runtime that
+  successive runs do not overlap.
+- **Exclusions**: for the logical folder, exclude `.govmap-backup-work-*`
+  and `.govmap-backup.lock`. Do not exclude files from the pgBackRest
+  repository.
+- **Retention**: keep history, not just the latest copy. For example,
+  `2D:U,14D:1D` keeps every version for 2 days, then one per day for 14 days.
+  Keep the pgBackRest repository's Duplicati history at least as long as
+  needed to recover an older version of the repository.
 - **Encryption and credentials**: keep the passphrase and destination
   credentials outside the server, so a lost server does not take them with it.
 
-Expect each run to upload roughly the whole bundle: it is compressed and
-changes completely every time, so Duplicati's deduplication saves little.
-Check the bundle size (see [Monitor and run a backup](#monitor-and-run-a-backup))
-and multiply by 48 runs a day and two destinations to judge bandwidth and
-storage. If that is too much, use a longer interval such as 60 for both the
-backup service and Duplicati.
+pgBackRest compresses the local repository, and Duplicati may deduplicate
+unchanged blocks, but do not assume the upload will be small. Measure the
+repository size and Duplicati's transferred bytes after several daily full
+backups. It is not point-in-time recovery off-site until the required WAL has
+successfully reached Duplicati. The off-site recovery point is the newest
+complete repository version that Duplicati has uploaded; local PITR is bounded
+by the WAL archive delay (normally at most five minutes plus processing).
 
-The worst-case loss in a disaster is the time since the last bundle that
-reached off-site storage: about one interval plus the upload time. This is
-not point-in-time recovery. Data fetched from public sources can be fetched
-again after a restore; anything entered only into GovMap since the last copy
-is lost.
+## Rehearse a pgBackRest point-in-time restore
+
+Do this in dev or another isolated PostgreSQL 16 target, once from each
+Duplicati destination. Restoring a repository is not proof of recovery; the
+isolated PostgreSQL instance must actually start and reach the requested
+target.
+
+1. Use Duplicati to restore the complete `pgbackrest` source to a new private
+   scratch directory. Do not write it over the live repository. Restore the
+   logical `backups` folder separately if you also want to test the fallback.
+2. Provide that scratch repository to a disposable PostgreSQL 16 container
+   with the same pgBackRest configuration, a new empty data volume and the
+   local socket directory. Never mount the live `postgres-data` volume. Ensure
+   the scratch repository and new data volume are private and accessible to
+   uid/gid `70:70`. Keep source API credentials and scheduled refreshes out of
+   the isolated target.
+3. Before starting PostgreSQL, run `pgbackrest --stanza=govmap info` against
+   the restored repository and confirm it reports the expected stanza and a
+   completed full backup. Then, with the disposable PostgreSQL data directory
+   empty, restore to a UTC timestamp inside the available archive range:
+
+   ```bash
+   pgbackrest --stanza=govmap --type=time \
+     --target='2026-11-11 12:00:00+00' --target-action=promote restore
+   ```
+
+   Replace the example timestamp with a known time in the recovered window.
+   The command must finish successfully; do not run it against production or
+   an existing data directory.
+4. Start only the isolated PostgreSQL instance with the restored repository
+   mounted at `/pgbackrest` and the same config at
+   `/etc/pgbackrest/pgbackrest.conf`. Keep external routes and the worker
+   disabled. Confirm PostgreSQL completes recovery and is promoted at or just
+   after the requested target. Query the migration revision and representative
+   row counts, then record the Duplicati destination, restored version,
+   requested target, actual recovery time and results.
+5. Stop the disposable instance and remove only the named scratch repository
+   and data volume created for the rehearsal. Keep production database files
+   and its pgBackRest repository untouched.
+
+If the target predates the earliest retained full backup or required WAL,
+restore to a later point or investigate the repository; do not call the drill
+successful. A restored upstream request-budget ledger is stale: before using
+the same source API keys, stop old callers and allow the documented 60-minute
+drain with upstream requests disabled.
 
 ## Monitor and run a backup
 
-Day to day, the heartbeat monitor and the off-site product's own reports are
-the checks; the deployment platform's log view for the backup service shows
-`Backups enabled for target "production"`, a `Next backup at` line and
-`Backup completed.` after each run. The steps below are for shell access.
+Day to day, use the three heartbeat monitors, Duplicati's reports, available
+disk space and both service logs. The logical backup log shows its daily
+`Backup completed.`; the pgBackRest log shows archive checks and daily full
+backup completion. The steps below are for shell access.
 
 Find the running backup container's name:
 
@@ -241,6 +295,36 @@ Check the schedule and recent results:
 ```bash
 sudo docker logs --since 48h "$BACKUP_CONTAINER"
 ```
+
+Find the pgBackRest container and inspect its recent archive-check and
+full-backup results:
+
+```bash
+sudo docker ps --format '{{.Names}}' --filter name=pgbackrest
+read -r -p 'pgBackRest container: ' PGBACKREST_CONTAINER
+sudo docker logs --since 48h "$PGBACKREST_CONTAINER"
+sudo docker exec "$PGBACKREST_CONTAINER" pgbackrest --stanza=govmap info
+```
+
+Check PostgreSQL's archiver counters and the local repository's free space:
+
+```bash
+sudo docker ps --format '{{.Names}}' --filter name=postgres
+read -r -p 'PostgreSQL container: ' POSTGRES_CONTAINER
+sudo docker exec "$POSTGRES_CONTAINER" psql --no-password -U govmap -d govmap -Atc \
+  "SELECT current_setting('archive_mode'), current_setting('archive_timeout'), archived_count, failed_count, last_archived_wal, last_archived_time, last_failed_time FROM pg_stat_archiver"
+```
+
+```bash
+PGBACKREST_HOST_DIR="$(sudo docker inspect --format '{{range .Mounts}}{{if eq .Destination "/pgbackrest"}}{{.Source}}{{end}}{{end}}' "$PGBACKREST_CONTAINER")"; echo "${PGBACKREST_HOST_DIR:?no /pgbackrest mount found}"
+df -h -- "$PGBACKREST_HOST_DIR"
+du -sh -- "$PGBACKREST_HOST_DIR"
+```
+
+Repeated archive failures, a growing `pg_wal`, a missing heartbeat, or low
+free space needs investigation before it threatens the database. The
+4 GiB pgBackRest queue cap is a last-resort database-availability guard, not
+a substitute for fixing storage or archive delivery.
 
 Find the host path of the backup folder, then check the published bundle's
 timestamp:
@@ -292,6 +376,10 @@ scratch copy is then deleted. This doesn't test the schedule, the real
 
 ```bash
 unset BACKUP_CONTAINER
+```
+
+```bash
+unset PGBACKREST_CONTAINER POSTGRES_CONTAINER PGBACKREST_HOST_DIR
 ```
 
 Keep `BACKUP_HOST_DIR` set if you will rehearse a restore from the local
