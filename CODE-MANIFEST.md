@@ -8,8 +8,15 @@ What's been built, in what order, and what's next. This is a living log — add 
 Implemented on `dev`; CI is green and services are healthy in dev. In dev,
 the stanza is created, WAL archiving and the archive check succeed, the first
 full backup completed and `pgbackrest info` reports `ok`. One Duplicati job
-copied both folders without warnings. Contents of each off-site destination,
-logical bundle freshness and a restore rehearsal are not yet verified.
+completed without warnings. Isolated restores of job-selected snapshots
+replayed WAL to a post-backup LSN and to a clock-time target between two
+WAL-only marker commits. PostgreSQL 16.15 promoted at revision `0015`;
+representative row counts matched dev. The source destinations were not
+identified, and independent destination restores and application-row rollback
+remain to be verified. Dev's logical-backup service is enabled and its
+catch-up run published a bundle. A job-selected copy passed checksums and
+restored into an isolated PostgreSQL instance at revision `0015`, with the
+same representative counts. Its source destination was not identified.
 Production is unchanged. No database schema migration. No backup product
 beyond Duplicati was added.
 
@@ -32,8 +39,17 @@ beyond Duplicati was added.
 - Off-site PITR is bounded by the most recent complete Duplicati copy of the
   repository, not by the local WAL archive. CI builds and scans the custom
   database image and tests scheduler/config/Compose behavior. The operator
-  must still rehearse a full restore from an off-server destination and
-  confirm each other destination restores on its own.
+  must still independently restore and recover from each destination relied
+  on for disaster recovery. The clock-time drill did not modify application
+  rows, so it did not demonstrate rolling back an application-data change.
+- Dev's Duplicati job is configured for a 30-minute schedule. Its host
+  systemd service is enabled and active, with a 15-second restart delay. One
+  automatic job run completed without warnings or errors; service recovery
+  after reboot and the next scheduled pgBackRest full backup remain to be
+  observed.
+- Dev uses separate heartbeat checks for archive checks, pgBackRest full
+  backups and logical bundles. The archive and logical checks received
+  successful job pings; the full-backup check awaits its first scheduled run.
 - The first CI run failed two checks, both repaired. The backup Compose test
   sliced the backup service to the end of the file and picked up the new
   `pgbackrest` service; service blocks now end at the next service or
@@ -51,9 +67,9 @@ beyond Duplicati was added.
   sidecar gets Alpine 3.22's (currently 2.55). They exchange only repository
   files and never use pgBackRest's remote protocol, where matching versions
   are required, and the 2.56 to 2.58 release notes list no repository-format
-  change. Dev acceptance (`stanza-create`, `check`, a full backup and a
-  restore rehearsal) is the proof; move the sidecar to a newer Alpine
-  afterwards.
+  change. Dev has completed stanza creation, a check, a full backup and
+  isolated LSN- and clock-time-targeted restores; per-destination recovery
+  remains open. Move the sidecar to a newer Alpine after acceptance.
 - The first dev `info` call exposed two incompatibilities: the 2.55 sidecar
   rejects `archive-push-batch-size`, and pgBackRest interprets application
   variables named `PGBACKREST_*` as its own options. The unsupported setting

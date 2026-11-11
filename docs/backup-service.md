@@ -235,15 +235,21 @@ them; `interval` or `counting` mode leaves that destination with an older
 recovery point. Older Duplicati versions need one job per destination with the
 same two folders.
 
-- **Schedule**: run every 15 minutes. WAL is archived continuously and
-  `archive_timeout` is 5 minutes; the archive-check monitor separately tests
-  that the archiving path still works. Leave enough Duplicati runtime,
-  including the copies to additional destinations, that successive runs do
-  not overlap.
+- **Schedule**: choose an interval based on the desired recovery point and
+  measured runtime. Dev is configured for every 30 minutes; observe an
+  automatic run and allow enough time for copies to all destinations before
+  the next run. The five-minute WAL archive timeout, upload and copy time,
+  and failures add delay, so the interval alone is not an off-site recovery
+  guarantee.
+- **Host service**: if Duplicati runs under systemd, enable it at boot and
+  set a restart delay compatible with its start-rate limits. Verify behavior
+  after a reboot; an enabled, active service does not prove that scheduled
+  jobs or remote copies succeed.
 - **Verify every destination**: Duplicati does not document how a failed
-  copy to an additional destination affects the job result, so a successful
-  job proves only the first destination. Confirm that each destination's
-  newest files are from the latest run.
+  copy to an additional destination affects the job result. A successful job
+  and matching file timestamps alone do not prove that every destination has
+  a complete, recoverable copy. Check each destination and rehearse recovery
+  from it independently.
 - **Exclusions**: for the logical folder, exclude `.govmap-backup-work-*`
   and `.govmap-backup.lock`. Do not exclude files from the pgBackRest
   repository.
@@ -264,23 +270,29 @@ by the WAL archive delay (normally at most five minutes plus processing).
 
 ## Rehearse a pgBackRest point-in-time restore
 
-Do this in dev or another isolated PostgreSQL 16 target, from a destination
-that would survive the loss of the server. Restoring a repository is not proof
-of recovery; the isolated PostgreSQL instance must actually start and reach
-the requested target. For every other destination, use Duplicati's direct
-restore from that destination alone and restore
-`pgbackrest/backup/govmap/backup.info` to a scratch directory. That proves
-the destination opens with the passphrase and holds the newest version.
+Do this in dev or another isolated PostgreSQL 16 target, independently from
+each destination relied on for recovery. When its connection details are
+available, Duplicati's **Restore** followed by **Direct restore from backup
+files** can specify a particular destination. A normal job restore can also
+exercise recovery, but does not independently verify a destination if the
+source is unidentified. A small-file restore can check access and the
+passphrase, but does not prove the full repository or its required WAL is
+recoverable. Restoring the complete repository is not enough either: the
+isolated PostgreSQL instance must actually start and reach the requested target.
 
 1. Use Duplicati to restore the complete `pgbackrest` source to a new private
    scratch directory. Do not write it over the live repository. Restore the
    logical `backups` folder separately if you also want to test the fallback.
-2. Provide that scratch repository to a disposable PostgreSQL 16 container
-   with the same pgBackRest configuration, a new empty data volume and the
-   local socket directory. Never mount the live `postgres-data` volume. Ensure
-   the scratch repository and new data volume are private and accessible to
-   uid/gid `70:70`. Keep source API credentials and scheduled refreshes out of
-   the isolated target.
+2. Provide that scratch repository read-only to a disposable PostgreSQL 16
+   container with the same pgBackRest configuration, a newly created empty
+   data volume and a private writable socket directory. Never mount the live
+   `postgres-data` volume. Ensure the scratch repository and new data volume
+   are private and accessible to uid/gid `70:70`. Disable networking and
+   archiving, and keep source API credentials and scheduled refreshes out of
+   the isolated target. Start `postgres` directly as uid/gid `70:70`: the
+   GovMap image's normal entrypoint changes repository permissions and cannot
+   be used with a read-only repository mount. Provide a writable temporary
+   directory for pgBackRest's spool and locks.
 3. Before starting PostgreSQL, run `pgbackrest --stanza=govmap info` against
    the restored repository and confirm it reports the expected stanza and a
    completed full backup. Then, with the disposable PostgreSQL data directory
@@ -291,17 +303,23 @@ the destination opens with the passphrase and holds the newest version.
      --target='2026-11-11 12:00:00+00' --target-action=promote restore
    ```
 
-   Replace the example timestamp with a known time in the recovered window.
-   The command must finish successfully; do not run it against production or
-   an existing data directory.
+   Replace the example timestamp with a known time after the selected full
+   backup completed and before an archived commit or abort record. File
+   modification times alone do not establish the WAL's transaction-time
+   boundaries. The command must finish successfully; do not run it against
+   production or an existing data directory. An LSN-targeted restore can also
+   exercise replay to a specific WAL position, but does not by itself verify
+   recovery to a clock-time target.
 4. Start only the isolated PostgreSQL instance with the restored repository
    mounted at `/pgbackrest`. Use the GovMap database image, which already
    contains the config at `/etc/pgbackrest/pgbackrest.conf`; do not bind-mount
    it from the repository. Keep external routes and the worker
-   disabled. Confirm PostgreSQL completes recovery and is promoted at or just
-   after the requested target. Query the migration revision and representative
-   row counts, then record the Duplicati destination, restored version,
-   requested target, actual recovery time and results.
+   disabled. Check the recovery log for the stopping record and promotion,
+   and confirm the last replayed transaction is at or before the target.
+   Query the migration revision and representative row counts, then record
+   the Duplicati destination, restored version, requested target, last
+   replayed transaction time and results. WAL-only markers test the time
+   boundary but do not demonstrate rollback of application-row changes.
 5. Stop the disposable instance and remove only the named scratch repository
    and data volume created for the rehearsal. Keep production database files
    and its pgBackRest repository untouched.
