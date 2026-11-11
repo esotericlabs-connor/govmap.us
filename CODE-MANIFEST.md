@@ -5,20 +5,20 @@ What's been built, in what order, and what's next. This is a living log — add 
 ## Build log
 
 **2026-11-11 — Local pgBackRest PITR with Duplicati off-site**
-Implemented on `dev`; CI and dev deployment acceptance are pending. No
+Implemented on `dev`; CI is green and services are healthy in dev. pgBackRest
+bootstrap is paused while its config/environment warnings are corrected. No
 database schema migration. No backup product beyond Duplicati was added.
 
 - A custom PostgreSQL 16 image installs pgBackRest. Archiving remains off
-  unless `PGBACKREST_ENABLED=true`, and the repository directory is prepared
-  as private uid/gid `70:70`. Create the stanza while archiving is still off
-  before enabling it.
+  unless `GOVMAP_PGBACKREST_ENABLED=true`, and the repository directory is
+  prepared as private uid/gid `70:70`. Create the stanza while archiving is
+  still off before enabling it.
 - The pgBackRest sidecar shares the repository and socket plus read-only
   PostgreSQL data files. It checks archiving every 15 minutes, retries failed
   full backups every 15 minutes, creates daily full backups, and uses
   seven-day time-based full-backup retention. WAL archiving is asynchronous
-  with 1 GiB push batches, a 5-minute timeout and a 4 GiB queue cap that
-  protects the database disk by dropping excess WAL; a cap event creates a
-  PITR gap.
+  with a 5-minute timeout and a 4 GiB queue cap that protects the database
+  disk by dropping excess WAL; a cap event creates a PITR gap.
 - The independent logical `pg_dump` bundle returns to once daily. Duplicati
   copies both `backups` and `pgbackrest` to the existing two destinations.
   Bootstrap, heartbeat, sizing, restore and operator deployment steps are in
@@ -47,6 +47,13 @@ database schema migration. No backup product beyond Duplicati was added.
   change. Dev acceptance (`stanza-create`, `check`, a full backup and a
   restore rehearsal) is the proof; move the sidecar to a newer Alpine
   afterwards.
+- The first dev `info` call exposed two incompatibilities: the 2.55 sidecar
+  rejects `archive-push-batch-size`, and pgBackRest interprets application
+  variables named `PGBACKREST_*` as its own options. The unsupported setting
+  was removed from the shared config, application controls now use
+  `GOVMAP_PGBACKREST_*`, and the operator must remove the old names from
+  Coolify. Before the first backup, `info` reporting no valid backups and no
+  WAL is expected; invalid-option warnings are not.
 - The first Coolify deploy failed because Compose bind-mounted
   `backup/pgbackrest.conf`. Coolify resolves relative bind sources on the
   host, where repository files don't exist, so Docker created an empty

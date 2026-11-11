@@ -17,7 +17,8 @@ Two backup services run in the same Compose stack:
 
 1. `pgbackrest` continuously archives WAL from PostgreSQL, checks the archive
    every 15 minutes, and creates a full cluster backup daily at
-   `PGBACKREST_TIME_UTC` (default `03:30` UTC). pgBackRest expires backups
+   `GOVMAP_PGBACKREST_TIME_UTC` (default `03:30` UTC). pgBackRest expires
+   backups
    using a seven-day time-based full-backup retention policy. Its repository
    is local to this resource, under `./pgbackrest`.
 2. `backup` creates a separate logical `pg_dump` bundle and logs daily at
@@ -40,9 +41,12 @@ The database image gets pgBackRest from Alpine 3.24 (currently 2.58) and the
 sidecar gets it from Alpine 3.22 (currently 2.55). The two exchange only
 repository files and never use pgBackRest's remote protocol, where matching
 versions are required, and the 2.56 to 2.58 release notes list no
-repository-format change. Dev acceptance and the restore rehearsal below are
-the proof (stanza, archive check, full backup and restore); after them, move
-the sidecar to a newer Alpine so both match.
+repository-format change. Keep the shared config limited to options both
+versions support: `archive-push-batch-size` is not recognized by the Alpine
+3.22 sidecar and causes `info` to report an invalid configuration. Dev
+acceptance and the restore rehearsal below are the proof (stanza, archive
+check, full backup and restore); after them, move the sidecar to a newer
+Alpine so both match.
 
 **Deployment configuration and secrets are not included.** The `.env` values,
 tunnel token and other credentials are kept in the operator's vault and must
@@ -98,20 +102,19 @@ continuously when pgBackRest is enabled; its sidecar checks the archive every
 - `BACKUP_ENABLED=true`: it runs daily at `BACKUP_TIME_UTC` (`02:30` UTC by
   default). The bundle is created immediately on startup only if missing or
   at least 24 hours old.
-- `PGBACKREST_ENABLED=false` (the default): PostgreSQL archiving stays off and
-  the pgBackRest scheduler idles. Do not turn it on until the stanza has been
-  created; see [Bootstrap pgBackRest](#bootstrap-pgbackrest).
-- `PGBACKREST_ENABLED=true`: PostgreSQL archives WAL with a 5-minute
+- `GOVMAP_PGBACKREST_ENABLED=false` (the default): PostgreSQL archiving stays
+  off and the pgBackRest scheduler idles. Do not turn it on until the stanza
+  has been created; see [Bootstrap pgBackRest](#bootstrap-pgbackrest).
+- `GOVMAP_PGBACKREST_ENABLED=true`: PostgreSQL archives WAL with a 5-minute
   `archive_timeout`. The sidecar runs `pgbackrest check` every 15 minutes and
-  a full backup daily at `PGBACKREST_TIME_UTC` (`03:30` UTC by default). It
-  catches up at startup if no full backup exists or the last one is at least
-  24 hours old. Failed archive checks are logged and retried after 15 minutes.
-  Failed full backups are logged and retried every 15 minutes until one
-  succeeds; neither failure sends its corresponding heartbeat.
+  a full backup daily at `GOVMAP_PGBACKREST_TIME_UTC` (`03:30` UTC by
+  default). It catches up at startup if no full backup exists or the last one
+  is at least 24 hours old. Failed archive checks are logged and retried after
+  15 minutes. Failed full backups are logged and retried every 15 minutes
+  until one succeeds; neither failure sends its corresponding heartbeat.
 - Stopping or redeploying the container interrupts a run in progress; the
   previous bundle is kept and the scratch directory is removed.
 - Asynchronous archiving enables the `archive-push-queue-max=4GiB` safeguard.
-  Push runs are bounded to 1 GiB so the queue limit is rechecked regularly.
   If the queue exceeds the limit, pgBackRest discards queued WAL rather than
   allowing `pg_wal` to fill and stop PostgreSQL. That creates a PITR gap; a
   new successful full backup is required to restore complete recovery
@@ -129,10 +132,17 @@ Run only one enabled backup stack per environment.
 | `BACKUP_INTERVAL_MINUTES` | `1440` | Logical dump interval; 1440 is once daily |
 | `BACKUP_TIME_UTC` | `02:30` | Daily logical dump time in UTC |
 | `BACKUP_HEARTBEAT_URL` | empty | Private `https` dead-man's-switch URL; store it as a secret |
-| `PGBACKREST_ENABLED` | `false` | Enables PostgreSQL WAL archiving and pgBackRest schedules; stanza must already exist |
-| `PGBACKREST_TIME_UTC` | `03:30` | Daily full backup time in UTC |
-| `PGBACKREST_ARCHIVE_HEARTBEAT_URL` | empty | Optional `https` heartbeat after each successful 15-minute archive check |
-| `PGBACKREST_BACKUP_HEARTBEAT_URL` | empty | Optional `https` heartbeat after each successful full backup |
+| `GOVMAP_PGBACKREST_ENABLED` | `false` | Enables PostgreSQL WAL archiving and pgBackRest schedules; stanza must already exist |
+| `GOVMAP_PGBACKREST_TIME_UTC` | `03:30` | Daily full backup time in UTC |
+| `GOVMAP_PGBACKREST_ARCHIVE_HEARTBEAT_URL` | empty | Optional `https` heartbeat after each successful 15-minute archive check |
+| `GOVMAP_PGBACKREST_BACKUP_HEARTBEAT_URL` | empty | Optional `https` heartbeat after each successful full backup |
+
+Use the `GOVMAP_`-prefixed names exactly. pgBackRest reserves the
+`PGBACKREST_` environment prefix for its own options, and Coolify injects its
+configured environment variables into every Compose container. Remove any
+old `PGBACKREST_ENABLED`, `PGBACKREST_TIME_UTC`,
+`PGBACKREST_ARCHIVE_HEARTBEAT_URL` or `PGBACKREST_BACKUP_HEARTBEAT_URL`
+variables from Coolify so pgBackRest does not interpret them as options.
 
 The heartbeat URL is passed to `curl` on stdin so its token never appears in
 the process list. The database password comes from `POSTGRES_PASSWORD`.
@@ -167,12 +177,14 @@ independently of the server.
 ## Bootstrap pgBackRest
 
 Do this in dev first on a reviewed, CI-green revision. Keep
-`PGBACKREST_ENABLED=false` during the initial deployment so PostgreSQL starts
-without archiving while the repository is initialized.
+`GOVMAP_PGBACKREST_ENABLED=false` during the initial deployment so PostgreSQL
+starts without archiving while the repository is initialized.
 
-1. Deploy the new PostgreSQL image and Compose services with
-   `PGBACKREST_ENABLED=false`. Confirm PostgreSQL becomes healthy from the
-   rebuilt image and the application's health checks still pass. The
+1. In Coolify, remove the old `PGBACKREST_*` application variables and use
+   the `GOVMAP_PGBACKREST_*` names from the settings table instead. Deploy the
+   new PostgreSQL image and Compose services with
+   `GOVMAP_PGBACKREST_ENABLED=false`. Confirm PostgreSQL becomes healthy from
+   the rebuilt image and the application's health checks still pass. The
    PostgreSQL entrypoint prepares the local `pgbackrest` folder as private
    uid/gid `70:70`. Do not deploy the code directly to production before this
    dev acceptance.
@@ -187,9 +199,11 @@ without archiving while the repository is initialized.
    ```
 
    Confirm `stanza-create` succeeds and `info` identifies the intended
-   environment. Do not initialize production using a dev repository or vice
-   versa.
-3. Set `PGBACKREST_ENABLED=true` only after that succeeds, then redeploy.
+   environment. `info` may report `status: error (no valid backups)` and
+   `wal archive min/max: none present` at this stage; that is expected before
+   the first backup and WAL archive. The commands must not emit invalid-option
+   warnings. Do not initialize production using a dev repository or vice versa.
+3. Set `GOVMAP_PGBACKREST_ENABLED=true` only after that succeeds, then redeploy.
    This restarts PostgreSQL and enables WAL archiving. Confirm the PostgreSQL
    logs show successful archive pushes and the pgBackRest logs show a
    successful archive check and initial full backup. Stop and investigate if

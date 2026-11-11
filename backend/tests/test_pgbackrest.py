@@ -76,10 +76,10 @@ def scheduler(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Pa
     monkeypatch.setenv("FAKE_CURL_LOG", str(curl_log))
     monkeypatch.setenv("FAKE_PGBACKREST_LAST_FULL", str(int(time.time())))
     for name in (
-        "PGBACKREST_ENABLED",
-        "PGBACKREST_TIME_UTC",
-        "PGBACKREST_ARCHIVE_HEARTBEAT_URL",
-        "PGBACKREST_BACKUP_HEARTBEAT_URL",
+        "GOVMAP_PGBACKREST_ENABLED",
+        "GOVMAP_PGBACKREST_TIME_UTC",
+        "GOVMAP_PGBACKREST_ARCHIVE_HEARTBEAT_URL",
+        "GOVMAP_PGBACKREST_BACKUP_HEARTBEAT_URL",
         "FAKE_PGBACKREST_BACKUP_FAIL",
         "FAKE_PGBACKREST_CHECK_FAIL",
         "FAKE_CURL_EXIT",
@@ -119,10 +119,10 @@ def test_pgbackrest_scheduler_checks_archive_and_waits_for_daily_slot(
     scheduler: tuple[Path, Path, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     pgbackrest_log, sleep_log, curl_log = scheduler
-    monkeypatch.setenv("PGBACKREST_ENABLED", "true")
-    monkeypatch.setenv("PGBACKREST_TIME_UTC", "03:30")
-    monkeypatch.setenv("PGBACKREST_ARCHIVE_HEARTBEAT_URL", "https://hc.example.test/archive")
-    monkeypatch.setenv("PGBACKREST_BACKUP_HEARTBEAT_URL", "https://hc.example.test/full")
+    monkeypatch.setenv("GOVMAP_PGBACKREST_ENABLED", "true")
+    monkeypatch.setenv("GOVMAP_PGBACKREST_TIME_UTC", "03:30")
+    monkeypatch.setenv("GOVMAP_PGBACKREST_ARCHIVE_HEARTBEAT_URL", "https://hc.example.test/archive")
+    monkeypatch.setenv("GOVMAP_PGBACKREST_BACKUP_HEARTBEAT_URL", "https://hc.example.test/full")
 
     result = _run_scheduler()
 
@@ -138,9 +138,9 @@ def test_pgbackrest_scheduler_catches_up_a_stale_full_backup(
     scheduler: tuple[Path, Path, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     pgbackrest_log, _, curl_log = scheduler
-    monkeypatch.setenv("PGBACKREST_ENABLED", "true")
+    monkeypatch.setenv("GOVMAP_PGBACKREST_ENABLED", "true")
     monkeypatch.setenv("FAKE_PGBACKREST_LAST_FULL", str(int(time.time()) - 25 * 3600))
-    monkeypatch.setenv("PGBACKREST_BACKUP_HEARTBEAT_URL", "https://hc.example.test/full")
+    monkeypatch.setenv("GOVMAP_PGBACKREST_BACKUP_HEARTBEAT_URL", "https://hc.example.test/full")
 
     result = _run_scheduler()
 
@@ -154,10 +154,10 @@ def test_pgbackrest_scheduler_retries_a_failed_catch_up_backup(
     scheduler: tuple[Path, Path, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     pgbackrest_log, sleep_log, curl_log = scheduler
-    monkeypatch.setenv("PGBACKREST_ENABLED", "true")
+    monkeypatch.setenv("GOVMAP_PGBACKREST_ENABLED", "true")
     monkeypatch.setenv("FAKE_PGBACKREST_LAST_FULL", "0")
     monkeypatch.setenv("FAKE_PGBACKREST_BACKUP_FAIL", "1")
-    monkeypatch.setenv("PGBACKREST_BACKUP_HEARTBEAT_URL", "https://hc.example.test/full")
+    monkeypatch.setenv("GOVMAP_PGBACKREST_BACKUP_HEARTBEAT_URL", "https://hc.example.test/full")
 
     result = _run_scheduler()
 
@@ -176,13 +176,13 @@ def test_pgbackrest_scheduler_rejects_invalid_time(
     value: str,
 ) -> None:
     pgbackrest_log, sleep_log, _ = scheduler
-    monkeypatch.setenv("PGBACKREST_ENABLED", "true")
-    monkeypatch.setenv("PGBACKREST_TIME_UTC", value)
+    monkeypatch.setenv("GOVMAP_PGBACKREST_ENABLED", "true")
+    monkeypatch.setenv("GOVMAP_PGBACKREST_TIME_UTC", value)
 
     result = _run_scheduler()
 
     assert result.returncode == 1
-    assert "PGBACKREST_TIME_UTC" in result.stdout
+    assert "GOVMAP_PGBACKREST_TIME_UTC" in result.stdout
     assert _lines(pgbackrest_log) == []
     assert _lines(sleep_log) == []
 
@@ -197,8 +197,8 @@ def test_pgbackrest_scheduler_rejects_malformed_heartbeat_url(
     value: str,
 ) -> None:
     pgbackrest_log, sleep_log, _ = scheduler
-    monkeypatch.setenv("PGBACKREST_ENABLED", "true")
-    monkeypatch.setenv("PGBACKREST_ARCHIVE_HEARTBEAT_URL", value)
+    monkeypatch.setenv("GOVMAP_PGBACKREST_ENABLED", "true")
+    monkeypatch.setenv("GOVMAP_PGBACKREST_ARCHIVE_HEARTBEAT_URL", value)
 
     result = _run_scheduler()
 
@@ -212,7 +212,7 @@ def test_pgbackrest_scheduler_does_not_ping_after_failed_archive_check(
     scheduler: tuple[Path, Path, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     pgbackrest_log, _, curl_log = scheduler
-    monkeypatch.setenv("PGBACKREST_ENABLED", "true")
+    monkeypatch.setenv("GOVMAP_PGBACKREST_ENABLED", "true")
     monkeypatch.setenv("FAKE_PGBACKREST_CHECK_FAIL", "1")
 
     result = _run_scheduler()
@@ -272,7 +272,7 @@ def test_pgbackrest_configuration_uses_seven_day_time_retention() -> None:
     assert "repo1-retention-full=7" in config
     assert "repo1-retention-full-type=time" in config
     assert "archive-async=y" in config
-    assert "archive-push-batch-size=1GiB" in config
+    assert "archive-push-batch-size" not in config
     assert "archive-push-queue-max=4GiB" in config
     assert "spool-path=/tmp/pgbackrest" in config
     assert "pg1-path=/var/lib/postgresql/data" in config
@@ -311,12 +311,13 @@ def _service_block(compose: str, name: str) -> str:
 
 
 def test_pgbackrest_compose_mounts_private_repo_and_read_only_database_files() -> None:
-    compose = (_REPO / "docker-compose.PaaS.yml").read_text(encoding="utf-8")
-    database = _service_block(compose, "postgres")
-    service = _service_block(compose, "pgbackrest")
+    compose_text = (_REPO / "docker-compose.PaaS.yml").read_text(encoding="utf-8")
+    compose = yaml.safe_load(compose_text)
+    database = _service_block(compose_text, "postgres")
+    service = _service_block(compose_text, "pgbackrest")
 
     assert "build: ./database" in database
-    assert "PGBACKREST_ENABLED: ${PGBACKREST_ENABLED:-false}" in database
+    assert "GOVMAP_PGBACKREST_ENABLED: ${GOVMAP_PGBACKREST_ENABLED:-false}" in database
     assert "- ./pgbackrest:/pgbackrest" in database
     assert "- postgres-socket:/var/run/postgresql" in database
     assert "entrypoint: [\"/usr/local/bin/govmap-pgbackrest-scheduler\"]" in service
@@ -325,6 +326,8 @@ def test_pgbackrest_compose_mounts_private_repo_and_read_only_database_files() -
     assert "- ./pgbackrest:/pgbackrest" in service
     assert "docker.sock" not in service
     assert "privileged" not in service
+    for name, config in compose["services"].items():
+        assert not any(key.startswith("PGBACKREST_") for key in config.get("environment", {})), name
 
 
 def test_database_image_declares_postgresql_provider_before_installing_pgbackrest() -> None:
@@ -340,7 +343,7 @@ def test_database_image_declares_postgresql_provider_before_installing_pgbackres
 def test_postgres_entrypoint_enables_archiving_only_after_explicit_opt_in() -> None:
     entrypoint = (_REPO / "database" / "entrypoint.sh").read_text(encoding="utf-8")
 
-    assert 'PGBACKREST_ENABLED:-false' in entrypoint
+    assert 'GOVMAP_PGBACKREST_ENABLED:-false' in entrypoint
     assert "archive_mode=on" in entrypoint
     assert "archive_timeout=300" in entrypoint
     assert "archive-push %p" in entrypoint
