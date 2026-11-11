@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
+import asyncpg
 import pytest
 import yaml
 from pydantic import ValidationError
@@ -74,6 +75,7 @@ def test_readiness_reads_schema_without_requiring_rows(
 @pytest.mark.parametrize(
     "error",
     [
+        asyncpg.InvalidPasswordError("private database URL"),
         OperationalError("private database URL", {}, Exception("private password")),
         SQLAlchemyError("private database URL"),
         TimeoutError("private database URL"),

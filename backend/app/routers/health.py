@@ -2,6 +2,7 @@ import asyncio
 import logging
 from typing import Literal
 
+import asyncpg
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -50,7 +51,7 @@ async def ready() -> JSONResponse:
             async with async_session_factory() as session:
                 # Reading an empty table is healthy; its absence is not.
                 await session.execute(select(PipelineStatusRow.source).limit(1))
-    except (SQLAlchemyError, TimeoutError, OSError) as exc:
+    except (asyncpg.PostgresError, SQLAlchemyError, TimeoutError, OSError) as exc:
         # Driver exception messages may contain credentials or host addresses.
         logger.warning("database readiness check failed (%s)", type(exc).__name__)
         return _response(False)
