@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy import func, insert, select
-from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 
 from app import scheduler
@@ -16,6 +16,7 @@ from app.db import Base
 from app.models.source_run import SourceRun
 from app.pipelines import refresh, runs
 from app.pipelines.batch import BatchResult
+from app.routers import pipeline_status
 
 # --- pure helpers -------------------------------------------------------------
 
@@ -248,5 +249,70 @@ def test_an_overlapping_run_is_skipped(monkeypatch: pytest.MonkeyPatch) -> None:
             ("zip_districts", "manual", "error"),
         ]
         assert rows[1].detail == "no outcome recorded"
+
+    asyncio.run(_with_run_table(check, monkeypatch))
+
+
+@_needs_postgres
+def test_source_run_history_filters_and_pages_newest_first(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def check(engine: AsyncEngine) -> None:
+        now = datetime.now(UTC)
+        manifest = [{"name": "house_votes_raw.json", "sha256": None, "bytes": None,
+                     "modified_at": None}]
+        async with engine.begin() as connection:
+            await connection.execute(
+                insert(SourceRun),
+                [
+                    {"source": "votes", "trigger": "schedule", "outcome": "ok",
+                     "started_at": now - timedelta(hours=4)},
+                    {"source": "congress_gov_bills", "trigger": "schedule",
+                     "outcome": "error", "started_at": now - timedelta(hours=3),
+                     "detail": "upstream 503"},
+                    {"source": "votes", "trigger": "manual", "outcome": "partial",
+                     "started_at": now - timedelta(hours=2),
+                     "finished_at": now - timedelta(hours=1), "record_count": 12,
+                     "items_total": 3, "items_succeeded": 2, "items_failed": 1,
+                     "inputs": manifest},
+                    {"source": "votes", "trigger": "schedule", "outcome": "ok",
+                     "started_at": now - timedelta(hours=1)},
+                ],
+            )
+
+        async with AsyncSession(engine) as session:
+
+            async def fetch(**params: object) -> list[dict]:
+                query = pipeline_status.SourceRunQuery.model_validate(params)
+                return await pipeline_status.source_runs(query, db=session)
+
+            everything = await fetch()
+            ids = [run["id"] for run in everything]
+            assert ids == sorted(ids, reverse=True)
+            assert [(run["source"], run["outcome"]) for run in everything] == [
+                ("votes", "ok"),
+                ("votes", "partial"),
+                ("congress_gov_bills", "error"),
+                ("votes", "ok"),
+            ]
+
+            votes = await fetch(source="votes")
+            assert [run["outcome"] for run in votes] == ["ok", "partial", "ok"]
+            (failed,) = await fetch(outcome="error")
+            assert (failed["source"], failed["detail"]) == ("congress_gov_bills", "upstream 503")
+            assert failed["finished_at"] is None
+
+            first = await fetch(source="votes", limit=2)
+            rest = await fetch(source="votes", limit=2, before_id=first[-1]["id"])
+            assert [run["id"] for run in first + rest] == [run["id"] for run in votes]
+
+            partial = first[1]
+            assert partial["trigger"] == "manual"
+            assert datetime.fromisoformat(partial["started_at"]) < datetime.fromisoformat(
+                partial["finished_at"]
+            )
+            assert (partial["record_count"], partial["items_total"],
+                    partial["items_succeeded"], partial["items_failed"]) == (12, 3, 2, 1)
+            assert partial["inputs"] == manifest
 
     asyncio.run(_with_run_table(check, monkeypatch))

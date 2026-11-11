@@ -19,7 +19,7 @@ These are architectural law, not style preferences. Every pipeline and every nor
 
 Every data source follows the same three layers. Don't collapse them, even for a "simple" source:
 
-1. **Pipeline script** (`backend/app/pipelines/<source>.py`) — pulls from exactly one source, handles that source's auth/pagination/rate limits, validates the raw shape with a Pydantic model, writes staging JSON, updates `pipeline_status.json` with timestamp/record count/status. Fails loudly (raises, logs) on unexpected shape — never silently emits stale or partial data.
+1. **Pipeline script** (`backend/app/pipelines/<source>.py`) — pulls from exactly one source, handles that source's auth/pagination/rate limits, validates the raw shape with a Pydantic model, writes staging JSON, records the outcome (timestamp/record count/status) with `record_run()` (`app/pipelines/status.py`), which updates the `pipeline_status` table and the run's `source_runs` history row (`app/pipelines/runs.py`). Fails loudly (raises, logs) on unexpected shape — never silently emits stale or partial data.
 2. **Normalizer** (`backend/app/normalize/<entity>.py`) — reads staging JSON, applies the ID crosswalk and the rules above, upserts into Postgres via SQLAlchemy.
 3. **API/output** (`backend/app/routers/<entity>.py`) — reads from Postgres, serves the canonical JSON shape defined for that entity.
 

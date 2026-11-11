@@ -64,7 +64,7 @@ Nothing skips a layer. The full identifier and normalization rules are non-negot
 
 | Layer | Technology |
 | --- | --- |
-| Backend | Python 3.11+, FastAPI, SQLAlchemy (async), Alembic |
+| Backend | Python 3.13, FastAPI, SQLAlchemy (async), Alembic |
 | Database | PostgreSQL |
 | Frontend | Next.js 16 (App Router), React 19, TypeScript, Tailwind CSS 3, Node.js 24 |
 | Pipelines | Python scripts, one per source, scheduled via APScheduler |
@@ -88,7 +88,7 @@ Brand assets live in `frontend/public/` (`logo-dark.png`, `logo-light.png` — f
 
 ## Local development
 
-Prerequisites: Python 3.11+, Node.js 24, and Docker (for local Postgres — or point `DATABASE_URL` at any Postgres 16 instance).
+Prerequisites: Python 3.13, Node.js 24, and Docker (for local Postgres — or point `DATABASE_URL` at any Postgres 16 instance).
 
 ```bash
 # 1. Start Postgres
@@ -145,7 +145,7 @@ Backend dependencies follow the same rule:
 1. Edit the top-level pins in `backend/requirements.in`, never
    `requirements.txt` directly.
 2. The Lint workflow's `backend-audit` job recompiles the hash-locked install
-   set on Linux/Python 3.11, keeping the committed pins, and uploads it as
+   set on Linux/Python 3.13, keeping the committed pins, and uploads it as
    `backend-lock-<commit SHA>`. It warns when that differs from the committed
    lock.
 3. Review that file, commit it as `backend/requirements.txt`, and rerun CI.
@@ -276,6 +276,15 @@ for `source`, `status`, `last_run`, `last_success` and `record_count`; do not
 publish its raw `detail` field or application logs. Confirm timestamps
 advance after the new instance starts. Record counts describe the latest
 run, not necessarily the total rows in an entity table.
+
+`pipeline_status` keeps only each source's latest outcome. Every refresh
+attempt, including `partial`, `skipped` and `abandoned` ones a later success
+would hide, stays in `source_runs` for 400 days. Read it with SQL or, with
+`INTERNAL_USER` / `INTERNAL_PASSWORD` configured, `GET /internal/source-runs`
+on the private backend: newest first, filtered by `source` and `outcome`,
+`limit` up to 500 (default 100), and `before_id` set to the smallest `id` of
+the previous page to page back. Its `detail` has credentials removed but is
+still operator-only.
 
 ### Persistent state and secrets
 

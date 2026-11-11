@@ -156,6 +156,7 @@ def test_api_docs_are_off_by_default_and_never_list_internal_routes() -> None:
         assert main.app.openapi_url is None
         assert not paths & {"/docs", "/redoc", "/openapi.json"}
     assert "/internal/pipeline-status" in paths
+    assert "/internal/source-runs" in paths
     schema_paths = main.app.openapi()["paths"]
     assert "/ready" in schema_paths
     assert not [p for p in schema_paths if p.startswith("/internal")]

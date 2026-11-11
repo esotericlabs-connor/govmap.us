@@ -4,6 +4,28 @@ What's been built, in what order, and what's next. This is a living log — add 
 
 ## Build log
 
+**2026-11-11 — R1 runtime and visibility: Python 3.13, run-history endpoint**
+Roadmap R1 follow-up. No schema migration. CI is the only test run; nothing
+was executed on the static checkout.
+
+- *Python 3.11 → 3.13:* the backend image moves to `python:3.13-slim`
+  (3.13.18, Debian 13), pinned by digest, and every CI job runs 3.13. This
+  clears 6 of the 9 CPython findings Grype reported below the gate on 3.11;
+  each had a fix only in 3.12+. The hash lock needed no new packages: every
+  compiled dependency already had a 3.13 wheel (watchfiles through its abi3
+  wheel) whose hash was in the lock. Ruff now targets py313, so the two
+  generic helpers use PEP 695 type parameters. The zlib floor stays because
+  the 3.13 base is the same Debian release.
+- *`GET /internal/source-runs`:* returns run history, newest first, behind
+  the same Basic auth as `/internal/pipeline-status` and kept out of the
+  schema. Filters are validated by a Pydantic model that rejects unknown
+  parameters. `source` must be a registered source and `outcome` a known
+  outcome. `limit` is 1–500 and `before_id` pages back. Credentials are
+  checked before filters, so a caller without them can't probe source names.
+- *AGENTS.md* now describes the real pipeline contract: `record_run()`
+  writes the `pipeline_status` table and the `source_runs` history, not a
+  `pipeline_status.json` file.
+
 **2026-11-11 — R1 Phase B: source registry, run history, member terms, departed members (schema 0014)**
 Starts roadmap R1 (immediate work queue item 3). CI is the only test run;
 nothing was executed on the static checkout.
@@ -980,6 +1002,5 @@ Adapted from the original end-to-end plan, reordered to prove the pipeline contr
   - *Committee-meeting history.* The meetings table is fully replaced with each chamber's 300 most-recently-updated meetings (`committee_meetings_limit`), so older meetings drop out. Keeping history needs an append/upsert model and a migration (roadmap history lane).
   - *Script/style CSP.* Only `frame-ancestors` is enforced. A full CSP needs per-request nonces (making pages dynamic) plus Cloudflare Turnstile allowances; roll it out report-only first.
   - *HUD page cap.* `zip_crosswalk` now fails rather than staging a partial set if HUD needs more than 60 pages. If that error appears, check the page-1 log's metadata and raise `_MAX_PAGES` deliberately.
-  - *Python runtime CVEs below the gate.* Grype reports 9 medium/low CPython 3.11.18 findings in the backend image (CVE-2025-12781, CVE-2025-15366, CVE-2025-15367, CVE-2026-12345, CVE-2026-116566, CVE-2026-3446, CVE-2026-6019, CVE-2026-103995, CVE-2026-3479). None is high or critical and none has a 3.11 fix; they close only on Python 3.12+. Plan a deliberate Python minor upgrade (base image, hash lock, CI matrix) rather than suppressing them.
-- **R1 Phase B leftovers.** Stale `member_terms` rows (a term the upstream file later drops or re-dates) are not deleted. Only current members' terms load; historical members need the `legislators-historical` file. Run history is not yet exposed through an API.
-- **AGENTS.md still names `pipeline_status.json`** in the pipeline contract; status has lived in the `pipeline_status` table since schema 0002 (see above). Update that rule text in a deliberate AGENTS.md change.
+  - *Python runtime CVEs below the gate.* Moving to Python 3.13.18 cleared 6 of the 9 medium/low CPython findings Grype reported on 3.11.18. CVE-2025-15367, CVE-2026-116566 and CVE-2026-103995 remain on 3.13.18 (no 3.13 fix version when checked); they close with a later 3.13 patch picked up by a Dependabot digest bump. Do not suppress them.
+- **R1 Phase B leftovers.** Stale `member_terms` rows (a term the upstream file later drops or re-dates) are not deleted. Only current members' terms load; historical members need the `legislators-historical` file. Run history is readable through `/internal/source-runs`.

@@ -10,15 +10,13 @@ import time
 from collections import deque
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from typing import Literal, ParamSpec, TypeVar
+from typing import Literal
 
 from app.config import settings
 
 logger = logging.getLogger(__name__)
 
 Source = Literal["congress", "fec", "govinfo"]
-P = ParamSpec("P")
-T = TypeVar("T")
 
 
 class UpstreamCapacityError(Exception):
@@ -91,7 +89,7 @@ def request_slot(source: Source) -> Iterator[None]:
         raise
 
 
-async def run_upstream(
+async def run_upstream[**P, T](
     source: Source, fn: Callable[P, T], *args: P.args, **kwargs: P.kwargs
 ) -> T:
     if not _PUBLIC_OPERATIONS.acquire(blocking=False):
