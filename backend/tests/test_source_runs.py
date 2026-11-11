@@ -261,8 +261,8 @@ def test_source_run_history_filters_and_pages_newest_first(
         now = datetime.now(UTC)
         manifest = [{"name": "house_votes_raw.json", "sha256": None, "bytes": None,
                      "modified_at": None}]
-        async with engine.begin() as connection:
-            await connection.execute(
+        async with AsyncSession(engine) as session:
+            await session.execute(
                 insert(SourceRun),
                 [
                     {"source": "votes", "trigger": "schedule", "outcome": "ok",
@@ -279,6 +279,7 @@ def test_source_run_history_filters_and_pages_newest_first(
                      "started_at": now - timedelta(hours=1)},
                 ],
             )
+            await session.commit()
 
         async with AsyncSession(engine) as session:
 

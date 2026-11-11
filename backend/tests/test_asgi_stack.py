@@ -303,6 +303,7 @@ def test_source_runs_checks_credentials_before_filters(run_store: _FakeRunStore)
         "limit=ten",
         "before_id=0",
         "before_id=-5",
+        "before_id=9223372036854775808",
         "sources=votes",
     ],
 )

@@ -74,7 +74,7 @@ class SourceRunQuery(BaseModel):
 
     source: str | None = Field(default=None, max_length=50)
     outcome: str | None = Field(default=None, max_length=20)
-    before_id: int | None = Field(default=None, ge=1)
+    before_id: int | None = Field(default=None, ge=1, le=2**63 - 1)
     limit: int = Field(default=100, ge=1, le=500)
 
     @field_validator("source")

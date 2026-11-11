@@ -8,6 +8,10 @@ What's been built, in what order, and what's next. This is a living log — add 
 Roadmap R1 follow-up. No schema migration. CI is the only test run; nothing
 was executed on the static checkout.
 
+Release gate: implementation is committed, but CI (including the Python 3.13
+lock artifact and image scan) and dev/production deployment acceptance are
+still pending. Release this step before the worker-container change.
+
 - *Python 3.11 → 3.13:* the backend image moves to `python:3.13-slim`
   (3.13.18, Debian 13), pinned by digest, and every CI job runs 3.13. This
   clears 6 of the 9 CPython findings Grype reported below the gate on 3.11;
@@ -20,7 +24,8 @@ was executed on the static checkout.
   the same Basic auth as `/internal/pipeline-status` and kept out of the
   schema. Filters are validated by a Pydantic model that rejects unknown
   parameters. `source` must be a registered source and `outcome` a known
-  outcome. `limit` is 1–500 and `before_id` pages back. Credentials are
+  outcome. `limit` is 1–500 and `before_id` pages back within the positive
+  signed-64-bit ID range. Credentials are
   checked before filters, so a caller without them can't probe source names.
 - *AGENTS.md* now describes the real pipeline contract: `record_run()`
   writes the `pipeline_status` table and the `source_runs` history, not a
