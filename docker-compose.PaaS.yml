@@ -84,11 +84,13 @@ services:
       - frontend
 
   # Daily recovery bundle (see docs/backup-service.md). Idle unless
-  # BACKUP_ENABLED=true. Writes to /srv/govmap-backups/<BACKUP_TARGET> on the
-  # host; the entrypoint adopts that directory when Docker first creates it
-  # (root-owned) and then drops to uid/gid 70, so no host setup is needed. A
-  # missing target or a directory owned by anyone else fails every run with
-  # no heartbeat. No Docker socket, no secrets beyond the database password.
+  # BACKUP_ENABLED=true. Writes to "backups" in this resource's own directory
+  # on the host. The deployment platform rejects variables in volume sources,
+  # and a relative source keeps each resource's backups separate. The
+  # entrypoint adopts that directory when it is first created (root-owned)
+  # and then drops to uid/gid 70, so no host setup is needed. A missing target
+  # or a directory owned by anyone else fails every run with no heartbeat.
+  # No Docker socket, no secrets beyond the database password.
   backup:
     build: ./backup
     restart: unless-stopped
@@ -115,7 +117,7 @@ services:
       BACKUP_HEARTBEAT_URL: ${BACKUP_HEARTBEAT_URL:-}
       PGPASSWORD: ${POSTGRES_PASSWORD:?}
     volumes:
-      - /srv/govmap-backups/${BACKUP_TARGET:-unconfigured}:/backups
+      - ./backups:/backups
       - govmap-logs:/logs:ro
 
 volumes:

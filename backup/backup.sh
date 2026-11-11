@@ -16,10 +16,9 @@ complete and verified; any failure leaves it untouched. The bundle is NOT
 encrypted: keep the host directory private and encrypt off-site copies.
 
 The destination fails closed. BACKUP_TARGET must name the environment (for
-example "production"), which selects the host directory
-/srv/govmap-backups/<target>, and the directory must be owned by the backup
-user. A misconfigured target or a directory owned by anyone else fails the
-run, and no heartbeat is sent.
+example "production"), and the destination must be owned by the backup user.
+A misconfigured target or a directory owned by anyone else fails the run,
+and no heartbeat is sent.
 
 Environment:
   BACKUP_TARGET         required environment name, [a-z0-9-], not "unconfigured"

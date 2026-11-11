@@ -42,19 +42,34 @@ be recoverable independently of the server.
 
 ### Destination
 
-The bundle is written to `/backups` in the container, which is bind-mounted
-from `/srv/govmap-backups/<BACKUP_TARGET>` on the host. No host setup is
-needed: on first deploy Docker creates the directory (root-owned), and the
-entrypoint changes it to mode `700`, owner `70:70`. It does this only when
-backups are enabled for a named target and the directory is root-owned; a
-directory owned by any other user is left alone.
+The bundle is written to `/backups` in the container. It is bind-mounted from
+`./backups`, which the deployment platform resolves to a `backups` folder
+inside **that resource's own directory** on the host. The platform rejects
+variables in volume sources, and the relative path gives every resource
+(production, test) its own folder automatically. No host setup is needed:
+on first deploy the directory is created root-owned, and the entrypoint
+changes it to mode `700`, owner `70:70`. It does this only when backups are
+enabled for a named target and the directory is root-owned; a directory
+owned by any other user is left alone.
 
 A run refuses to start, and sends no heartbeat, unless `BACKUP_TARGET` names
 the environment (lowercase letters, digits and hyphens, up to 32 characters,
 not `unconfigured`) and the directory is a real directory owned by uid `70`.
-Group or other access is removed automatically. Because the path depends
-only on the target name, it stays the same across redeploys and resource
-recreation, so the off-site job keeps copying the right folder.
+Group or other access is removed automatically. The path stays the same
+across redeploys, so the off-site job keeps copying the right folder. It
+changes only if the resource is deleted and recreated; deleting a resource
+can also delete its directory, so keep off-site copies.
+
+Find the host path from the running container (see
+[Monitor and run a backup](#monitor-and-run-a-backup)):
+
+```bash
+sudo docker inspect --format '{{range .Mounts}}{{if eq .Destination "/backups"}}{{.Source}}{{end}}{{end}}' "$BACKUP_CONTAINER"
+```
+
+The resource's directory also holds its deployment settings, including
+secrets. Point the off-site job at the `backups` folder only, never its
+parent.
 
 ### Schedule
 
@@ -79,7 +94,7 @@ Run only one enabled backup service per environment.
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `BACKUP_ENABLED` | `false` | `true` turns on the daily schedule |
-| `BACKUP_TARGET` | `unconfigured` | Environment name; selects `/srv/govmap-backups/<name>` and is recorded in the manifest |
+| `BACKUP_TARGET` | `unconfigured` | Environment name; recorded in the manifest and required before any run |
 | `BACKUP_TIME_UTC` | `02:30` | Daily start time in UTC |
 | `BACKUP_HEARTBEAT_URL` | empty | Private `https` dead-man's-switch URL; store it as a secret |
 
@@ -124,13 +139,14 @@ platform; no shell access is needed. The examples use the target name
 1. In the deployment's environment settings for that resource only, set
    `BACKUP_ENABLED=true`, `BACKUP_TARGET=production` and the private
    `BACKUP_HEARTBEAT_URL`, then deploy. Leave other environments at the
-   defaults; Docker may create an empty `/srv/govmap-backups/unconfigured`
-   for them, which never receives a backup.
+   defaults; their `backups` folder stays empty.
 2. The first start finds no bundle and runs a catch-up backup immediately.
    Check the backup service's logs in the deployment platform for
    `Backup completed.` and confirm the heartbeat monitor received a ping.
-3. In the off-site backup product, add `/srv/govmap-backups/production/` as a
-   source, excluding `.govmap-backup-work-*` and `.govmap-backup.lock`.
+3. Find the host path (shown under the resource's persistent storage, or with
+   the `docker inspect` command in [Destination](#destination)). In the
+   off-site backup product, add that `backups` folder as a source, excluding
+   `.govmap-backup-work-*` and `.govmap-backup.lock`.
 
 Configure the heartbeat monitor for a daily check at `BACKUP_TIME_UTC` in UTC,
 with a grace period that covers the backup's runtime. After that, redeploys
@@ -161,10 +177,15 @@ Check the schedule and recent results:
 sudo docker logs --since 48h "$BACKUP_CONTAINER"
 ```
 
-Check the published bundle's timestamp:
+Find the host path of the backup folder, then check the published bundle's
+timestamp:
 
 ```bash
-sudo ls -l --time-style=+%Y-%m-%dT%H:%M:%S%z /srv/govmap-backups/production/govmap-backup.tar.gz
+BACKUP_HOST_DIR="$(sudo docker inspect --format '{{range .Mounts}}{{if eq .Destination "/backups"}}{{.Source}}{{end}}{{end}}' "$BACKUP_CONTAINER")"; echo "${BACKUP_HOST_DIR:?no /backups mount found}"
+```
+
+```bash
+sudo ls -l --time-style=+%Y-%m-%dT%H:%M:%S%z "$BACKUP_HOST_DIR/govmap-backup.tar.gz"
 ```
 
 To run a backup manually (for example after a configuration change), run it
@@ -183,6 +204,9 @@ manual monitor ping is not a backup test and can mask a missed run.
 unset BACKUP_CONTAINER
 ```
 
+Keep `BACKUP_HOST_DIR` set if you will rehearse a restore from the local
+bundle in this session; otherwise `unset BACKUP_HOST_DIR`.
+
 ## Rehearse a restore
 
 Use only a trusted backup: restoring a PostgreSQL dump can execute SQL.
@@ -199,12 +223,13 @@ sudo mkdir -m 700 -- /srv/govmap-restore-test
 
 Choose one source:
 
-- **Local:** Copy the published bundle to the private directory. Substitute
-  the environment's backup directory if it differs from the example (the
-  earlier host-timer bundle lives in its own configured directory):
+- **Local:** Copy the published bundle to the private directory, with
+  `BACKUP_HOST_DIR` set as in
+  [Monitor and run a backup](#monitor-and-run-a-backup) (the earlier
+  host-timer bundle lives in its own configured directory):
 
   ```bash
-  sudo cp -- /srv/govmap-backups/production/govmap-backup.tar.gz /srv/govmap-restore-test/govmap-backup.tar.gz
+  sudo cp -- "${BACKUP_HOST_DIR:?set BACKUP_HOST_DIR first}/govmap-backup.tar.gz" /srv/govmap-restore-test/govmap-backup.tar.gz
   ```
 
 - **Off-site:** Use the backup product to restore the desired completed
@@ -413,7 +438,7 @@ of the following:
 1. The off-site job's most recent run with the new folder reports success,
    with no errors or warnings, for each destination you rely on.
 2. That destination lists a version of
-   `/srv/govmap-backups/<target>/govmap-backup.tar.gz` from that run.
+   `govmap-backup.tar.gz` from the container's `backups` folder from that run.
 3. That version, restored into scratch space as in
    [Rehearse a restore](#rehearse-a-restore), shows `CHECKSUMS_OK`,
    `REQUIRED_FILES_OK` and `RESTORE_OK`.

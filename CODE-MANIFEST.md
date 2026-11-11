@@ -18,7 +18,9 @@ with no capabilities; the container has a read-only root filesystem and
 bundled; they stay in the operator's vault.
 Enabling it needs only environment settings in the deployment platform
 (`BACKUP_ENABLED=true`, `BACKUP_TARGET`, `BACKUP_HEARTBEAT_URL`); no shell
-setup. Runs write to `/srv/govmap-backups/<target>` and fail without a
+setup. Runs write to `backups/` in the resource's own directory on the host
+(a relative bind source, because the deployment platform rejects variables
+in volume sources) and fail without a
 heartbeat if the target is missing or the directory is owned by anyone else.
 It idles unless enabled (test environments stay disabled), runs daily at
 `BACKUP_TIME_UTC`, and catches up on start only when the bundle is missing or
