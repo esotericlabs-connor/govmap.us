@@ -222,15 +222,28 @@ Keep monitor URLs secret and do not ping them manually to simulate success.
 
 ## Off-site copies with Duplicati
 
-Duplicati is the only off-site copier and should use the existing two
-destinations. For each existing job, add both the `backups` folder and the
-`pgbackrest` folder from the same resource. Do not select their parent, which
-contains deployment settings and secrets.
+Duplicati is the only off-site copier. Its job for a resource selects both the
+`backups` folder and the `pgbackrest` folder from that resource. Do not select
+their parent, which contains deployment settings and secrets.
+
+To keep copies in more than one place, Duplicati 2.3.0.0 and later lets one job
+have several destinations ("Add another destination"). It backs up to the
+first destination, then after each successful run copies the backup files to
+the others, so each destination can be restored on its own. Keep every
+additional destination in the default `inline` mode so each run reaches all of
+them; `interval` or `counting` mode leaves that destination with an older
+recovery point. Older Duplicati versions need one job per destination with the
+same two folders.
 
 - **Schedule**: run every 15 minutes. WAL is archived continuously and
   `archive_timeout` is 5 minutes; the archive-check monitor separately tests
-  that the archiving path still works. Leave enough Duplicati runtime that
-  successive runs do not overlap.
+  that the archiving path still works. Leave enough Duplicati runtime,
+  including the copies to additional destinations, that successive runs do
+  not overlap.
+- **Verify every destination**: Duplicati does not document how a failed
+  copy to an additional destination affects the job result, so a successful
+  job proves only the first destination. Confirm that each destination's
+  newest files are from the latest run.
 - **Exclusions**: for the logical folder, exclude `.govmap-backup-work-*`
   and `.govmap-backup.lock`. Do not exclude files from the pgBackRest
   repository.
@@ -251,10 +264,13 @@ by the WAL archive delay (normally at most five minutes plus processing).
 
 ## Rehearse a pgBackRest point-in-time restore
 
-Do this in dev or another isolated PostgreSQL 16 target, once from each
-Duplicati destination. Restoring a repository is not proof of recovery; the
-isolated PostgreSQL instance must actually start and reach the requested
-target.
+Do this in dev or another isolated PostgreSQL 16 target, from a destination
+that would survive the loss of the server. Restoring a repository is not proof
+of recovery; the isolated PostgreSQL instance must actually start and reach
+the requested target. For every other destination, use Duplicati's direct
+restore from that destination alone and restore
+`pgbackrest/backup/govmap/backup.info` to a scratch directory. That proves
+the destination opens with the passphrase and holds the newest version.
 
 1. Use Duplicati to restore the complete `pgbackrest` source to a new private
    scratch directory. Do not write it over the live repository. Restore the

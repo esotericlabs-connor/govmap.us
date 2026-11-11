@@ -5,9 +5,13 @@ What's been built, in what order, and what's next. This is a living log — add 
 ## Build log
 
 **2026-11-11 — Local pgBackRest PITR with Duplicati off-site**
-Implemented on `dev`; CI is green and services are healthy in dev. pgBackRest
-bootstrap is paused while its config/environment warnings are corrected. No
-database schema migration. No backup product beyond Duplicati was added.
+Implemented on `dev`; CI is green and services are healthy in dev. In dev,
+the stanza is created, WAL archiving and the archive check succeed, the first
+full backup completed and `pgbackrest info` reports `ok`. One Duplicati job
+copied both folders without warnings. Contents of each off-site destination,
+logical bundle freshness and a restore rehearsal are not yet verified.
+Production is unchanged. No database schema migration. No backup product
+beyond Duplicati was added.
 
 - A custom PostgreSQL 16 image installs pgBackRest. Archiving remains off
   unless `GOVMAP_PGBACKREST_ENABLED=true`, and the repository directory is
@@ -19,14 +23,17 @@ database schema migration. No backup product beyond Duplicati was added.
   seven-day time-based full-backup retention. WAL archiving is asynchronous
   with a 5-minute timeout and a 4 GiB queue cap that protects the database
   disk by dropping excess WAL; a cap event creates a PITR gap.
-- The independent logical `pg_dump` bundle returns to once daily. Duplicati
-  copies both `backups` and `pgbackrest` to the existing two destinations.
-  Bootstrap, heartbeat, sizing, restore and operator deployment steps are in
+- The independent logical `pg_dump` bundle returns to once daily. One
+  Duplicati job copies both `backups` and `pgbackrest`; Duplicati 2.3+ backs
+  up to its first destination and copies the files to each additional
+  destination after a successful run. Bootstrap, heartbeat, sizing, restore
+  and operator deployment steps are in
   [docs/backup-service.md](docs/backup-service.md).
 - Off-site PITR is bounded by the most recent complete Duplicati copy of the
   repository, not by the local WAL archive. CI builds and scans the custom
   database image and tests scheduler/config/Compose behavior. The operator
-  must still deploy and rehearse a restore from each destination.
+  must still rehearse a full restore from an off-server destination and
+  confirm each other destination restores on its own.
 - The first CI run failed two checks, both repaired. The backup Compose test
   sliced the backup service to the end of the file and picked up the new
   `pgbackrest` service; service blocks now end at the next service or

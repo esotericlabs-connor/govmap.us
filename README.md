@@ -382,16 +382,18 @@ Keep backup passphrases or private identities separately and recoverably.
 The production Compose stack now has opt-in configuration for a daily logical
 database dump and a local pgBackRest repository for WAL archiving, daily full
 backups and seven-day point-in-time recovery. Duplicati remains the only
-off-site copier and sends both `backups` and `pgbackrest` to the two encrypted
-destinations. This configuration must be bootstrapped and restored in dev
-before production.
+off-site copier: one encrypted job sends both `backups` and `pgbackrest` to
+its first destination and copies them to each additional destination. The
+configuration is bootstrapped and backing up in dev; it must be restored in
+dev before production.
 Deployment configuration and secrets remain in the operator's vault, not in
 either backup. The earlier host timer, script and environment file have been
 removed. A container bundle retrieved from off-site passed checksum,
 required-file and isolated PostgreSQL restore checks on 2026-11-11 UTC, at
-revision `0013`; that historical drill did not test pgBackRest. Independent
-restores from both off-site destinations and a PITR rehearsal are still
-required. The heartbeat ping and email test notification were verified; an
+revision `0013`; that historical drill did not test pgBackRest. A PITR
+rehearsal from an off-server destination and a direct restore check of each
+other destination are still required. The heartbeat ping and email test
+notification were verified; an
 actual missed-heartbeat alert has not been rehearsed.
 Recurring restore checks are tracked in [CODE-MANIFEST.md](CODE-MANIFEST.md).
 Keep the old local bundle until replacement copies and earlier-version
