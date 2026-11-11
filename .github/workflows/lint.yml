@@ -53,18 +53,20 @@ jobs:
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.11"
-      # Two installs: once requirements.txt is hash-locked, pip's hash-checking
-      # mode would otherwise demand hashes for the unlocked test-only pins too.
+      # Two installs: requirements.txt is hash-locked, so a combined install
+      # would make pip demand hashes for the unlocked test-only pins too.
       - run: pip install -r requirements.txt
       - run: pip install -r requirements-dev.txt
       - run: pytest -q
 
-  # Known-vulnerability gate for the whole resolved Python tree (transitive
-  # packages included), resolved in an isolated environment the way the image
-  # installs it. --strict also fails on any package that couldn't be audited.
-  # Also compiles requirements.in into the hash-locked requirements.txt and
-  # uploads it, so the lock is always produced on Linux/Python 3.11 (the
-  # image's platform), never on a developer machine.
+  # Known-vulnerability gate. The runtime audit reads the committed lock as-is
+  # (every transitive package, no re-resolution), so it checks exactly what
+  # the image installs, and fails if any entry is unpinned or unhashed.
+  # --strict also fails on any package that couldn't be audited.
+  # Also recompiles requirements.in into the lock, keeping the committed pins,
+  # and uploads it, so the lock is only ever produced on Linux/Python 3.11
+  # (the image's platform), never on a developer machine. After editing
+  # requirements.in, commit that artifact as requirements.txt.
   backend-audit:
     runs-on: ubuntu-latest
     defaults:
@@ -76,7 +78,7 @@ jobs:
         with:
           python-version: "3.11"
       - run: pip install pip-audit==2.10.1
-      - run: pip-audit --strict --progress-spinner off -r requirements.txt
+      - run: pip-audit --strict --progress-spinner off --require-hashes --disable-pip -r requirements.txt
       - run: pip-audit --strict --progress-spinner off -r requirements-dev.txt
       - name: Compile the hash-locked requirements.txt
         id: lock
@@ -86,6 +88,12 @@ jobs:
           "$RUNNER_TEMP/lock-venv/bin/python" -m pip install --quiet pip==26.2 pip-tools==7.6.2
           "$RUNNER_TEMP/lock-venv/bin/pip-compile" --quiet --generate-hashes --allow-unsafe \
             --strip-extras --no-emit-index-url --output-file=requirements.txt requirements.in
+          # Informational, not a gate: an index can add files to an existing
+          # release, which changes the hash list without any action here.
+          if ! git diff --quiet -- requirements.txt; then
+            echo "::warning file=backend/requirements.txt::The committed lock differs from a fresh compile of requirements.in. Review the backend-lock-${GITHUB_SHA} artifact and commit it if the change is expected."
+            git --no-pager diff --stat -- requirements.txt
+          fi
       - name: Upload the compiled lock
         if: ${{ !cancelled() && steps.lock.outcome == 'success' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

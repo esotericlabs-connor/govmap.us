@@ -144,11 +144,15 @@ and rerun CI before deploying it.
 Backend dependencies follow the same rule:
 1. Edit the top-level pins in `backend/requirements.in`, never
    `requirements.txt` directly.
-2. The Lint workflow's `backend-audit` job compiles the hash-locked install
-   set on Linux/Python 3.11 and uploads it as `backend-lock-<commit SHA>`.
-3. Commit that file as `backend/requirements.txt` and rerun CI.
+2. The Lint workflow's `backend-audit` job recompiles the hash-locked install
+   set on Linux/Python 3.11, keeping the committed pins, and uploads it as
+   `backend-lock-<commit SHA>`. It warns when that differs from the committed
+   lock.
+3. Review that file, commit it as `backend/requirements.txt`, and rerun CI.
 
-The same workflow fails on any `pip-audit` finding and on any fixable high or
+The image installs with `--require-hashes`, so a package or hash missing from
+the lock fails the build. The same workflow audits the lock exactly as
+committed and fails on any `pip-audit` finding and on any fixable high or
 critical vulnerability in the built images. Base images are pinned by digest
 and Actions by commit SHA. Dependabot opens weekly grouped bump PRs against
 `dev`.

@@ -19,9 +19,11 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
+# --require-hashes refuses any package, transitive ones included, that isn't in
+# the lock with a matching hash, so the image installs exactly what CI audited.
 # The packaging toolchain is only needed to install; nothing imports it at
 # runtime, so remove it rather than ship (and patch) it in production.
-RUN pip install --no-cache-dir -r requirements.txt \
+RUN pip install --no-cache-dir --require-hashes -r requirements.txt \
     && pip uninstall --no-cache-dir -y setuptools wheel pip
 
 COPY . .
