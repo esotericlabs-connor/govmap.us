@@ -8,11 +8,10 @@
 # - scheduled refreshes run in the separate `worker` service, never in the
 #   backend (SCHEDULER_ENABLED is fixed to false there and controls the worker).
 #
-# Upstream request budgets are counted per process, so the API's and the
-# worker's shares of each key's hourly limit are set separately. Keep each
-# API_* + WORKER_* pair at or below the old single-process default
-# (congress 4500, fec 900, govinfo 600); a manual refresh exec'd into the
-# worker gets its own copy of the worker share.
+# PostgreSQL accounts for every upstream attempt across processes/redeploys.
+# API_* and WORKER_* reserve separate shares; manual worker commands share the
+# worker allocation. Keep each pair's sum <= TOTAL_* (4500/900/600 by default).
+# Separate dev/production databases still require separate source credentials.
 #
 # Only the frontend is published (tunnel route -> http://frontend:3000). Browser
 # "/api/*" calls are proxied by the frontend to the backend over the private
@@ -53,9 +52,13 @@ services:
       API_DOCS_ENABLED: ${API_DOCS_ENABLED:-false}
       TRUSTED_PROXY_CIDRS: ${TRUSTED_PROXY_CIDRS:-}
       UPSTREAM_MAX_CONCURRENT_REQUESTS: ${UPSTREAM_MAX_CONCURRENT_REQUESTS:-4}
+      UPSTREAM_BUDGET_SCOPE: api
       CONGRESS_REQUESTS_PER_HOUR: ${API_CONGRESS_REQUESTS_PER_HOUR:-1000}
       FEC_REQUESTS_PER_HOUR: ${API_FEC_REQUESTS_PER_HOUR:-250}
       GOVINFO_REQUESTS_PER_HOUR: ${API_GOVINFO_REQUESTS_PER_HOUR:-500}
+      TOTAL_CONGRESS_REQUESTS_PER_HOUR: ${TOTAL_CONGRESS_REQUESTS_PER_HOUR:-4500}
+      TOTAL_FEC_REQUESTS_PER_HOUR: ${TOTAL_FEC_REQUESTS_PER_HOUR:-900}
+      TOTAL_GOVINFO_REQUESTS_PER_HOUR: ${TOTAL_GOVINFO_REQUESTS_PER_HOUR:-600}
       INTERNAL_USER: ${INTERNAL_USER:-}
       INTERNAL_PASSWORD: ${INTERNAL_PASSWORD:-}
       ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
@@ -98,9 +101,13 @@ services:
       DATABASE_URL: postgresql+asyncpg://govmap:${POSTGRES_PASSWORD:?}@postgres:5432/govmap
       SCHEDULER_ENABLED: ${SCHEDULER_ENABLED:-true}
       UPSTREAM_MAX_CONCURRENT_REQUESTS: ${UPSTREAM_MAX_CONCURRENT_REQUESTS:-4}
+      UPSTREAM_BUDGET_SCOPE: worker
       CONGRESS_REQUESTS_PER_HOUR: ${WORKER_CONGRESS_REQUESTS_PER_HOUR:-3500}
       FEC_REQUESTS_PER_HOUR: ${WORKER_FEC_REQUESTS_PER_HOUR:-650}
       GOVINFO_REQUESTS_PER_HOUR: ${WORKER_GOVINFO_REQUESTS_PER_HOUR:-100}
+      TOTAL_CONGRESS_REQUESTS_PER_HOUR: ${TOTAL_CONGRESS_REQUESTS_PER_HOUR:-4500}
+      TOTAL_FEC_REQUESTS_PER_HOUR: ${TOTAL_FEC_REQUESTS_PER_HOUR:-900}
+      TOTAL_GOVINFO_REQUESTS_PER_HOUR: ${TOTAL_GOVINFO_REQUESTS_PER_HOUR:-600}
       ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
       CONGRESS_GOV_API_KEY: ${CONGRESS_GOV_API_KEY:-}
       FEC_API_KEY: ${FEC_API_KEY:-}

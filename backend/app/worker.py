@@ -144,11 +144,16 @@ async def run_worker() -> int:
     _clear_heartbeat()
     try:
         logger.info(
-            "worker starting (commit %s); hourly request budgets: congress %d, fec %d, govinfo %d",
+            "worker starting (commit %s); shared scope %s hourly request budgets: "
+            "congress %d/%d, fec %d/%d, govinfo %d/%d (scope/total)",
             settings.app_commit_sha,
+            settings.upstream_budget_scope,
             settings.congress_requests_per_hour,
+            settings.total_congress_requests_per_hour,
             settings.fec_requests_per_hour,
+            settings.total_fec_requests_per_hour,
             settings.govinfo_requests_per_hour,
+            settings.total_govinfo_requests_per_hour,
         )
         if not settings.scheduler_enabled:
             logger.info("scheduled pipeline refreshes disabled (SCHEDULER_ENABLED=false); worker idle")

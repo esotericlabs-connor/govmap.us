@@ -84,7 +84,8 @@ def _fec_get(path: str, **params: Any) -> dict:
     for attempt in range(1, _MAX_RETRIES + 1):
         with request_slot("fec"):
             resp = _session.get(
-                url, params=params, headers=headers, timeout=_TIMEOUT, stream=True
+                url, params=params, headers=headers, timeout=_TIMEOUT,
+                stream=True, allow_redirects=False,
             )
             try:
                 status = resp.status_code
@@ -113,7 +114,7 @@ def _fec_get(path: str, **params: Any) -> dict:
             )
             time.sleep(wait)
             continue
-        if status >= 400:
+        if status >= 300:
             # Include the response body — OpenFEC's 4xx (esp. 422) says exactly
             # which parameter it rejected. No secret leaks: the key is a header,
             # and the body only echoes validation detail, not the key.

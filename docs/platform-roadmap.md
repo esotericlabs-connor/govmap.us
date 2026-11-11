@@ -416,11 +416,17 @@ Capacity and restore measurements cover the next planned data slice.
 `worker` service on the deployment platform, the only scheduler owner there.
 It starts only once the database is at its image's migration head, exposes a
 heartbeat health check, and records refreshes cancelled at shutdown as
-`abandoned`. Each process has a static share of each source's hourly budget,
-and the worker's latest staging snapshots persist across redeploys.
-Not yet done: a shared budget ledger across processes, stage checkpoints,
-replay/quarantine, retained versioned raw input, and the failure exercises
-above.
+`abandoned`, and its latest staging snapshots persist across redeploys. The
+worker release was verified at `bf735b4`.
+
+**Shared budgets (implemented; CI/dev acceptance pending):** migration 0015
+coordinates rolling-hour reservations across API, worker and manual processes
+in the same database. Separate API/worker shares and a common source ceiling
+survive restarts; uncertain admission fails closed. The initial migration has
+an approved one-hour upstream hold; stop old processes before applying it.
+Not yet done: stage checkpoints, replay/quarantine, retained versioned raw
+input, and the broader failure exercises above. Cross-environment accounting
+is not provided; dev must use separate source credentials.
 
 ### F1-F4: Vertical slices, not disconnected scrapers
 
@@ -639,7 +645,7 @@ Execute these before promising additional production coverage:
 | 2 | Finish the focused code review: donation concurrency, safe source parsing, migration safety, URL handling and dependencies. | Ranked findings, reproductions, fixes or explicit accepted deferrals; no hidden severe blocker. |
 | 3 | Define source-run/provenance and office-term/history contracts with additive migrations. | Approved models, migration/replay tests, unresolved identity policy. |
 | 4 | Make one existing source fully enumerated and restart-resumable in current and historical lanes. | Reconciled partition counts, interrupted-run recovery, no stale overwrite. Prefer legislative bills/votes as the first proof. |
-| 5 | Introduce worker ownership/budgets when sustained backfill starts. Worker ownership and a static per-process budget split done (2026-11-11); a shared ledger remains. | No duplicate scheduler, quotas honored, API capacity preserved. |
+| 5 | Introduce worker ownership/budgets when sustained backfill starts. Worker split released; shared PostgreSQL ledger implemented, awaiting CI/dev acceptance. | No duplicate scheduler, quotas honored, API capacity preserved. |
 | 6 | Build the initial federal catalog and source rights/access register. | All section 7 domains assessed; candidate sources have real evidence, not assumed licenses. |
 | 7 | Deliver the first executive vertical slice and its history. | Federal Register/GovInfo access decision, agency identity, source links, CI and dev reconciliation. |
 

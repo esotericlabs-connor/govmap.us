@@ -4,6 +4,36 @@ What's been built, in what order, and what's next. This is a living log — add 
 
 ## Build log
 
+**2026-11-11 — R2 shared rolling-hour request budgets (migration 0015)**
+Implemented on `dev`; CI and dev deployment acceptance are pending. No local
+tests, builds or application runs. No new dependency or database service.
+
+- `upstream_budgets` stores one lock/initialization row per source.
+  `upstream_requests` stores committed reservations, not credentials or URLs.
+  Admissions lock the source row, use the database clock, prune expired
+  attempts, enforce both scope and source totals, and commit before HTTP.
+  Failed requests, retries, cancellation and restarts never refund usage.
+- API and worker shares remain 1000/3500 (Congress), 250/650 (FEC) and 500/100
+  (GovInfo). Manual worker processes share the worker allocation. `TOTAL_*`
+  caps all scopes at 4500/900/600 by default. Per-process concurrency guards
+  remain, including the public thread's cancellation protection.
+- All three existing budgeted clients use the same admission path. JSON
+  redirects are disabled; validated bill-text redirects each reserve again.
+  Admission has a five-second timeout and no fail-open fallback. Database
+  errors log only their type and return a sanitized capacity error/503.
+- Approved transition: a one-time 60-minute upstream hold begins with the
+  migration, because old in-memory usage cannot be reconstructed. Stop old
+  API/worker containers before migrating, never run mixed versions. Ordinary
+  redeploys do not reset this hold. Cached/database-backed pages stay up;
+  fresh upstream requests report the hold with 503/Retry-After.
+- CI regressions cover eight independent processes, scope/total ceilings,
+  expiry and reduced limits, restart/failure/cancellation persistence, the
+  initial hold, missing state/schema, lock timeouts, redirects and no HTTP
+  on denied admission. The existing migration job checks up/down and drift.
+- Scope is one environment's database, not a cross-database or cross-server
+  quota service. Dev and production must retain separate source credentials.
+  Restore procedures must drain old usage for one hour before reusing a key.
+
 **2026-11-11 — R2 worker split: scheduled refreshes leave the API process**
 Roadmap R2's first item and the ownership half of immediate work queue item 5.
 No schema migration. CI is the only test run; nothing was executed on the
@@ -50,7 +80,10 @@ static checkout.
   snapshot or the new one, never a partial file. Only the worker mounts it, and
   it is not backed up: each refresh rewrites it.
 
-Release gate: CI and the dev deployment checks are pending.
+Released in #23 as `bf735b4`. Exact-SHA CI passed on main (run 151) and dev (run 152).
+Production health independently reported matching frontend/backend SHAs.
+The operator confirmed both deployments, production scheduling, idle dev,
+disabled API schedulers, seeded staging and a completed scheduled source run.
 
 **Operator note:** after deploying, remove any unprefixed
 `CONGRESS_REQUESTS_PER_HOUR`, `FEC_REQUESTS_PER_HOUR` or
@@ -1066,7 +1099,9 @@ Adapted from the original end-to-end plan, reordered to prove the pipeline contr
   - *Python runtime CVEs below the gate.* Moving to Python 3.13.18 cleared 6 of the 9 medium/low CPython findings Grype reported on 3.11.18. CVE-2025-15367, CVE-2026-116566 and CVE-2026-103995 remain on 3.13.18 (no 3.13 fix version when checked); they close with a later 3.13 patch picked up by a Dependabot digest bump. Do not suppress them.
 - **R1 Phase B leftovers.** Stale `member_terms` rows (a term the upstream file later drops or re-dates) are not deleted. Only current members' terms load; historical members need the `legislators-historical` file. Run history is readable through `/internal/source-runs`.
 - **R2 worker split leftovers.**
-  - *Shared budget ledger.* The API/worker budget split is static. R2 calls for one budget per source account across processes; build that ledger when sustained backfill starts. Until then, a manual `exec` refresh runs with its own copy of the worker share, so lower it (`-e CONGRESS_REQUESTS_PER_HOUR=…`) for a large manual run.
+  - *Shared budget ledger release.* Implemented above in migration 0015;
+    CI and dev acceptance remain. It coordinates one database only; source
+    credentials must remain distinct between dev and production.
   - *Staging is a latest-only snapshot.* The worker's staging volume keeps
     each source's most recent file, not a history; replaying older input
     needs the retained, versioned raw storage in roadmap R2.

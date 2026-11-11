@@ -83,7 +83,8 @@ def _get(path: str, **params: Any) -> dict:
         try:
             with request_slot("congress"):
                 resp = _session.get(
-                    url, params=params, headers=headers, timeout=_TIMEOUT, stream=True
+                    url, params=params, headers=headers, timeout=_TIMEOUT,
+                    stream=True, allow_redirects=False,
                 )
                 try:
                     status = resp.status_code
