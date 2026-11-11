@@ -56,6 +56,16 @@ database schema migration. No backup product beyond Duplicati was added.
   file. On a host that hit the failure, the leftover empty
   `backup/pgbackrest.conf` directory under the application directory is
   unused and can be removed with `rmdir`.
+- The next dev deploy started everything except the worker, which crashed
+  parsing an empty `API_DOCS_ENABLED`. Coolify adds its whole `.env` to every
+  Compose service through `env_file`, so the worker received an API-only
+  variable its own `environment` block never sets, while the backend's
+  `${API_DOCS_ENABLED:-false}` turned the same empty value into `false`.
+  Settings now treat empty environment values as unset (`env_ignore_empty`);
+  non-empty invalid values still fail startup. The same injection means every
+  container, including the frontend and cloudflared, receives every Coolify
+  variable and secret; Compose cannot opt out, so keep only deployment values
+  in Coolify and treat all GovMap containers as one trust boundary.
 
 **2026-11-11 — R2 shared rolling-hour request budgets (migration 0015)**
 Implemented on `dev`; CI and dev deployment acceptance are pending. No local

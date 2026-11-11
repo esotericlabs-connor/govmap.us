@@ -53,6 +53,24 @@ def test_commit_reads_image_environment(monkeypatch: pytest.MonkeyPatch) -> None
     assert Settings(_env_file=None).app_commit_sha == "unknown"
 
 
+def test_empty_environment_values_fall_back_to_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Coolify injects every variable into every service, including empty ones
+    # a service never maps; those must not stop the worker from starting.
+    monkeypatch.setenv("API_DOCS_ENABLED", "")
+    monkeypatch.setenv("APP_COMMIT_SHA", "")
+    monkeypatch.setenv("CONGRESS_NUMBER", "")
+    settings = Settings(_env_file=None)
+    assert settings.api_docs_enabled is False
+    assert settings.app_commit_sha == "unknown"
+    assert settings.congress_number == 119
+
+
+def test_invalid_non_empty_environment_value_still_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("API_DOCS_ENABLED", "sometimes")
+    with pytest.raises(ValidationError, match="api_docs_enabled"):
+        Settings(_env_file=None)
+
+
 @pytest.mark.parametrize("sha", ["", "main", "a" * 7, "a" * 41, "A" * 40, "private-value"])
 def test_invalid_commit_setting_is_rejected(sha: str) -> None:
     with pytest.raises(ValidationError, match="app_commit_sha"):

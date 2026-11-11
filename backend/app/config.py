@@ -89,8 +89,15 @@ class Settings(BaseSettings):
     # See app/logging_setup.py and app/routers/report.py.
     log_dir: str = "/app/logs"
 
+    # Coolify loads its whole .env into every Compose service, so a service can
+    # receive a variable its own environment block never sets. Treat an empty
+    # value as unset (matching Compose's ${VAR:-default}) instead of failing
+    # to parse it; a non-empty invalid value still fails startup.
     model_config = SettingsConfigDict(
-        env_file=".env", env_file_encoding="utf-8", hide_input_in_errors=True
+        env_file=".env",
+        env_file_encoding="utf-8",
+        env_ignore_empty=True,
+        hide_input_in_errors=True,
     )
 
     @model_validator(mode="after")
