@@ -78,7 +78,7 @@ export function MemberProfileBody({
             <p className={`mt-2 text-slate-warm-500 ${isBlade ? "text-base" : "text-xl"}`}>
               {seatLabel(member)}
             </p>
-            {!member.in_office && (
+            {member.in_office === false && (
               <span className="mt-2 inline-block rounded-full border border-slate-warm-300 px-3 py-1 text-xs font-semibold text-slate-warm-600">
                 Former member · no longer on the current roster
               </span>
@@ -106,7 +106,7 @@ export function MemberProfileBody({
             }`}
           >
             {(member.served_since ?? member.term_start) && (
-              <Stat label={member.in_office ? "In office since" : "Served from"}>
+              <Stat label={member.in_office === false ? "Served from" : "In office since"}>
                 {formatDate(member.served_since ?? member.term_start)}
               </Stat>
             )}

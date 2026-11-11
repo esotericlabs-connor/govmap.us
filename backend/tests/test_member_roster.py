@@ -98,7 +98,9 @@ def _patch_refresh(monkeypatch: pytest.MonkeyPatch, roster: RosterLoad, skipped:
     for name, mock in mocks.items():
         monkeypatch.setattr(refresh, name, mock)
     monkeypatch.setattr(
-        refresh.congress_legislators, "run", Mock(return_value=LegislatorsPull([], skipped))
+        refresh.congress_legislators,
+        "run",
+        Mock(return_value=LegislatorsPull(legislators=535, skipped_legislators=skipped)),
     )
     return mocks
 
