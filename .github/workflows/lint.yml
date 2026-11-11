@@ -165,6 +165,10 @@ jobs:
           docker run --rm --entrypoint pgbackrest govmap-backup:ci --version
           docker run --rm --entrypoint pg_controldata govmap-backup:ci --version
           docker run --rm --entrypoint pgbackrest govmap-postgres:ci --version
+      - name: Database image keeps the official PostgreSQL 16 as its only server
+        run: |
+          docker run --rm --entrypoint postgres govmap-postgres:ci --version | grep -F '(PostgreSQL) 16.'
+          docker run --rm --entrypoint sh govmap-postgres:ci -c '[ "$(find / -xdev -type f -name postgres | wc -l)" -eq 1 ]'
       - name: Save images for scanning
         run: |
           mkdir -p "$RUNNER_TEMP/scan" "$RUNNER_TEMP/grype-db"

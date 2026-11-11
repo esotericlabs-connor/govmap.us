@@ -1,4 +1,5 @@
 import os
+import re
 import subprocess
 import sys
 import time
@@ -234,10 +235,17 @@ def test_pgbackrest_configuration_uses_seven_day_time_retention() -> None:
     assert "postgresql16 postgresql16-client" in dockerfile
 
 
+def _service_block(compose: str, name: str) -> str:
+    # A service ends at the next service or top-level key, together with the
+    # comment lines that introduce it, so a neighbour's settings never leak in.
+    block = compose.split(f"\n  {name}:\n", 1)[1]
+    return re.split(r"\n(?:  #[^\n]*\n)*(?:  )?[a-z][a-z0-9_-]*:\n", block, maxsplit=1)[0]
+
+
 def test_pgbackrest_compose_mounts_private_repo_and_read_only_database_files() -> None:
     compose = (_REPO / "docker-compose.PaaS.yml").read_text(encoding="utf-8")
-    database = compose.split("\n  postgres:\n", 1)[1].split("\n  backend:\n", 1)[0]
-    service = compose.split("\n  pgbackrest:\n", 1)[1].split("\nvolumes:\n", 1)[0]
+    database = _service_block(compose, "postgres")
+    service = _service_block(compose, "pgbackrest")
 
     assert "build: ./database" in database
     assert "PGBACKREST_ENABLED: ${PGBACKREST_ENABLED:-false}" in database
@@ -249,6 +257,16 @@ def test_pgbackrest_compose_mounts_private_repo_and_read_only_database_files() -
     assert "- ./pgbackrest:/pgbackrest" in service
     assert "docker.sock" not in service
     assert "privileged" not in service
+
+
+def test_database_image_declares_postgresql_provider_before_installing_pgbackrest() -> None:
+    dockerfile = (_REPO / "database" / "Dockerfile").read_text(encoding="utf-8")
+
+    # Without the empty provider, apk satisfies pgbackrest's generic `postgresql`
+    # dependency with a second PostgreSQL server beside the official 16 build.
+    provider = dockerfile.index("apk add --no-cache --virtual postgresql=16.0")
+    install = dockerfile.index("apk add --no-cache pgbackrest")
+    assert provider < install
 
 
 def test_postgres_entrypoint_enables_archiving_only_after_explicit_opt_in() -> None:

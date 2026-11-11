@@ -36,6 +36,14 @@ pgBackRest sidecar run as uid/gid `70` without capabilities on a read-only
 root filesystem. PostgreSQL uses a custom image based on the existing
 digest-pinned PostgreSQL 16 Alpine image, with pgBackRest added.
 
+The database image gets pgBackRest from Alpine 3.24 (currently 2.58) and the
+sidecar gets it from Alpine 3.22 (currently 2.55). The two exchange only
+repository files and never use pgBackRest's remote protocol, where matching
+versions are required, and the 2.56 to 2.58 release notes list no
+repository-format change. Dev acceptance and the restore rehearsal below are
+the proof (stanza, archive check, full backup and restore); after them, move
+the sidecar to a newer Alpine so both match.
+
 **Deployment configuration and secrets are not included.** The `.env` values,
 tunnel token and other credentials are kept in the operator's vault and must
 be recoverable independently of the server.
@@ -163,9 +171,11 @@ Do this in dev first on a reviewed, CI-green revision. Keep
 without archiving while the repository is initialized.
 
 1. Deploy the new PostgreSQL image and Compose services with
-   `PGBACKREST_ENABLED=false`. The PostgreSQL entrypoint prepares the local
-   `pgbackrest` folder as private uid/gid `70:70`. Do not deploy the code
-   directly to production before this dev acceptance.
+   `PGBACKREST_ENABLED=false`. Confirm PostgreSQL becomes healthy from the
+   rebuilt image and the application's health checks still pass. The
+   PostgreSQL entrypoint prepares the local `pgbackrest` folder as private
+   uid/gid `70:70`. Do not deploy the code directly to production before this
+   dev acceptance.
 2. Find the pgBackRest container, then create the stanza while PostgreSQL is
    running but WAL archiving is still disabled:
 

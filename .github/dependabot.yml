@@ -24,7 +24,7 @@ updates:
         patterns: ["*"]
 
   - package-ecosystem: docker
-    directories: [/backend, /frontend, /backup]
+    directories: [/backend, /frontend, /backup, /database]
     target-branch: dev
     schedule:
       interval: weekly
@@ -40,6 +40,9 @@ updates:
         update-types: ["version-update:semver-major"]
       - dependency-name: alpine
         update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      # A Postgres major upgrade needs a dump/restore, never an image bump.
+      - dependency-name: postgres
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: docker-compose
     directory: /
