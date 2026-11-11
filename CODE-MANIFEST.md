@@ -4,6 +4,28 @@ What's been built, in what order, and what's next. This is a living log — add 
 
 ## Build log
 
+**2026-11-11 — Recovery bundle every 30 minutes**
+Database recovery step chosen by the operator: stay in the existing Compose
+stack, add no service, and keep Duplicati as the only off-site copier. No
+schema migration or dependency change. CI is the only test run.
+
+- `backup/run.sh` takes `BACKUP_INTERVAL_MINUTES` (5–1440, must divide 1440)
+  and runs on a fixed UTC grid anchored at `BACKUP_TIME_UTC`. Compose sets 30,
+  so runs start at `:00` and `:30`; the script's own default of 1440 keeps the
+  previous daily behavior. Invalid values stop the container. Start-up
+  catch-up now triggers when the bundle is at least one interval old.
+- The bundle is still published by atomic rename with one local copy, an
+  overlap lock and a heartbeat per successful run, so the heartbeat monitor
+  period must change to 30 minutes.
+- [docs/backup-service.md](docs/backup-service.md) documents the Duplicati
+  schedule (every 30 minutes, offset after the dump), exclusions, retention
+  (`2D:U,14D:1D` suggested), bandwidth (each run uploads about the whole
+  bundle) and that migrations should deploy between dump slots because of the
+  5-second migration lock timeout.
+- Recovery point is about one interval plus upload time; this is not
+  point-in-time recovery. Restore checks stay manual, using the documented
+  isolated-restore rehearsal, from each off-site destination.
+
 **2026-11-11 — R2 shared rolling-hour request budgets (migration 0015)**
 Implemented on `dev`; CI and dev deployment acceptance are pending. No local
 tests, builds or application runs. No new dependency or database service.

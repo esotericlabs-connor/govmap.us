@@ -165,7 +165,8 @@ services:
     depends_on:
       - frontend
 
-  # Daily recovery bundle (see docs/backup-service.md). Idle unless
+  # Recovery bundle every BACKUP_INTERVAL_MINUTES (default 30) on a UTC grid
+  # anchored at BACKUP_TIME_UTC (see docs/backup-service.md). Idle unless
   # BACKUP_ENABLED=true. Writes to "backups" in this resource's own directory
   # on the host. The deployment platform rejects variables in volume sources,
   # and a relative source keeps each resource's backups separate. The
@@ -197,6 +198,7 @@ services:
       BACKUP_ENABLED: ${BACKUP_ENABLED:-false}
       BACKUP_TARGET: ${BACKUP_TARGET:-unconfigured}
       BACKUP_TIME_UTC: ${BACKUP_TIME_UTC:-02:30}
+      BACKUP_INTERVAL_MINUTES: ${BACKUP_INTERVAL_MINUTES:-30}
       BACKUP_HEARTBEAT_URL: ${BACKUP_HEARTBEAT_URL:-}
       PGPASSWORD: ${POSTGRES_PASSWORD:?}
     volumes:

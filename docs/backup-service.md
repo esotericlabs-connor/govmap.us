@@ -14,7 +14,8 @@ screenshots or support messages.
 
 The `backup` service in [docker-compose.PaaS.yml](../docker-compose.PaaS.yml)
 runs inside the same Compose stack as the application. It is built from
-[backup/](../backup/) and creates one compressed recovery bundle per day. It
+[backup/](../backup/) and creates a compressed recovery bundle every 30
+minutes by default. It
 is a logical PostgreSQL backup plus the backend logs, not a full server or
 disk image. Each run:
 
@@ -88,15 +89,26 @@ parent.
 
 - `BACKUP_ENABLED` other than `true` (the default): it logs that backups are
   disabled and idles. Use this for test environments.
-- `BACKUP_ENABLED=true`: it runs daily at `BACKUP_TIME_UTC` (`HH:MM`, UTC,
-  default `02:30`). When the container starts, it runs a catch-up backup only
-  if the published bundle is missing or at least 24 hours old, so routine
-  redeploys do not each create a backup.
-- A failed run is logged and the schedule continues; the missing heartbeat
-  raises the alert. An invalid `BACKUP_TIME_UTC` stops the container with an
-  error.
+- `BACKUP_ENABLED=true`: it runs every `BACKUP_INTERVAL_MINUTES` on a fixed
+  UTC grid anchored at `BACKUP_TIME_UTC` (`HH:MM`). The Compose file sets 30
+  minutes, so with the default anchor of `02:30` runs start at `:00` and
+  `:30` past every hour. `1440` restores one run a day at `BACKUP_TIME_UTC`.
+  When the container starts, it runs a catch-up backup only if the published
+  bundle is missing or at least one interval old, so routine redeploys do not
+  each create a backup.
+- A failed run is logged and the schedule continues at the next slot; the
+  missing heartbeat raises the alert. If a run outlasts the interval, the slot
+  it overlapped is skipped. An invalid `BACKUP_TIME_UTC` or
+  `BACKUP_INTERVAL_MINUTES` stops the container with an error.
 - Stopping or redeploying the container interrupts a run in progress; the
   previous bundle is kept and the scratch directory is removed.
+- While a dump runs it holds shared locks on every table. Normal reads, writes
+  and refreshes are unaffected, but a database migration that alters a table
+  waits at most 5 seconds and then fails the backend start (the previous
+  containers keep running unless they were stopped first). Deploy releases
+  that include a migration between slots, after the backup service logs
+  `Backup completed.` for the current slot; if the start fails on a lock
+  timeout, redeploy once the run finishes.
 
 Run only one enabled backup service per environment.
 
@@ -104,9 +116,10 @@ Run only one enabled backup service per environment.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `BACKUP_ENABLED` | `false` | `true` turns on the daily schedule |
+| `BACKUP_ENABLED` | `false` | `true` turns on the schedule |
 | `BACKUP_TARGET` | `unconfigured` | Environment name; recorded in the manifest and required before any run |
-| `BACKUP_TIME_UTC` | `02:30` | Daily start time in UTC |
+| `BACKUP_INTERVAL_MINUTES` | `30` | Minutes between runs, 5–1440; must divide 1440 evenly (for example 15, 30, 60 or 1440) |
+| `BACKUP_TIME_UTC` | `02:30` | UTC anchor of the schedule grid; the daily start time when the interval is 1440 |
 | `BACKUP_HEARTBEAT_URL` | empty | Private `https` dead-man's-switch URL; store it as a secret |
 
 The heartbeat URL is passed to `curl` on stdin so its token never appears in
@@ -115,12 +128,15 @@ the process list. The database password comes from `POSTGRES_PASSWORD`.
 ### Bundle contents
 
 The published file is `govmap-backup.tar.gz` in the backup directory. Only one
-local bundle is retained; a successful run replaces it. A separate backup
-product such as Duplicati can encrypt and copy that file off-site and retain
-older versions. Its schedule, encryption, credentials, retention and failures
-must be checked separately. The heartbeat does **not** prove an off-site copy
-exists or can be restored. Exclude the temporary `.govmap-backup-work-*`
-directories and the lock file from the off-site selection.
+local bundle is retained; a successful run replaces it in a single atomic
+rename, so a copy taken at any moment sees either the previous or the new
+complete file, never a partial one. A separate backup product such as
+Duplicati encrypts and copies that file off-site and retains older versions
+(see [Off-site copies with Duplicati](#off-site-copies-with-duplicati)). Its
+schedule, encryption, credentials, retention and failures must be checked
+separately. The heartbeat does **not** prove an off-site copy exists or can
+be restored. Exclude the temporary `.govmap-backup-work-*` directories and the
+lock file from the off-site selection.
 
 | Item | Purpose |
 | --- | --- |
@@ -159,9 +175,47 @@ platform; no shell access is needed. The examples use the target name
    off-site backup product, add that `backups` folder as a source, excluding
    `.govmap-backup-work-*` and `.govmap-backup.lock`.
 
-Configure the heartbeat monitor for a daily check at `BACKUP_TIME_UTC` in UTC,
-with a grace period that covers the backup's runtime. After that, redeploys
-need no backup steps: the folder, schedule and heartbeat carry over.
+Configure the heartbeat monitor to expect a ping every
+`BACKUP_INTERVAL_MINUTES` (30 minutes by default), with a grace period that
+covers the backup's runtime plus a few minutes. After that, redeploys need no
+backup steps: the folder, schedule and heartbeat carry over.
+
+## Off-site copies with Duplicati
+
+Duplicati is the only off-site copier: it uploads the published bundle to two
+independent destinations. Duplicati only copies what is in the folder, so the
+dump frequency is set by `BACKUP_INTERVAL_MINUTES`, not by Duplicati. Running
+Duplicati more often than the dumps only re-checks an unchanged file and adds
+no new version.
+
+For each destination's job:
+
+- **Source**: only the `backups` folder, excluding `.govmap-backup-work-*`
+  and `.govmap-backup.lock`.
+- **Schedule**: run again every 30 minutes (matching the interval), starting
+  about 5 minutes after a dump slot, for example at `02:35` UTC so runs fall
+  at `:05` and `:35`. Check the backup log for how long a run takes and leave
+  more offset if it is near 5 minutes. A run that starts mid-dump still copies
+  the previous complete bundle.
+- **Retention**: keep history, not just the latest copy, because the newest
+  dump can already contain bad data. A custom policy of `2D:U,14D:1D` keeps
+  every version for 2 days and then one per day for 14 days; widen it if
+  storage allows.
+- **Encryption and credentials**: keep the passphrase and destination
+  credentials outside the server, so a lost server does not take them with it.
+
+Expect each run to upload roughly the whole bundle: it is compressed and
+changes completely every time, so Duplicati's deduplication saves little.
+Check the bundle size (see [Monitor and run a backup](#monitor-and-run-a-backup))
+and multiply by 48 runs a day and two destinations to judge bandwidth and
+storage. If that is too much, use a longer interval such as 60 for both the
+backup service and Duplicati.
+
+The worst-case loss in a disaster is the time since the last bundle that
+reached off-site storage: about one interval plus the upload time. This is
+not point-in-time recovery. Data fetched from public sources can be fetched
+again after a restore; anything entered only into GovMap since the last copy
+is lost.
 
 ## Monitor and run a backup
 

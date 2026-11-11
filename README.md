@@ -379,8 +379,9 @@ successful verification.
 Keep backup passphrases or private identities separately and recoverably.
 `/tank` or another filesystem on the same host is not an off-server backup.
 
-The production `backup` service in the Compose stack creates a private daily
-bundle containing a verified logical database dump and logs. It prepares its
+The production `backup` service in the Compose stack creates a private
+bundle every 30 minutes (`BACKUP_INTERVAL_MINUTES`) containing a verified
+logical database dump and logs. It prepares its
 own host directory and needs no shell setup once enabled through the deployment
 settings. Deployment configuration and secrets remain in the operator's vault,
 not in the bundle. The earlier host timer, script and environment file have
@@ -450,7 +451,7 @@ a fresh backup-client connection. Dev uses a separate rotated database password.
 
 **Operational follow-ups:** confirm source status and freshness after backend
 restarts, including the daily jobs; observe the next scheduled backup
-heartbeat; and continue periodic recovery checks. The daily bundle, off-site
+heartbeat; and continue periodic recovery checks. The bundle schedule, off-site
 copying, heartbeat ping and test notification have been set up as described above.
 A previous `ok` row restored from an older database does
 not verify a job on the new server. `partial` is degraded, not an

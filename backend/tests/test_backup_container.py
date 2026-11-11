@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import stat
 import subprocess
 import sys
@@ -117,6 +118,7 @@ def context(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Context:
     for name in (
         "BACKUP_ENABLED",
         "BACKUP_HEARTBEAT_URL",
+        "BACKUP_INTERVAL_MINUTES",
         "BACKUP_TIME_UTC",
         "FAKE_BACKUP_EXIT",
         "FAKE_CURL_EXIT",
@@ -405,6 +407,70 @@ def test_scheduler_skips_catch_up_for_recent_bundle(
     assert 0 < int(_lines(context.sleep_log)[0]) <= 86400
 
 
+@pytest.mark.parametrize(
+    ("interval", "anchor", "minutes"),
+    [
+        ("30", "02:30", {"00", "30"}),
+        ("60", "02:10", {"10"}),
+        ("15", "00:05", {"05", "20", "35", "50"}),
+    ],
+)
+def test_scheduler_runs_on_the_interval_grid(
+    context: Context,
+    monkeypatch: pytest.MonkeyPatch,
+    interval: str,
+    anchor: str,
+    minutes: set[str],
+) -> None:
+    monkeypatch.setenv("BACKUP_ENABLED", "true")
+    monkeypatch.setenv("BACKUP_INTERVAL_MINUTES", interval)
+    monkeypatch.setenv("BACKUP_TIME_UTC", anchor)
+    _write_previous_bundle(context)
+
+    result = _scheduler(context)
+
+    assert result.returncode == 143
+    assert _lines(context.backup_log) == []
+    assert f"every {interval} minutes" in result.stdout
+    assert 0 < int(_lines(context.sleep_log)[0]) <= int(interval) * 60
+    next_run = re.search(r"Next backup at \d{4}-\d{2}-\d{2}T\d{2}:(\d{2}):(\d{2})Z", result.stdout)
+    assert next_run is not None
+    assert next_run[1] in minutes
+    assert next_run[2] == "00"
+
+
+def test_scheduler_catches_up_after_one_interval(
+    context: Context, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("BACKUP_ENABLED", "true")
+    monkeypatch.setenv("BACKUP_INTERVAL_MINUTES", "30")
+    bundle = _write_previous_bundle(context)
+    stale = time.time() - 31 * 60
+    os.utime(bundle, (stale, stale))
+
+    result = _scheduler(context)
+
+    assert result.returncode == 143
+    assert _lines(context.backup_log) == ["run"]
+    assert "catch-up" in result.stdout
+    assert 0 < int(_lines(context.sleep_log)[0]) <= 1800
+
+
+@pytest.mark.parametrize("value", ["0", "4", "7", "50", "1441", "2880", "030", "30m", " 30", "-30"])
+def test_scheduler_rejects_invalid_interval(
+    context: Context, monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    monkeypatch.setenv("BACKUP_ENABLED", "true")
+    monkeypatch.setenv("BACKUP_INTERVAL_MINUTES", value)
+
+    result = _scheduler(context)
+
+    assert result.returncode == 1
+    assert "BACKUP_INTERVAL_MINUTES" in result.stdout
+    assert _lines(context.sleep_log) == []
+    assert _lines(context.backup_log) == []
+
+
 def test_scheduler_continues_after_failed_backup(
     context: Context, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -440,6 +506,7 @@ def test_compose_backup_service_is_hardened_and_fails_closed() -> None:
     service = compose.split("\n  backup:\n", 1)[1].split("\nvolumes:\n", 1)[0]
     assert "BACKUP_ENABLED: ${BACKUP_ENABLED:-false}" in service
     assert "BACKUP_TARGET: ${BACKUP_TARGET:-unconfigured}" in service
+    assert "BACKUP_INTERVAL_MINUTES: ${BACKUP_INTERVAL_MINUTES:-30}" in service
     assert "- ./backups:/backups" in service
     assert "${" not in service.split("volumes:", 1)[1]
     assert "- govmap-logs:/logs:ro" in service
