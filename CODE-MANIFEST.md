@@ -4,7 +4,31 @@ What's been built, in what order, and what's next. This is a living log — add 
 
 ## Build log
 
-**2026-11-10 — Group 1: application readiness and release identity (CI/deployment pending)**
+**2026-11-10 — Deployment recovery: shared-network service alias collision**
+Production migration startup failed with database authentication errors.
+The current backend and backup credentials matched; a direct connection from
+the backup client to production's private database address succeeded, while
+the generic `postgres` hostname reached another address on a shared deployment
+network and failed. Localhost authentication used `trust`, so earlier localhost
+login checks had not validated the password.
+The operator disabled predefined/shared-network attachment and redeployed
+production, then confirmed normal service-name database authentication,
+healthy backend/frontend containers and public health returning 200. No
+database volumes were deleted and no private IP was hardcoded. Updated
+[README.md](README.md) to require resource-private service alias resolution
+and remote authenticated checks. Dev's shared-network attachment was also
+disabled. Its frontend build initially rejected the commit stamp because
+source-commit availability during builds was disabled; enabling that setting
+cleared the build failure. Dev's subsequent database authentication failure
+was resolved by setting a fresh dev-only role password and matching deployment
+value. The operator verified remote prompted authentication, then successful
+no-prompt authentication from the newly deployed backup client, healthy
+backend/frontend containers and authorized test-site access.
+Production and dev are operational. The operator subsequently confirmed matching
+health-response commit stamps and the isolated dev failure/recovery rehearsal
+described below.
+
+**2026-11-10 — Group 1: approved health/readiness scope verified**
 The operator approved only health/readiness, build SHA reporting and deployment
 container health checks. External uptime monitoring, stale-data alerts,
 webhook work and disk thresholds remain on hold.
@@ -20,9 +44,18 @@ and invalid commits, payload validation and Compose wiring. CI now checks
 readiness against isolated PostgreSQL (empty table, missing schema, bad
 authentication) and exercises the built standalone frontend against a test
 backend through unhealthy, mismatched and recovered states.
-**Pending:** CI, enable automatic source-commit availability during builds in
-both deployment environments, deploy and rehearse failures in isolated test,
-then promote and verify production container health and matching SHA values.
+[Main CI run 42965709011](https://github.com/esotericlabs-connor/govmap.us/actions/runs/42965709011)
+passed on `5652b7f9d4078d4d2351aad7c60f67594a557042`. The operator confirmed
+both sites report `status=ok` with frontend and backend commit identifiers
+matching that SHA and their latest successful deployment records.
+Stopping only the dev backend produced public HTTP 503 with
+`status=unavailable`; restarting that same container restored HTTP 200,
+matching commit identifiers, healthy frontend/backend containers and working
+data pages. Production remained healthy throughout that targeted rehearsal.
+An earlier stop attempt disrupted the dev tunnel and returned Cloudflare 1033;
+the stack was restored before the successful backend-only rehearsal.
+The approved Group 1 scope is complete; additional monitoring remains on hold.
+**Pending:** commit and promote the deployment-recovery documentation updates.
 No local application or tests were run; no migrations are required.
 
 **2026-11-10 — Group 0: credential rotation and operational release gates verified**

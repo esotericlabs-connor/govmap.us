@@ -231,6 +231,10 @@ approving the target and data replacement:
    the hostname. Do not add a public bypass policy.
 4. Create the replacement resource with separate volumes, network, database
    password and the dev tunnel token. Keep auto-deploy off and Domains empty.
+   Disable attachment to predefined/shared networks on both resources. Generic
+   service aliases such as `postgres`, `backend` and `frontend` must resolve
+   only within the intended resource's private network. The stack's own tunnel
+   connector does not need a shared deployment-proxy network.
 5. With the new test backend stopped, restore a trusted snapshot into the
    new resource's database only. Verify revision and counts before starting
    the test backend. Never restore production logs or environment secrets.
@@ -250,6 +254,13 @@ advance after the new instance starts. Record counts describe the latest
 run, not necessarily the total rows in an entity table.
 
 ### Persistent state and secrets
+
+When diagnosing database authentication, test from a client container against
+the intended database's network endpoint. PostgreSQL may trust localhost
+connections; a successful localhost login does not then validate a password.
+If a shared service alias reaches a different database, correct resource
+network isolation before resetting credentials. Use a verified private IP
+only as a temporary diagnostic, never as persistent application configuration.
 
 Production secrets are configured on the deployment platform, not committed to the repository.
 Keep a protected recovery copy of the environment configuration and required
