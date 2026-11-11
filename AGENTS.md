@@ -2,17 +2,6 @@
 
 Rules for anyone — human or AI — writing code in this repository. This is the only document in this repo that discusses coding-agent workflow; keep it that way. If you're looking for what GovMap *is*, read [README.md](README.md). If you're looking for what's been built and what's next, read [CODE-MANIFEST.md](CODE-MANIFEST.md).
 
-## Coding agent division of labor
-
-This project uses two AI coding tools deliberately, not interchangeably:
-
-| Tool | Owns | Because |
-| --- | --- | --- |
-| **Gemini Code Assist** | Repo/service scaffolding, boilerplate CRUD endpoints against an already-defined schema, mechanical source pipelines that repeat a proven pattern, CI workflow YAML, config files | High-volume, low-risk, pattern-following work. Cheap iteration, save Claude's compute for what actually needs judgment. |
-| **Claude Code** | Architecture decisions, the normalization/ID-crosswalk layer, the cross-branch bill pipeline connector, fragile scrapers, database schema/migrations, and a security review pass on everything before it merges — regardless of which tool wrote it | This is where subtle bugs hide and where a mistake is expensive: wrong joins silently corrupt data, wrong auth silently exposes it. |
-
-Both tools follow the rules below. Neither tool merges its own code without the review step in **Security & review gate**.
-
 ## Non-negotiable normalization rules
 
 These are architectural law, not style preferences. Every pipeline and every normalizer follows them from the first line of code — retrofitting them later has already been identified as expensive.
