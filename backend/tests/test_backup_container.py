@@ -469,7 +469,11 @@ esac
 
 
 def _entrypoint(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, uid: str, owner: str
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    uid: str,
+    owner: str,
+    populated: bool = False,
 ) -> tuple[subprocess.CompletedProcess[str], list[str]]:
     bin_dir = tmp_path / "entrypoint-bin"
     bin_dir.mkdir()
@@ -478,6 +482,8 @@ def _entrypoint(
     log = tmp_path / "entrypoint.log"
     destination = tmp_path / "entrypoint-backups"
     destination.mkdir()
+    if populated:
+        (destination / "unrelated.txt").write_text("x\n", encoding="utf-8")
     monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}")
     monkeypatch.setenv("FAKE_ENTRYPOINT_LOG", str(log))
     monkeypatch.setenv("FAKE_UID", uid)
@@ -499,41 +505,58 @@ def _entrypoint(
 
 
 _DROP = "setpriv --reuid=70 --regid=70 --clear-groups --inh-caps=-all -- govmap-backup-scheduler"
+_ADOPT = ["chown 0:0 -- DIR", "chmod 700 -- DIR", "chown 70:70 -- DIR"]
 
 
-def test_entrypoint_adopts_root_owned_directory_then_drops_privileges(
+@pytest.mark.parametrize("owner", ["0", "1000"])
+def test_entrypoint_adopts_new_empty_directory_then_drops_privileges(
+    context: Context, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, owner: str
+) -> None:
+    monkeypatch.setenv("BACKUP_ENABLED", "true")
+
+    result, calls = _entrypoint(tmp_path, monkeypatch, uid="0", owner=owner)
+
+    assert result.returncode == 0, result.stderr
+    assert calls == [*_ADOPT, _DROP]
+
+
+def test_entrypoint_adopts_non_empty_root_owned_directory(
     context: Context, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("BACKUP_ENABLED", "true")
 
-    result, calls = _entrypoint(tmp_path, monkeypatch, uid="0", owner="0")
+    result, calls = _entrypoint(tmp_path, monkeypatch, uid="0", owner="0", populated=True)
 
     assert result.returncode == 0, result.stderr
-    assert calls == ["chmod 700 -- DIR", "chown 70:70 -- DIR", _DROP]
+    assert calls == [*_ADOPT, _DROP]
 
 
 @pytest.mark.parametrize(
-    ("enabled", "target", "owner"),
+    ("enabled", "target", "owner", "populated"),
     [
-        ("true", "production", "70"),
-        ("true", "production", "1000"),
-        ("false", "production", "0"),
-        ("true", "unconfigured", "0"),
-        ("true", "../prod", "0"),
+        ("true", "production", "70", False),
+        ("true", "production", "1000", True),
+        ("false", "production", "0", False),
+        ("false", "production", "1000", False),
+        ("true", "unconfigured", "1000", False),
+        ("true", "../prod", "0", False),
     ],
 )
-def test_entrypoint_leaves_directory_alone_unless_enabled_named_and_root_owned(
+def test_entrypoint_leaves_directory_alone_unless_enabled_named_and_safe_to_adopt(
     context: Context,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     enabled: str,
     target: str,
     owner: str,
+    populated: bool,
 ) -> None:
     monkeypatch.setenv("BACKUP_ENABLED", enabled)
     monkeypatch.setenv("BACKUP_TARGET", target)
 
-    result, calls = _entrypoint(tmp_path, monkeypatch, uid="0", owner=owner)
+    result, calls = _entrypoint(
+        tmp_path, monkeypatch, uid="0", owner=owner, populated=populated
+    )
 
     assert result.returncode == 0, result.stderr
     assert calls == [_DROP]

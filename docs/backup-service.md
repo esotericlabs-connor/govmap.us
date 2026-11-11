@@ -47,10 +47,11 @@ The bundle is written to `/backups` in the container. It is bind-mounted from
 inside **that resource's own directory** on the host. The platform rejects
 variables in volume sources, and the relative path gives every resource
 (production, test) its own folder automatically. No host setup is needed:
-on first deploy the directory is created root-owned, and the entrypoint
-changes it to mode `700`, owner `70:70`. It does this only when backups are
-enabled for a named target and the directory is root-owned; a directory
-owned by any other user is left alone.
+on first deploy the directory is created either root-owned (by Docker) or
+owned by the platform's SSH user (when the platform pre-creates it), and the
+entrypoint changes it to mode `700`, owner `70:70`. It does this only when
+backups are enabled for a named target and the directory is root-owned or
+empty; a non-empty directory owned by any other user is left alone.
 
 A run refuses to start, and sends no heartbeat, unless `BACKUP_TARGET` names
 the environment (lowercase letters, digits and hyphens, up to 32 characters,

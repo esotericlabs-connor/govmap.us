@@ -21,7 +21,11 @@ Enabling it needs only environment settings in the deployment platform
 setup. Runs write to `backups/` in the resource's own directory on the host
 (a relative bind source, because the deployment platform rejects variables
 in volume sources) and fail without a
-heartbeat if the target is missing or the directory is owned by anyone else.
+heartbeat if the target is missing or the directory is non-empty and owned
+by anyone else. On the first production deploy the platform pre-created the
+folder as its SSH user, which the original root-only adoption rule refused
+(failing closed, no heartbeat); the entrypoint now also adopts an empty
+folder.
 It idles unless enabled (test environments stay disabled), runs daily at
 `BACKUP_TIME_UTC`, and catches up on start only when the bundle is missing or
 at least 24 hours old. The host timer's script, systemd units and their tests
