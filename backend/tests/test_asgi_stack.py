@@ -4,18 +4,26 @@ tests elsewhere call route functions directly, so these are what catch a
 FastAPI/Starlette incompatibility or a mis-wired middleware."""
 
 import asyncio
+import base64
 import json
-from collections.abc import Iterator, Sequence
+from collections.abc import AsyncIterator, Iterator, Sequence
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any
+from unittest.mock import Mock
 
 import pytest
 from fastapi import FastAPI
+from fastapi.routing import iter_route_contexts
 from pydantic import BaseModel
+from sqlalchemy.dialects import postgresql
 from starlette.types import ASGIApp, Message
 
 from app import main
 from app.body_limit import MAX_REQUEST_BODY_BYTES, BodySizeLimitMiddleware
 from app.config import settings
+from app.db import get_db
+from app.models.source_run import SourceRun
 from app.routers import report
 
 
@@ -24,6 +32,7 @@ async def _call(
     method: str,
     path: str,
     *,
+    query: str = "",
     chunks: Sequence[bytes] = (),
     headers: Sequence[tuple[str, str]] = (),
 ) -> tuple[int, dict[str, str], bytes]:
@@ -36,7 +45,7 @@ async def _call(
         "path": path,
         "raw_path": path.encode("ascii"),
         "root_path": "",
-        "query_string": b"",
+        "query_string": query.encode("ascii"),
         "headers": [
             (name.lower().encode("latin-1"), value.encode("latin-1"))
             for name, value in headers
@@ -208,3 +217,159 @@ def test_app_refuses_oversized_report_bodies(report_sink: list[str]) -> None:
     assert declared[0] == 413
     assert streamed[0] == 413
     assert report_sink == []
+
+
+# --- internal endpoints ---------------------------------------------------------
+
+_OPERATOR = "operator"
+_OPERATOR_SECRET = "example-password"
+
+
+def _basic(user: str, secret: str) -> tuple[str, str]:
+    token = base64.b64encode(f"{user}:{secret}".encode()).decode("ascii")
+    return ("authorization", f"Basic {token}")
+
+
+@dataclass
+class _FakeRunStore:
+    """Stands in for the database session; records every statement it runs."""
+
+    rows: list[SourceRun] = field(default_factory=list)
+    statements: list[Any] = field(default_factory=list)
+
+    async def execute(self, statement: Any) -> Mock:
+        self.statements.append(statement)
+        result = Mock()
+        result.scalars.return_value.all.return_value = self.rows
+        return result
+
+
+@pytest.fixture
+def run_store(monkeypatch: pytest.MonkeyPatch) -> Iterator[_FakeRunStore]:
+    monkeypatch.setattr(settings, "internal_user", _OPERATOR)
+    monkeypatch.setattr(settings, "internal_password", _OPERATOR_SECRET)
+    store = _FakeRunStore()
+
+    async def fake_db() -> AsyncIterator[_FakeRunStore]:
+        yield store
+
+    main.app.dependency_overrides[get_db] = fake_db
+    try:
+        yield store
+    finally:
+        main.app.dependency_overrides.pop(get_db, None)
+
+
+def test_every_internal_route_requires_credentials(run_store: _FakeRunStore) -> None:
+    paths = {
+        context.path
+        for context in iter_route_contexts(main.app.routes)
+        if context.path and context.path.startswith("/internal")
+    }
+    assert {"/internal/pipeline-status", "/internal/source-runs"} <= paths
+    for path in sorted(paths):
+        for headers in ([], [_basic(_OPERATOR, "wrong")]):
+            status, response_headers, _ = asyncio.run(
+                _call(main.app, "GET", path, headers=headers)
+            )
+            assert status == 401, path
+            assert response_headers.get("www-authenticate") == "Basic"
+    assert run_store.statements == []
+
+
+def test_source_runs_checks_credentials_before_filters(run_store: _FakeRunStore) -> None:
+    # Bad credentials get the same 401 whatever the filters, so an
+    # unauthenticated caller can't probe which source names are registered.
+    status, _, _ = asyncio.run(
+        _call(
+            main.app,
+            "GET",
+            "/internal/source-runs",
+            query="source=not_a_source&limit=0",
+            headers=[_basic(_OPERATOR, "wrong")],
+        )
+    )
+    assert status == 401
+    assert run_store.statements == []
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "source=not_a_source",
+        "outcome=done",
+        "limit=0",
+        "limit=501",
+        "limit=ten",
+        "before_id=0",
+        "before_id=-5",
+        "before_id=9223372036854775808",
+        "sources=votes",
+    ],
+)
+def test_source_runs_rejects_invalid_filters_before_querying(
+    run_store: _FakeRunStore, query: str
+) -> None:
+    status, _, payload = asyncio.run(
+        _call(
+            main.app,
+            "GET",
+            "/internal/source-runs",
+            query=query,
+            headers=[_basic(_OPERATOR, _OPERATOR_SECRET)],
+        )
+    )
+    assert status == 422
+    assert json.loads(payload)["detail"]
+    assert run_store.statements == []
+
+
+def test_source_runs_returns_filtered_history_newest_first(run_store: _FakeRunStore) -> None:
+    run_store.rows.append(
+        SourceRun(
+            id=9,
+            source="votes",
+            trigger="schedule",
+            code_version="a" * 40,
+            started_at=datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC),
+            finished_at=None,
+            outcome="partial",
+            record_count=12,
+            items_total=3,
+            items_succeeded=2,
+            items_failed=1,
+            inputs=None,
+            detail="senate fallback",
+        )
+    )
+    status, _, payload = asyncio.run(
+        _call(
+            main.app,
+            "GET",
+            "/internal/source-runs",
+            query="source=votes&outcome=partial&before_id=10&limit=2",
+            headers=[_basic(_OPERATOR, _OPERATOR_SECRET)],
+        )
+    )
+    assert status == 200
+    assert json.loads(payload) == [
+        {
+            "id": 9,
+            "source": "votes",
+            "trigger": "schedule",
+            "code_version": "a" * 40,
+            "started_at": "2026-01-02T03:04:05+00:00",
+            "finished_at": None,
+            "outcome": "partial",
+            "record_count": 12,
+            "items_total": 3,
+            "items_succeeded": 2,
+            "items_failed": 1,
+            "inputs": None,
+            "detail": "senate fallback",
+        }
+    ]
+    (statement,) = run_store.statements
+    compiled = statement.compile(dialect=postgresql.dialect())
+    assert "ORDER BY source_runs.id DESC" in str(compiled)
+    assert sorted(map(str, compiled.params.values())) == ["10", "2", "partial", "votes"]

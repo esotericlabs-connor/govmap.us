@@ -4,7 +4,7 @@
 # ruff's DEFAULT rule set changes between releases — without this file a new
 # ruff version silently enables new rules and turns the lint job red on code
 # that never changed. This keeps `ruff check .` deterministic.
-target-version = "py311"
+target-version = "py313"
 
 # Alembic revision scripts are generated from Alembic's template, which still
 # uses `typing.Union` / `typing.Sequence` (UP007/UP035) and other boilerplate

@@ -43,7 +43,6 @@ import re
 import time
 from collections import defaultdict
 from pathlib import Path
-from typing import TypeVar
 
 import requests
 from pydantic import BaseModel, ValidationError
@@ -98,8 +97,6 @@ _BIOGUIDE = re.compile(r"^[A-Z]\d{6}$")
 # don't match and get no bill_id.
 _BILL = re.compile(r"^(HCONRES|SCONRES|HJRES|SJRES|HRES|SRES|HR|S)(\d+)$")
 
-M = TypeVar("M", bound=BaseModel)
-
 
 def _csv_url(kind: str, congress: int) -> str:
     return f"{VOTEVIEW_BASE}/{kind}/S{congress}_{kind}.csv"
@@ -150,7 +147,7 @@ def _fetch_csv(kind: str, congress: int, required: frozenset[str]) -> list[dict[
     return rows
 
 
-def _validated(model: type[M], rows: list[dict[str, str]], kind: str) -> list[M]:
+def _validated[M: BaseModel](model: type[M], rows: list[dict[str, str]], kind: str) -> list[M]:
     """Do not publish partial positions when one of the source files is bad."""
     if not rows:
         raise ValueError(f"voteview {kind}: empty source file")

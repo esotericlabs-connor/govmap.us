@@ -1,6 +1,6 @@
 # Base pinned by digest so a rebuild is byte-for-byte reproducible and a
 # re-pushed tag can't change what ships; Dependabot proposes digest bumps.
-FROM python:3.11-slim@sha256:07d4824036af339fa1b6ef769cc99d9c10a141769538b52b3b597c84f7a7b535
+FROM python:3.13-slim@sha256:e48f59cdba69a3cbd9ed2cf0f348d90d45a8d350d98134cf1070bc106ee9ed90
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1

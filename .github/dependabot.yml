@@ -33,7 +33,7 @@ updates:
         patterns: ["*"]
     ignore:
       # Runtime majors/minors are platform decisions, not routine bumps:
-      # Python stays on 3.11 and Node on 24 LTS until deliberately moved.
+      # Python stays on 3.13 and Node on 24 LTS until deliberately moved.
       - dependency-name: python
         update-types: ["version-update:semver-major", "version-update:semver-minor"]
       - dependency-name: node

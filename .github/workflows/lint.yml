@@ -20,7 +20,7 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
-          python-version: "3.11"
+          python-version: "3.13"
       # Pin ruff so a new release can't silently enable new rules in the
       # selected categories (E/F/UP/B) and turn this job red on unchanged code.
       # Bump this to match your local `ruff --version` when you upgrade.
@@ -52,7 +52,7 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
-          python-version: "3.11"
+          python-version: "3.13"
       # Two installs: requirements.txt is hash-locked, so a combined install
       # would make pip demand hashes for the unlocked test-only pins too.
       - run: pip install -r requirements.txt
@@ -64,7 +64,7 @@ jobs:
   # the image installs, and fails if any entry is unpinned or unhashed.
   # --strict also fails on any package that couldn't be audited.
   # Also recompiles requirements.in into the lock, keeping the committed pins,
-  # and uploads it, so the lock is only ever produced on Linux/Python 3.11
+  # and uploads it, so the lock is only ever produced on Linux/Python 3.13
   # (the image's platform), never on a developer machine. After editing
   # requirements.in, commit that artifact as requirements.txt.
   backend-audit:
@@ -76,7 +76,7 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
-          python-version: "3.11"
+          python-version: "3.13"
       - run: pip install pip-audit==2.10.1
       - run: pip-audit --strict --progress-spinner off --require-hashes --disable-pip -r requirements.txt
       - run: pip-audit --strict --progress-spinner off -r requirements-dev.txt
@@ -130,7 +130,7 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
-          python-version: "3.11"
+          python-version: "3.13"
       - run: pip install -r requirements.txt
       - name: Migrate up, check drift, down to base, and up again
         run: |
