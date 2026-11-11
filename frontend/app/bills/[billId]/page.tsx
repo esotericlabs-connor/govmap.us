@@ -17,6 +17,7 @@ import { PageSkeleton } from "@/components/PageSkeleton";
 import { Reveal } from "@/components/Reveal";
 import { SiteHeader } from "@/components/SiteHeader";
 import { apiGet, HttpError, type BillDetail, type BillText } from "@/lib/api";
+import { externalHref } from "@/lib/safe-url.mjs";
 
 export const dynamic = "force-dynamic";
 
@@ -65,17 +66,18 @@ async function BillFullText({ billId }: { billId: string }) {
     );
   }
   if (!text?.plain) return null;
+  const sourceHref = externalHref(text.source_url);
 
   return (
     <Section title="Full text">
       <div className="space-y-4">
         <p className="text-xs text-slate-warm-400">
           {text.text_version ? `${text.text_version} · ` : ""}Official text via GPO
-          {text.source_url && (
+          {sourceHref && (
             <>
               {" · "}
               <a
-                href={text.source_url}
+                href={sourceHref}
                 target="_blank"
                 rel="noreferrer"
                 className="font-medium text-govblue transition-colors hover:text-govblue-600"
@@ -131,6 +133,7 @@ async function BillDetailContent({ billId }: { billId: string }) {
   if (!bill) notFound();
 
   const label = `${bill.bill_type.toUpperCase()} ${bill.number}`;
+  const textHref = externalHref(bill.text_url);
 
   return (
     <Reveal>
@@ -159,7 +162,7 @@ async function BillDetailContent({ billId }: { billId: string }) {
         {/* Main content: summary + timeline */}
         <div className="lg:col-span-2">
           <div className="space-y-10">
-            {(bill.summary || bill.text_url) && (
+            {(bill.summary || textHref) && (
               <Section title="What this bill does">
                 {bill.summary ? (
                   <p className="whitespace-pre-line leading-relaxed text-slate-warm-700">
@@ -168,9 +171,9 @@ async function BillDetailContent({ billId }: { billId: string }) {
                 ) : (
                   <EmptyState>No plain-English summary published yet for this bill.</EmptyState>
                 )}
-                {bill.text_url && (
+                {textHref && (
                   <a
-                    href={bill.text_url}
+                    href={textHref}
                     target="_blank"
                     rel="noreferrer"
                     className="group mt-6 inline-flex items-center gap-1.5 self-start rounded-full bg-govnavy px-5 py-2.5 text-sm font-semibold text-white transition-all duration-200 hover:-translate-y-px hover:bg-govnavy/90"

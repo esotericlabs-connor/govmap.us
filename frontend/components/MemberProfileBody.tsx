@@ -14,6 +14,7 @@ import {
 import { FinanceCard } from "@/components/FinanceCard";
 import { MemberAvatar } from "@/components/MemberAvatar";
 import type { MemberDetail } from "@/lib/api";
+import { externalHref } from "@/lib/safe-url.mjs";
 
 function seatLabel(m: MemberDetail): string {
   const where = m.district !== null ? `${m.state}-${m.district}` : m.state;
@@ -40,6 +41,7 @@ export function MemberProfileBody({
 }) {
   const isBlade = variant === "blade";
   const contact: Record<string, string> = member.contact ?? {};
+  const websiteHref = externalHref(contact.url);
   const idBadges: [string, string | number][] = [];
   if (member.ids.fec?.length) idBadges.push(["FEC", member.ids.fec[0]]);
   if (member.ids.opensecrets) idBadges.push(["OpenSecrets", member.ids.opensecrets]);
@@ -106,10 +108,10 @@ export function MemberProfileBody({
             {member.birthday && <Stat label="Born">{formatDate(member.birthday)}</Stat>}
             {contact.office && <Stat label="Office">{contact.office}</Stat>}
             {contact.phone && <Stat label="Phone">{contact.phone}</Stat>}
-            {contact.url && (
+            {websiteHref && (
               <Stat label="Website">
                 <a
-                  href={contact.url}
+                  href={websiteHref}
                   target="_blank"
                   rel="noreferrer"
                   className="font-medium text-govblue underline-offset-2 transition-colors hover:text-govblue-600 hover:underline"

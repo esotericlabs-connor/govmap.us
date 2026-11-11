@@ -6,7 +6,33 @@ import pytest
 from pydantic import ValidationError
 
 from app import main
+from app import scheduler as scheduler_module
 from app.config import Settings
+
+
+def test_scheduled_jobs_never_stack_and_tolerate_a_busy_loop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def probe() -> None:
+        return None
+
+    monkeypatch.setattr(scheduler_module, "scheduler", scheduler_module.new_scheduler())
+    monkeypatch.setattr(
+        scheduler_module, "JOBS", [("probe", probe, {"trigger": "cron", "hour": 7})]
+    )
+
+    async def check() -> None:
+        scheduler_module.start_scheduler()
+        try:
+            job = scheduler_module.scheduler.get_job("probe")
+            assert job is not None
+            assert job.max_instances == 1
+            assert job.coalesce is True
+            assert job.misfire_grace_time == 15 * 60
+        finally:
+            scheduler_module.stop_scheduler()
+
+    asyncio.run(check())
 
 
 def test_scheduler_is_enabled_by_default(monkeypatch: pytest.MonkeyPatch) -> None:

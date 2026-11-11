@@ -6,9 +6,10 @@ can render a categorized typeahead. Designed to grow: add a new entity type by
 adding a block here and a group in the frontend.
 
 Security/robustness: the query is a bound parameter (SQLAlchemy parameterizes
-ILIKE values — no injection), LIKE wildcards in user input are escaped so `%`/`_`
-are literal, the term is length-bounded, and every group is hard-capped so a
-one-character query can't return a huge result set.
+ILIKE values — no injection), LIKE wildcards in user input are escaped with an
+explicit ESCAPE clause so `%`/`_` are literal, the term is length-bounded, and
+every group is hard-capped so a one-character query can't return a huge result
+set.
 """
 
 from fastapi import APIRouter, Depends, Query
@@ -20,6 +21,7 @@ from app.models.bill import Bill
 from app.models.committee import Committee
 from app.models.member import Member
 from app.models.vote import Vote
+from app.services.search import LIKE_ESCAPE, escape_like, substring_pattern
 
 router = APIRouter(prefix="/api/search", tags=["search"])
 
@@ -29,13 +31,6 @@ PER_GROUP = 6
 # Below this many (trimmed) characters we don't search — avoids matching
 # everything on a single stray keystroke.
 MIN_CHARS = 2
-
-
-def _like(term: str) -> str:
-    """Wrap a user term for a substring ILIKE, escaping LIKE metacharacters so
-    they match literally (a user typing `%` searches for a percent sign)."""
-    escaped = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-    return f"%{escaped}%"
 
 
 @router.get("")
@@ -48,8 +43,9 @@ async def search(
     if len(term) < MIN_CHARS:
         return empty
 
-    pat = _like(term)
-    bill_pat = _like(term.replace(" ", ""))  # "hr 1234" -> matches bill_id "hr1234-119"
+    pat = substring_pattern(term)
+    # "hr 1234" -> matches bill_id "hr1234-119"
+    bill_pat = substring_pattern(term.replace(" ", ""))
 
     members = (
         await db.execute(
@@ -63,9 +59,10 @@ async def search(
             )
             .where(
                 or_(
-                    Member.official_full_name.ilike(pat),
-                    Member.last_name.ilike(pat),
-                    Member.state.ilike(term),
+                    Member.official_full_name.ilike(pat, escape=LIKE_ESCAPE),
+                    Member.last_name.ilike(pat, escape=LIKE_ESCAPE),
+                    # Case-insensitive exact state code; "%%" must not match every state.
+                    Member.state.ilike(escape_like(term), escape=LIKE_ESCAPE),
                 )
             )
             .order_by(Member.last_name)
@@ -76,7 +73,12 @@ async def search(
     bills = (
         await db.execute(
             select(Bill.bill_id, Bill.bill_type, Bill.number, Bill.title, Bill.latest_action)
-            .where(or_(Bill.title.ilike(pat), Bill.bill_id.ilike(bill_pat)))
+            .where(
+                or_(
+                    Bill.title.ilike(pat, escape=LIKE_ESCAPE),
+                    Bill.bill_id.ilike(bill_pat, escape=LIKE_ESCAPE),
+                )
+            )
             .order_by(nullslast(Bill.update_date.desc()))
             .limit(PER_GROUP)
         )
@@ -85,7 +87,7 @@ async def search(
     votes = (
         await db.execute(
             select(Vote.vote_id, Vote.chamber, Vote.date, Vote.question, Vote.result)
-            .where(Vote.question.ilike(pat))
+            .where(Vote.question.ilike(pat, escape=LIKE_ESCAPE))
             .order_by(nullslast(Vote.date.desc()))
             .limit(PER_GROUP)
         )
@@ -94,7 +96,7 @@ async def search(
     committees = (
         await db.execute(
             select(Committee.committee_id, Committee.name, Committee.chamber)
-            .where(Committee.name.ilike(pat))
+            .where(Committee.name.ilike(pat, escape=LIKE_ESCAPE))
             .order_by(Committee.name)
             .limit(PER_GROUP)
         )

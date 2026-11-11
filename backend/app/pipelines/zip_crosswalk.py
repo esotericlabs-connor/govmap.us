@@ -16,13 +16,13 @@ Run directly: `python -m app.pipelines.zip_crosswalk`.
 
 from __future__ import annotations
 
-import json
 import logging
 from pathlib import Path
 
 import requests
 
 from app.config import settings
+from app.pipelines.staging import write_json_atomic
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +39,8 @@ _TYPE_ZIP_CD = 5  # HUD crosswalk type: ZIP → Congressional District
 # unpaginated call returns only the first page — low ZIPs (01xxx) resolve while
 # high ZIPs (98xxx) silently go missing. We walk every page. per_page is a hint
 # (HUD may cap it); the loop stops on an empty page regardless. _MAX_PAGES bounds
-# a pathological/looping response.
+# a pathological/looping response — exhausting it fails the run rather than
+# staging a partial set.
 _PER_PAGE = 5000
 _MAX_PAGES = 60
 _TIMEOUT = 180  # a full-page pull over the whole country is occasionally slow
@@ -108,6 +109,15 @@ def _fetch() -> list[dict]:
             page1_signature = signature
 
         all_results.extend(results)
+    else:
+        # The cap ran out before an empty/repeated page proved the end of the
+        # set. Staging this would let the normalizer replace the whole live
+        # crosswalk with a truncated one, so fail and keep the last good data.
+        raise RuntimeError(
+            f"zip_crosswalk: HUD pagination did not finish within {_MAX_PAGES} pages "
+            f"({len(all_results)} rows so far); refusing to stage an incomplete "
+            "ZIP→district crosswalk"
+        )
 
     if not all_results:
         raise RuntimeError(
@@ -150,8 +160,7 @@ def _parse(results: list[dict]) -> list[dict]:
 
 
 def _stage(rows: list[dict]) -> None:
-    STAGING_DIR.mkdir(parents=True, exist_ok=True)
-    STAGING_PATH.write_text(json.dumps(rows))
+    write_json_atomic(STAGING_PATH, rows)
 
 
 def run() -> int:

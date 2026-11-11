@@ -14,7 +14,6 @@ Run directly: `python -m app.pipelines.congress_legislators`.
 
 from __future__ import annotations
 
-import json
 import logging
 from pathlib import Path
 
@@ -22,6 +21,7 @@ import requests
 import yaml
 from pydantic import BaseModel, ValidationError
 
+from app.pipelines.staging import write_json_atomic
 from app.schemas.committee import CommitteeMemberRaw, CommitteeRaw
 from app.schemas.member import LegislatorRaw
 
@@ -82,8 +82,7 @@ def _validate_list(records: list, model: type[BaseModel], label: str) -> list[di
 
 
 def _stage(path: Path, data) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2))
+    write_json_atomic(path, data, indent=2)
 
 
 def run() -> int:

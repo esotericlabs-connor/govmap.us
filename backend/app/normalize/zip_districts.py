@@ -2,7 +2,8 @@
 
 The crosswalk is a full-replace dataset (a redistricting can move a ZIP between
 districts, and old rows must not linger), so this truncates and reloads inside a
-single transaction. Inserts are chunked to stay under asyncpg's 32767 bind-param
+single transaction. A snapshot below half the current table is refused as a
+truncated pull. Inserts are chunked to stay under asyncpg's 32767 bind-param
 limit (3 columns per row).
 
 Run directly: `python -m app.normalize.zip_districts` (after the zip_crosswalk
@@ -16,10 +17,11 @@ import json
 import logging
 from pathlib import Path
 
-from sqlalchemy import delete, insert
+from sqlalchemy import delete, func, insert, select
 
 from app.db import async_session_factory
 from app.models.zip_district import ZipDistrict
+from app.normalize.guards import check_replacement
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +32,10 @@ STAGING_PATH = (
 
 # 3 columns/row; keep well under the 32767 bind-param cap.
 CHUNK_ROWS = 8000
+
+# The national ZIP→district table cannot legitimately halve between HUD
+# releases; a snapshot that small is a truncated pull, not redistricting.
+MIN_REPLACE_RATIO = 0.5
 
 
 async def load_zip_districts() -> int:
@@ -43,6 +49,8 @@ async def load_zip_districts() -> int:
         raise ValueError("staged zip_districts is empty")
 
     async with async_session_factory() as session:
+        current = await session.scalar(select(func.count()).select_from(ZipDistrict))
+        check_replacement("zip_districts", len(rows), current or 0, min_ratio=MIN_REPLACE_RATIO)
         await session.execute(delete(ZipDistrict))
         for start in range(0, len(rows), CHUNK_ROWS):
             chunk = rows[start : start + CHUNK_ROWS]

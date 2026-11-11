@@ -29,7 +29,19 @@ from app.pipelines.refresh import (
 
 logger = logging.getLogger(__name__)
 
-scheduler = AsyncIOScheduler(timezone="UTC")
+# Explicit so a library default change can't alter refresh behavior. One
+# instance per job: an overrunning refresh is skipped, never stacked. Missed
+# fires collapse into one run. APScheduler's 1-second default grace would
+# silently drop a daily cron whenever the event loop is briefly busy at fire
+# time; 15 minutes still runs it, late.
+JOB_DEFAULTS = {"coalesce": True, "max_instances": 1, "misfire_grace_time": 15 * 60}
+
+
+def new_scheduler() -> AsyncIOScheduler:
+    return AsyncIOScheduler(timezone="UTC", job_defaults=JOB_DEFAULTS)
+
+
+scheduler = new_scheduler()
 
 # (job id, coroutine, APScheduler trigger kwargs).
 JOBS: list[tuple[str, Callable[[], Awaitable[None]], dict]] = [

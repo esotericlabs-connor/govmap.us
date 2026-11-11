@@ -22,9 +22,10 @@ import html
 import logging
 import re
 from datetime import date
+from urllib.parse import urljoin, urlsplit
 
 import requests
-from sqlalchemy import delete, nullslast, select
+from sqlalchemy import delete, func, nullslast, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -60,6 +61,9 @@ logger = logging.getLogger(__name__)
 _BILL_ID_RE = re.compile(r"^([a-z]+)(\d+)-(\d+)$")
 _TEXT_CAP = 800_000  # chars of plain text to store/serve; huge bills are truncated
 _TEXT_TIMEOUT = 30
+_TEXT_HOSTS = frozenset({"www.congress.gov", "congress.gov", "www.govinfo.gov", "govinfo.gov"})
+_TEXT_MAX_BYTES = 16 * 1024 * 1024  # raw HTML; the largest enrolled bills are a few MB
+_TEXT_MAX_REDIRECTS = 3
 
 
 def _parse_bill_id(bill_id: str) -> tuple[int, str, int] | None:
@@ -88,6 +92,8 @@ async def enrich_bill(db: AsyncSession, bill_id: str, *, raise_unavailable: bool
         return False
     congress, btype, number = parsed
 
+    # End the read transaction so no pooled connection is held during the call.
+    await db.commit()
     try:
         bundle = await run_upstream("congress", _fetch_one, congress, btype, number)
     except UpstreamCapacityError:
@@ -117,6 +123,7 @@ async def enrich_bill(db: AsyncSession, bill_id: str, *, raise_unavailable: bool
 
     stmt = pg_insert(Bill).values([row])
     update = {c: getattr(stmt.excluded, c) for c in _BILL_UPDATE_COLS}
+    update["updated_at"] = func.now()
     stmt = stmt.on_conflict_do_update(index_elements=[Bill.bill_id], set_=update)
     await db.execute(stmt)
     # Replace this bill's actions/cosponsors (re-fetched whole).
@@ -127,6 +134,9 @@ async def enrich_bill(db: AsyncSession, bill_id: str, *, raise_unavailable: bool
     if c_rows:
         await db.execute(pg_insert(Cosponsor).values(c_rows))
     await db.commit()
+    # The Core upsert bypasses the identity map and sessions don't expire on
+    # commit, so without this the caller's next SELECT would hand back the stub.
+    db.expire(bill)
     logger.info(
         "bill_enrich: enriched %s (%d actions, %d cosponsors)", bill_id, len(a_rows), len(c_rows)
     )
@@ -144,20 +154,62 @@ def _formatted_text_url(versions: list[BillTextVersionRaw]) -> tuple[str | None,
     return None, None
 
 
-def _fetch_url(url: str) -> str:
-    """Fetch a public GPO/govinfo text page (no API key needed)."""
+def _check_text_url(url: str) -> None:
+    """The text URL comes from an upstream payload, so it is only fetched when
+    it points at an official bill-text host over HTTPS."""
+    parts = urlsplit(url)
+    host = (parts.hostname or "").lower()
+    if (
+        parts.scheme != "https"
+        or host not in _TEXT_HOSTS
+        or parts.port not in (None, 443)
+        or parts.username is not None
+    ):
+        raise ValueError(f"refusing bill-text URL on host {host!r}")
+
+
+def _read_capped(resp: requests.Response) -> tuple[str, bool]:
+    """Read at most `_TEXT_MAX_BYTES`; returns (text, cut_short)."""
+    body = bytearray()
+    cut_short = False
+    for chunk in resp.iter_content(chunk_size=64 * 1024):
+        body.extend(chunk)
+        if len(body) > _TEXT_MAX_BYTES:
+            del body[_TEXT_MAX_BYTES:]
+            cut_short = True
+            break
+    try:
+        return body.decode(resp.encoding or "utf-8", errors="replace"), cut_short
+    except LookupError:
+        return body.decode("utf-8", errors="replace"), cut_short
+
+
+def _fetch_url(url: str) -> tuple[str, bool]:
+    """Fetch a public Congress.gov/GovInfo bill-text page (no API key needed).
+    Redirects are followed manually so every hop is re-checked against the
+    host allowlist, and the body is size-capped so a misbehaving upstream
+    cannot exhaust worker memory. Returns (html, cut_short)."""
     with request_slot("govinfo"):
-        resp = requests.get(url, timeout=_TEXT_TIMEOUT)
-    resp.raise_for_status()
-    return resp.text
+        for _ in range(_TEXT_MAX_REDIRECTS + 1):
+            _check_text_url(url)
+            with requests.get(
+                url, timeout=_TEXT_TIMEOUT, allow_redirects=False, stream=True
+            ) as resp:
+                if resp.is_redirect:
+                    url = urljoin(url, resp.headers["location"])
+                    continue
+                resp.raise_for_status()
+                return _read_capped(resp)
+    raise ValueError("too many redirects fetching bill text")
 
 
 def _html_to_text(doc: str) -> str:
     """Reduce a bill's 'Formatted Text' HTML to plain text, preserving the
     legislative indentation. GPO wraps the body in <pre> blocks whose whitespace
     IS the layout — keep those verbatim (tags stripped); otherwise fall back to
-    turning block-ends into newlines. No HTML reaches the client."""
-    pres = re.findall(r"(?is)<pre[^>]*>(.*?)</pre>", doc)
+    turning block-ends into newlines. No HTML reaches the client. A final <pre>
+    left open by the fetch size cap still counts."""
+    pres = re.findall(r"(?is)<pre[^>]*>(.*?)(?:</pre>|\Z)", doc)
     if pres:
         body = "\n".join(pres)
     else:
@@ -197,6 +249,8 @@ async def get_bill_text(db: AsyncSession, bill_id: str) -> dict | None:
         return None
     congress, btype, number = parsed
 
+    # End the read transaction so no pooled connection is held during either fetch.
+    await db.commit()
     try:
         data = await run_upstream("congress", _get, f"bill/{congress}/{btype}/{number}/text")
     except UpstreamCapacityError:
@@ -210,7 +264,7 @@ async def get_bill_text(db: AsyncSession, bill_id: str) -> dict | None:
         return None
 
     try:
-        html_doc = await run_upstream("govinfo", _fetch_url, url)
+        html_doc, cut_short = await run_upstream("govinfo", _fetch_url, url)
     except UpstreamCapacityError:
         raise
     except Exception as exc:
@@ -218,7 +272,7 @@ async def get_bill_text(db: AsyncSession, bill_id: str) -> dict | None:
         return None
 
     plain = _html_to_text(html_doc)
-    truncated = len(plain) > _TEXT_CAP
+    truncated = cut_short or len(plain) > _TEXT_CAP
     if truncated:
         plain = plain[:_TEXT_CAP]
 

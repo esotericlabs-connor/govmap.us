@@ -4,6 +4,81 @@ What's been built, in what order, and what's next. This is a living log — add 
 
 ## Build log
 
+**2026-11-11 — R0: release reconciliation and hardening (CI pending)**
+Roadmap step 1. `dev` commit `6727148` had added regression tests without the
+code they test: [CI run 42976989444](https://github.com/esotericlabs-connor/govmap.us/actions/runs/42976989444)
+failed 25 of 261 backend tests while `main` (`2f3d374`) stayed green. This
+entry implements those producers, the fixes from a full security review (no
+exploitable issue; 12 low-severity items) and a reliability audit.
+
+- *Reconciled producers:* internal Basic auth compares UTF-8 bytes in constant
+  time (a non-ASCII login was a 500, now a 401); webhook alerts run off the
+  event loop with a timeout, no redirects and only network errors swallowed;
+  every search `ILIKE` escapes `%`/`_`/`\` through one shared helper; the HUD
+  crosswalk fails instead of staging a partial set when pagination exhausts
+  its page cap.
+- *Transactions and concurrency:* the donation ledger commits each FEC page
+  with a compare-and-set on its cursor, so concurrent viewers cannot double
+  count or rewind a completed ledger. Counts advance by actual inserted
+  receipts, not source rows; malformed/missing/repeated cursors and truncated
+  final pages retain the last committed checkpoint. PostgreSQL tests cover
+  overlapping requests, duplicates and truncated pages. Bill enrichment, bill text and committee
+  referrals release their database transaction before any upstream call.
+  Scheduled jobs never stack (`max_instances=1`, coalesced, 15-minute misfire
+  grace).
+- *Data integrity:* every pipeline writes staging JSON atomically
+  (temp file, fsync, rename). Full-replace normalizers (committees, committee
+  meetings, ZIP districts) refuse an empty snapshot; ZIP districts also refuse
+  one under half the stored table. Vote reloads keep stored positions when a re-fetch has none.
+  Sponsored-legislation stubs no longer null out enriched bill fields or move
+  a bill's latest action backwards. Fixed a stale read where a bill page could
+  render pre-enrichment data, and enrichment now stamps `updated_at` (the ORM
+  `onupdate` does not fire on `ON CONFLICT`).
+- *Security:* the retired Deploy workflow is manual-dispatch only with
+  read-only permissions; the tunnel token is passed by environment rather than
+  command line; `requests` 2.33.1; the backend image's app user can write only
+  `logs/` and `data/`; API docs are off unless `API_DOCS_ENABLED=true` and
+  internal routes are excluded from the schema; frontend security headers and
+  no `X-Powered-By`; Turnstile rejects tokens solved on hostnames outside
+  `CORS_ORIGINS` (dummy test secrets excepted), redirects, client-error responses
+  and malformed success bodies;
+  report text strips C1, bidi and zero-width control characters; in-app bill
+  text is fetched only over HTTPS from congress.gov/govinfo.gov with
+  per-redirect checks and a 16 MB cap (truncates rather than rejects, so very
+  large bills keep working); data-sourced links render only as `http(s)` URLs
+  (`http` kept because some official sites still use it; the risk closed is
+  `javascript:`/`data:` links).
+- *Disclosure:* added [docs/security.txt](docs/security.txt) (RFC 9116) for
+  Cloudflare to serve, expiring 2027-11-01.
+- *Tests:* donation concurrency (unit plus PostgreSQL), bill-text fetch,
+  sponsored-bill upsert integrity (PostgreSQL), staging/guards, Turnstile and
+  report scrubbing, scheduler job defaults, API-doc gating, frontend link
+  sanitizing (now in CI) and response-header assertions. PostgreSQL tests run
+  only against CI's disposable database.
+- *Deferred (see Known open items):* image digest pinning and hash-locked
+  requirements; trusted-proxy CIDRs; committee-meeting history; a script/style
+  CSP.
+
+No schema migration. Validation so far is static (Pylance syntax checks,
+import and whitespace review); this checkout cannot run the app or tests.
+The release gate is green CI on the pushed `dev` commit, then the existing
+test-environment checks before promotion.
+
+**2026-11-11 — Proposed platform roadmap: hardening, federal breadth and history**
+Added a [platform roadmap](docs/platform-roadmap.md) for review. The operator
+selected a long-term catalog of every discoverable public federal dataset,
+operations/accountability first, current and historical ingestion together,
+then state and local coverage. Open-source development remains the immediate
+model; a business API and per-seat/tenant product are future possibilities,
+subject to source-specific rights and separate approval.
+The plan defines dependency-ordered waves, provenance/identity rules,
+source-aware freshness targets, current/history work lanes, release gates,
+resource/recovery checks and explicit coverage gaps. Site-monitoring
+infrastructure remains on hold. It also flags producer/test discrepancies in
+the current checkout for baseline reconciliation before further releases.
+This is planning documentation only: no application, infrastructure,
+credentials, schema or runtime changes were made, and no local tests were run.
+
 **2026-11-10 — Deployment recovery: shared-network service alias collision**
 Production migration startup failed with database authentication errors.
 The current backend and backup credentials matched; a direct connection from
@@ -645,6 +720,10 @@ The original planning docs disagreed with each other in a few places. Resolved a
 
 ## Canonical source list (26)
 
+Historical planning inventory: it is not a statement of current completeness
+or confirmed source rights. The [platform roadmap](docs/platform-roadmap.md)
+defines the proposed replacement coverage catalog and onboarding gates.
+
 Status: `pilot` = actively being built against right now, `planned` = designed for, not yet started, `on hold` = deferred by product decision (not blocked technically).
 
 | # | Source | Branch/category | Status |
@@ -720,6 +799,9 @@ govmap.us/
 
 ## Phase checklist
 
+Historical checklist; use the [platform roadmap](docs/platform-roadmap.md) for
+the proposed next execution waves and the build log for verified completion.
+
 Adapted from the original end-to-end plan, reordered to prove the pipeline contract on one source before fanning out — see the 2026-07-20 build log entry for why.
 
 - [x] Repo scaffold, `.gitignore`, three canonical docs
@@ -753,3 +835,10 @@ Adapted from the original end-to-end plan, reordered to prove the pipeline contr
 - **FEC finance queries by candidate id (targeted, ~20 calls).** `fec_finance` calls `GET /candidates/totals` filtered to **our members' candidate ids in batches of 50** (repeatable `candidate_id` + `cycle` params, `sort=-cycle`, newest wins across the last `_CYCLE_SPAN` cycles). This covers all three Senate classes + the House in ~20 targeted calls — no scanning the ~3500-candidate field, and well under api.data.gov's ~1000 req/hr. Earlier designs (one call per member ~537; then an untargeted per-cycle bulk sweep ~100+) both burned the hourly budget. Idempotent (upsert on `(bioguide, cycle)`). **The budget still resets hourly** — if a run 429s because the hour is already spent (from prior runs), wait for the reset and run once.
 - **Ruff is pinned via `backend/ruff.toml`.** CI runs an unpinned `pip install ruff`, whose default rule set shifts between releases; without a config, a new ruff version turned the lint red on unchanged code (B008 on every FastAPI `Depends`, UP on Alembic boilerplate, BLE/DTZ on intentional patterns). The config sets a deterministic `select = [E, F, UP, B]`, ignores `B008` (FastAPI idiom), and excludes `migrations/`.
 - **ZIP crosswalk uses HUD (needs `HUD_API_TOKEN`).** Confirmed via directory listing that Census publishes **no** ZCTA↔CD relationship file (`rel2020/zcta520/` pairs ZCTA with county/place/tract/tabblock/cousub only). `zip_crosswalk.py` now uses the authoritative **HUD USPS ZIP→CD crosswalk** (huduser.gov, type 5), token as a Bearer header. Free token from huduser.gov; must also be in the backend `environment:` block (it is: `HUD_API_TOKEN`). Fail-soft without it — `/api/lookup` returns empty and the `/congress` ZIP box shows "couldn't match" until it's set + `refresh zip_districts` runs.
+- **R0 deferred hardening (2026-11-11).** Each needs an operator decision or infrastructure fact first, not just code:
+  - *Supply-chain pinning.* Base and `cloudflared:latest` images are not digest-pinned, and `requirements.txt` has no hashes. Pinning needs a Linux-resolved lock (e.g. `uv pip compile --universal --generate-hashes`) and an agreed update cadence, or stale pins become their own risk.
+  - *Trusted-proxy CIDRs.* `TRUSTED_PROXY_CIDRS` must name the PaaS's actual private subnet. A guessed range could trust a neighboring network's forged client IP headers; read the real subnet from the deployment before setting it.
+  - *Committee-meeting history.* The meetings table is fully replaced with each chamber's 300 most-recently-updated meetings (`committee_meetings_limit`), so older meetings drop out. Keeping history needs an append/upsert model and a migration (roadmap history lane).
+  - *Script/style CSP.* Only `frame-ancestors` is enforced. A full CSP needs per-request nonces (making pages dynamic) plus Cloudflare Turnstile allowances; roll it out report-only first.
+  - *HUD page cap.* `zip_crosswalk` now fails rather than staging a partial set if HUD needs more than 60 pages. If that error appears, check the page-1 log's metadata and raise `_MAX_PAGES` deliberately.
+- **AGENTS.md still names `pipeline_status.json`** in the pipeline contract; status has lived in the `pipeline_status` table since schema 0002 (see above). Update that rule text in a deliberate AGENTS.md change.

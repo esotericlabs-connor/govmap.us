@@ -3,6 +3,8 @@
 Maps each meeting's Congress.gov systemCode(s) back to our committee_id
 (app.committee_codes), drops meetings whose committee we don't hold, and
 full-replaces the table (meetings churn and canceled ones should drop). A
+snapshot in which no meeting maps to a known committee is refused rather than
+allowed to empty the table. A
 meeting shared by a full committee and one of its subcommittees yields a row
 under each. Must run after committees exist (FK).
 
@@ -16,13 +18,14 @@ import json
 import logging
 from pathlib import Path
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.committee_codes import to_committee_id
 from app.db import async_session_factory
 from app.models.committee import Committee, CommitteeMeeting
 from app.normalize.dates import normalize_datetime
+from app.normalize.guards import check_replacement
 
 logger = logging.getLogger(__name__)
 
@@ -112,6 +115,8 @@ async def load_committee_meetings() -> int:
     async with async_session_factory() as session:
         known = set((await session.execute(select(Committee.committee_id))).scalars().all())
         rows = meeting_rows(staged, known)
+        current = await session.scalar(select(func.count()).select_from(CommitteeMeeting))
+        check_replacement("committee_meetings", len(rows), current or 0)
         # Full replace — meetings churn; a canceled/removed meeting must drop out.
         await session.execute(delete(CommitteeMeeting))
         for i in range(0, len(rows), _CHUNK):

@@ -3,9 +3,10 @@
 Upserts each staged sponsored bill into `bills` as an "index" row: identity +
 sponsor + title + latest action + policy area. It deliberately does NOT touch
 `bill_actions`/`cosponsors` (those come from the enriched bills pull) and does
-NOT overwrite `update_date`/`status` on conflict, so it can never downgrade a
-bill the enriched pull already filled in. Idempotent; safe to run alongside the
-bills normalizer.
+NOT overwrite `update_date`/`status` on conflict. The index fields it does
+refresh can never be downgraded: a NULL from the list endpoint never erases a
+known value, and the latest action only moves forward in time. Idempotent; safe
+to run alongside the bills normalizer or on-demand enrichment.
 
 Run directly: `python -m app.normalize.member_sponsored`.
 """
@@ -17,7 +18,8 @@ import json
 import logging
 from pathlib import Path
 
-from sqlalchemy import func
+from sqlalchemy import and_, case, func, or_
+from sqlalchemy.dialects.postgresql import Insert
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.db import async_session_factory
@@ -34,14 +36,35 @@ _CHUNK = 1000  # 10 cols/row -> 10000 params, under the 32767 cap.
 
 # On conflict, only refresh the index fields — never clobber update_date/status
 # that the enriched bills pull owns.
-_UPDATE_COLS = (
+_COALESCE_COLS = (
     "title",
     "sponsor_bioguide_id",
     "introduced_date",
-    "latest_action",
-    "latest_action_date",
     "policy_area",
 )
+
+
+def upsert_statement(rows: list[dict]) -> Insert:
+    stmt = pg_insert(Bill).values(rows)
+    new = stmt.excluded
+    take_action = or_(
+        Bill.latest_action_date.is_(None),
+        and_(
+            new.latest_action_date.is_not(None),
+            new.latest_action_date >= Bill.latest_action_date,
+        ),
+    )
+    update = {c: func.coalesce(getattr(new, c), getattr(Bill, c)) for c in _COALESCE_COLS}
+    update["latest_action"] = case(
+        (take_action, func.coalesce(new.latest_action, Bill.latest_action)),
+        else_=Bill.latest_action,
+    )
+    update["latest_action_date"] = case(
+        (take_action, func.coalesce(new.latest_action_date, Bill.latest_action_date)),
+        else_=Bill.latest_action_date,
+    )
+    update["updated_at"] = func.now()
+    return stmt.on_conflict_do_update(index_elements=[Bill.bill_id], set_=update)
 
 
 def _bill_row(r: dict) -> dict:
@@ -80,11 +103,7 @@ async def load_member_sponsored() -> int:
     async with async_session_factory() as session:
         for i in range(0, len(rows), _CHUNK):
             chunk = rows[i : i + _CHUNK]
-            stmt = pg_insert(Bill).values(chunk)
-            update = {c: getattr(stmt.excluded, c) for c in _UPDATE_COLS}
-            update["updated_at"] = func.now()
-            stmt = stmt.on_conflict_do_update(index_elements=[Bill.bill_id], set_=update)
-            await session.execute(stmt)
+            await session.execute(upsert_statement(chunk))
         await session.commit()
 
     logger.info("member_sponsored: upserted %d sponsored bills", len(rows))

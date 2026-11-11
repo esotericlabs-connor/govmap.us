@@ -17,11 +17,12 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any
+from typing import Any, cast
 
 import requests
-from sqlalchemy import func, nullslast, or_, select
+from sqlalchemy import func, nullslast, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -29,7 +30,8 @@ from app.models.contribution import Contribution, DonationFetch
 from app.models.crosswalk import IdCrosswalk
 from app.models.finance import MemberFinance
 from app.models.member import Member
-from app.schemas.finance import ScheduleAItemRaw
+from app.schemas.finance import ScheduleAPageRaw
+from app.services.search import LIKE_ESCAPE, substring_pattern
 from app.services.upstream import UpstreamCapacityError, request_slot, run_upstream
 
 logger = logging.getLogger(__name__)
@@ -97,13 +99,10 @@ async def _resolve_candidate_id(db: AsyncSession, bioguide: str) -> str | None:
     return next((f for f in fec_ids if prefix and f.startswith(prefix)), None)
 
 
-async def _resolve_committee_id(db: AsyncSession, bioguide: str, cycle: int) -> str | None:
-    """Resolve a member's principal campaign committee (designation P) via the
-    FEC candidate→committees endpoint. Prefers a committee active in `cycle`."""
-    candidate_id = await _resolve_candidate_id(db, bioguide)
-    if not candidate_id:
-        return None
-
+async def _principal_committee_id(candidate_id: str, cycle: int) -> str | None:
+    """Resolve a candidate's principal campaign committee (designation P) via the
+    FEC candidate→committees endpoint. Prefers a committee active in `cycle`.
+    Network only — callers must not hold a database transaction open across it."""
     data = await run_upstream(
         "fec", _fec_get, f"candidate/{candidate_id}/committees", designation="P", per_page=20
     )
@@ -139,6 +138,9 @@ async def get_donation_cycles(db: AsyncSession, bioguide: str) -> list[int]:
 
     candidate_id = await _resolve_candidate_id(db, bioguide) if settings.fec_api_key else None
     if candidate_id:
+        # End the read transaction so no pooled connection idles in a
+        # transaction while the FEC answers.
+        await db.commit()
         try:
             data = await run_upstream(
                 "fec", _fec_get, f"candidate/{candidate_id}/committees", designation="P", per_page=20
@@ -155,10 +157,37 @@ async def get_donation_cycles(db: AsyncSession, bioguide: str) -> list[int]:
     return sorted(cycles, reverse=True)
 
 
+async def _reload_progress(db: AsyncSession, state: DonationFetch, cycle: int) -> None:
+    """Copy the committed cursor/progress onto the detached `state` snapshot."""
+    row = (
+        await db.execute(
+            select(
+                DonationFetch.fetched_count,
+                DonationFetch.total_count,
+                DonationFetch.complete,
+                DonationFetch.cursor_index,
+                DonationFetch.cursor_amount,
+            ).where(
+                DonationFetch.bioguide_id == state.bioguide_id,
+                DonationFetch.cycle == cycle,
+            )
+        )
+    ).one()
+    for key, value in row._mapping.items():
+        setattr(state, key, value)
+
+
 async def _fetch_more(db: AsyncSession, state: DonationFetch, cycle: int, until: int) -> None:
     """Pull Schedule A pages (biggest receipts first) from the stored cursor and
     cache them, until we've cached `until` rows, the ledger is exhausted, or the
-    per-request page cap is hit."""
+    per-request page cap is hit.
+
+    Callers pass a `state` detached from `db` with no transaction open, so each
+    FEC request runs outside any transaction. A page's receipts and its advanced
+    cursor then commit together only if no concurrent request moved the cursor
+    first (compare-and-set). A losing request discards its page and adopts the
+    committed progress, so the cursor never regresses or mixes two requests'
+    keyset values."""
     committee_id = state.committee_id
     if not committee_id:
         return
@@ -181,16 +210,29 @@ async def _fetch_more(db: AsyncSession, state: DonationFetch, cycle: int, until:
             logger.warning("donations: schedule_a fetch failed for %s: %s", committee_id, exc)
             break
 
-        results = data.get("results") or []
-        pagination = data.get("pagination") or {}
-        if state.total_count is None:
-            state.total_count = pagination.get("count")
+        try:
+            page = ScheduleAPageRaw.model_validate(data)
+            last = page.pagination.last_indexes
+            next_index = None if last.last_index is None else str(last.last_index)
+            next_amount = last.last_contribution_receipt_amount
+            complete = len(page.results) < _PER_PAGE
+            if not complete and (
+                not next_index
+                or next_amount is None
+                or next_index == state.cursor_index
+            ):
+                raise ValueError("missing or repeated Schedule A cursor")
+        except ValueError as exc:
+            # Do not publish a page or advance past unvalidated receipts.
+            logger.warning(
+                "donations: invalid schedule_a page for %s (%s); keeping cached progress",
+                committee_id,
+                type(exc).__name__,
+            )
+            break
 
         rows: list[dict] = []
-        for r in results:
-            item = ScheduleAItemRaw.model_validate(r)
-            if not item.sub_id:
-                continue
+        for item in page.results:
             rows.append(
                 {
                     "sub_id": item.sub_id,
@@ -207,25 +249,67 @@ async def _fetch_more(db: AsyncSession, state: DonationFetch, cycle: int, until:
                     "aggregate_ytd": item.contributor_aggregate_ytd,
                 }
             )
+
+        inserted_count = 0
         if rows:
-            await db.execute(
+            inserted = await db.execute(
                 pg_insert(Contribution)
                 .values(rows)
                 .on_conflict_do_nothing(index_elements=[Contribution.sub_id])
+                .returning(Contribution.sub_id)
             )
-            state.fetched_count += len(rows)
+            inserted_count = len(inserted.scalars().all())
 
-        last = pagination.get("last_indexes") or {}
-        next_index = last.get("last_index")
-        next_amount = last.get("last_contribution_receipt_amount")
-        if len(results) < _PER_PAGE or not next_index:
-            state.complete = True
-        else:
-            state.cursor_index = str(next_index)
-            state.cursor_amount = None if next_amount is None else str(next_amount)
+        progress: dict[str, Any] = {
+            "fetched_count": state.fetched_count + inserted_count,
+            "total_count": (
+                state.total_count if state.total_count is not None else page.pagination.count
+            ),
+            "complete": complete,
+            "cursor_index": state.cursor_index if complete else str(next_index),
+            "cursor_amount": (
+                state.cursor_amount
+                if complete
+                else (None if next_amount is None else str(next_amount))
+            ),
+        }
+        if complete and progress["fetched_count"] < page.pagination.count:
+            await db.rollback()
+            logger.warning(
+                "donations: truncated schedule_a page for %s; keeping cached progress",
+                committee_id,
+            )
+            break
+
+        advanced = cast(
+            CursorResult[Any],
+            await db.execute(
+                update(DonationFetch)
+                .where(
+                    DonationFetch.bioguide_id == state.bioguide_id,
+                    DonationFetch.cycle == cycle,
+                    DonationFetch.complete.is_(False),
+                    DonationFetch.fetched_count == state.fetched_count,
+                    DonationFetch.cursor_index.is_not_distinct_from(state.cursor_index),
+                    DonationFetch.cursor_amount.is_not_distinct_from(state.cursor_amount),
+                )
+                .values(**progress)
+                .execution_options(synchronize_session=False)
+            ),
+        )
+        if advanced.rowcount != 1:
+            await db.rollback()
+            await _reload_progress(db, state, cycle)
+            logger.info(
+                "donations: %s/%s cursor advanced concurrently; serving committed progress",
+                state.bioguide_id,
+                cycle,
+            )
+            return
+        await db.commit()
+        for key, value in progress.items():
+            setattr(state, key, value)
         pages += 1
-
-    await db.commit()
 
 
 async def get_donations(
@@ -262,17 +346,24 @@ async def get_donations(
     fec_enabled = bool(settings.fec_api_key)
 
     # Resolve the principal committee once (retry on a transient failure — resolved
-    # stays False so the next request tries again). The FEC call is off-DB, so a
-    # failure leaves no DB write to unwind; we just skip ahead and serve cache.
+    # stays False so the next request tries again). The local candidate lookup
+    # commits before the FEC call so no transaction stays open across it; a
+    # failure leaves no DB write to unwind, so we just skip ahead and serve cache.
     if fec_enabled and not state.resolved:
+        candidate_id = await _resolve_candidate_id(db, bioguide)
+        await db.commit()
         try:
-            state.committee_id = await _resolve_committee_id(db, bioguide, cycle)
-            state.resolved = True
-            await db.commit()
+            committee_id = (
+                await _principal_committee_id(candidate_id, cycle) if candidate_id else None
+            )
         except UpstreamCapacityError:
             raise
         except Exception as exc:
             logger.warning("donations: committee resolve failed for %s/%s: %s", bioguide, cycle, exc)
+        else:
+            state.committee_id = committee_id
+            state.resolved = True
+            await db.commit()
 
     # Only the default biggest-first view grows the cache (the FEC pull walks
     # biggest-first, so it can't cheaply satisfy a filtered/other-sorted window).
@@ -284,18 +375,22 @@ async def get_donations(
         and not state.complete
         and state.fetched_count < need
     ):
+        # _fetch_more persists progress only through compare-and-set updates, so
+        # it works on a detached snapshot and starts with no transaction open.
+        await db.commit()
+        db.expunge(state)
         await _fetch_more(db, state, cycle, until=need)
 
     base = select(Contribution).where(
         Contribution.bioguide_id == bioguide, Contribution.cycle == cycle
     )
     if q:
-        like = f"%{q}%"
+        like = substring_pattern(q)
         base = base.where(
             or_(
-                Contribution.contributor_name.ilike(like),
-                Contribution.employer.ilike(like),
-                Contribution.city.ilike(like),
+                Contribution.contributor_name.ilike(like, escape=LIKE_ESCAPE),
+                Contribution.employer.ilike(like, escape=LIKE_ESCAPE),
+                Contribution.city.ilike(like, escape=LIKE_ESCAPE),
             )
         )
 

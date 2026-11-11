@@ -34,6 +34,7 @@ from pydantic import ValidationError
 
 from app.config import settings
 from app.pipelines.congress_legislators import STAGING_LEGISLATORS
+from app.pipelines.staging import write_json_atomic
 from app.schemas.finance import CandidateTotalRaw
 from app.services.upstream import UpstreamCapacityError, request_slot
 
@@ -241,8 +242,7 @@ def run() -> int:
             f"higher rate limit for the key (~{len(members)} calls are needed per full run)."
         )
 
-    STAGING_DIR.mkdir(parents=True, exist_ok=True)
-    STAGING_PATH.write_text(json.dumps(rows))
+    write_json_atomic(STAGING_PATH, rows)
     logger.info(
         "fec_finance: staged %d finance rows (cycles %s; %d of %d members matched)",
         len(rows), cycles, len(rows), len(members),

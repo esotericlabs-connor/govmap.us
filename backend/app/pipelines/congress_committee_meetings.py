@@ -13,7 +13,6 @@ Run directly: `python -m app.pipelines.congress_committee_meetings`.
 
 from __future__ import annotations
 
-import json
 import logging
 from pathlib import Path
 
@@ -22,6 +21,7 @@ from pydantic import ValidationError
 from app.config import settings
 from app.pipelines.batch import BatchResult, OutageBreaker
 from app.pipelines.congress_gov_bills import _PAGE, _get
+from app.pipelines.staging import write_json_atomic
 from app.schemas.committee import CommitteeMeetingRaw
 from app.services.upstream import UpstreamCapacityError, UpstreamUnavailableError
 
@@ -164,8 +164,7 @@ def run() -> BatchResult:
     if not rows:
         raise ValueError("no committee meetings fetched — check the API key and source availability")
 
-    STAGING_DIR.mkdir(parents=True, exist_ok=True)
-    STAGING_PATH.write_text(json.dumps(rows))
+    write_json_atomic(STAGING_PATH, rows)
     detail = result.describe("meetings")
     logger.info(
         "congress_committee_meetings: staged %d meetings (congress %d)%s",

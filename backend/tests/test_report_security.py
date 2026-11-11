@@ -1,7 +1,10 @@
 from collections import deque
 from collections.abc import Iterator
+from typing import Any
+from unittest.mock import Mock
 
 import pytest
+import requests
 from pydantic import ValidationError
 from starlette.requests import Request
 
@@ -133,3 +136,104 @@ def test_bucket_capacity_never_resets_active_limits(
     clock[0] = 3600.0
     assert report._rate_ok("198.51.100.3")
     assert len(report._rate) == 1
+
+
+def test_scrub_strips_terminal_bidi_and_invisible_characters() -> None:
+    raw = "a\x1b[31mb\x9b2Jc\u2028d\u202ee\u200bf\ufeffg\u2066h"
+    assert report._scrub(raw, 200) == "a [31mb 2Jc d e f g h"
+    assert report._scrub("Café — naïve ½", 200) == "Café — naïve ½"
+
+
+class _VerifyResponse:
+    def __init__(self, status: int = 200, body: Any = None, error: Exception | None = None):
+        self.status_code = status
+        self._body = body
+        self._error = error
+
+    def __enter__(self) -> "_VerifyResponse":
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        return None
+
+    def json(self) -> Any:
+        if self._error is not None:
+            raise self._error
+        return self._body
+
+
+def _turnstile(
+    monkeypatch: pytest.MonkeyPatch,
+    response: _VerifyResponse | Exception,
+    secret: str = "real-secret-for-tests",
+) -> Mock:
+    monkeypatch.setenv("TURNSTILE_SECRET_KEY", secret)
+    monkeypatch.setattr(settings, "cors_origins", "https://govmap.us")
+    post = Mock(side_effect=[response])
+    monkeypatch.setattr(report.requests, "post", post)
+    return post
+
+
+@pytest.mark.parametrize(
+    ("body", "accepted"),
+    [
+        ({"success": True, "hostname": "govmap.us"}, True),
+        ({"success": True, "hostname": "GOVMAP.US"}, True),
+        ({"success": True, "hostname": "attacker.example"}, False),
+        ({"success": True}, False),
+        ({"success": "true", "hostname": "govmap.us"}, False),
+        ({"success": False, "hostname": "govmap.us"}, False),
+        (["success"], False),
+    ],
+)
+def test_turnstile_requires_a_well_formed_success_for_our_hostname(
+    monkeypatch: pytest.MonkeyPatch, body: Any, accepted: bool
+) -> None:
+    post = _turnstile(monkeypatch, _VerifyResponse(body=body))
+    assert report._verify_turnstile("token", "198.51.100.10") is accepted
+    assert post.call_args.kwargs["allow_redirects"] is False
+
+
+def test_turnstile_dummy_secret_skips_the_hostname_check(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    body = {"success": True, "hostname": "example.com"}
+    _turnstile(
+        monkeypatch, _VerifyResponse(body=body), secret="1x0000000000000000000000000000000AA"
+    )
+    assert report._verify_turnstile("XXXX.DUMMY.TOKEN.XXXX", "198.51.100.10") is True
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        requests.ConnectionError("down"),
+        _VerifyResponse(status=503, body={"success": False}),
+        _VerifyResponse(error=ValueError("not json")),
+    ],
+)
+def test_turnstile_outage_fails_open_without_logging_secrets(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    response: _VerifyResponse | Exception,
+) -> None:
+    _turnstile(monkeypatch, response)
+    assert report._verify_turnstile("token-value", "198.51.100.10") is True
+    assert "real-secret-for-tests" not in caplog.text
+    assert "token-value" not in caplog.text
+
+
+def test_turnstile_missing_token_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    post = _turnstile(monkeypatch, _VerifyResponse(body={"success": True}))
+    assert report._verify_turnstile(None, "198.51.100.10") is False
+    post.assert_not_called()
+
+
+@pytest.mark.parametrize("http_status", [301, 302, 307, 400, 401, 403, 429])
+def test_turnstile_redirects_and_client_errors_never_fail_open(
+    monkeypatch: pytest.MonkeyPatch, http_status: int
+) -> None:
+    _turnstile(
+        monkeypatch, _VerifyResponse(status=http_status, error=ValueError("not json"))
+    )
+    assert report._verify_turnstile("token", "198.51.100.10") is False

@@ -17,11 +17,12 @@ RUN python -c "import os, re; sha = os.environ['APP_COMMIT_SHA']; assert re.full
 # Pre-create the operator log dir so the named `govmap-logs` volume mounted
 # here inherits appuser ownership (a non-root container can't write a
 # root-owned mount). Holds app.log + bug_reports.log at runtime.
-RUN mkdir -p /app/logs
-
-# Drop root inside the container. chown so the pipeline can write staging JSON
-# under /app/data and the log files under /app/logs at runtime.
-RUN useradd -m appuser && chown -R appuser:appuser /app
+# Drop root inside the container. Only the runtime-writable directories (staging
+# JSON under /app/data, logs under /app/logs) belong to appuser; the code stays
+# root-owned so a compromised process cannot rewrite the application.
+RUN mkdir -p /app/logs /app/data/staging \
+    && useradd -m appuser \
+    && chown -R appuser:appuser /app/logs /app/data
 USER appuser
 
 EXPOSE 8000

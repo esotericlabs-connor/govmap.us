@@ -22,17 +22,21 @@ router = APIRouter(prefix="/internal", tags=["internal"])
 security = HTTPBasic()
 
 
+def _matches(supplied: str, expected: str) -> bool:
+    # compare_digest raises TypeError on non-ASCII str, which would turn a bad
+    # login into a 500; comparing UTF-8 bytes keeps it constant-time and a 401.
+    return secrets.compare_digest(supplied.encode("utf-8"), expected.encode("utf-8"))
+
+
 def require_internal_auth(
     credentials: HTTPBasicCredentials = Depends(security),
 ) -> None:
     configured = bool(settings.internal_user and settings.internal_password)
-    user_ok = configured and secrets.compare_digest(
-        credentials.username, settings.internal_user
-    )
-    password_ok = configured and secrets.compare_digest(
-        credentials.password, settings.internal_password
-    )
-    if not (user_ok and password_ok):
+    # Evaluate both comparisons unconditionally so timing doesn't reveal which
+    # half of the credential pair was wrong.
+    user_ok = _matches(credentials.username, settings.internal_user)
+    password_ok = _matches(credentials.password, settings.internal_password)
+    if not (configured and user_ok and password_ok):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Unauthorized",

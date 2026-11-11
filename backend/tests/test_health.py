@@ -142,6 +142,18 @@ def test_health_routes_are_registered() -> None:
     assert paths.count("/ready") == 1
 
 
+def test_api_docs_are_off_by_default_and_never_list_internal_routes() -> None:
+    assert Settings(_env_file=None).api_docs_enabled is False
+    paths = {getattr(route, "path", None) for route in main.app.routes}
+    if not main.settings.api_docs_enabled:
+        assert main.app.openapi_url is None
+        assert not paths & {"/docs", "/redoc", "/openapi.json"}
+    assert "/internal/pipeline-status" in paths
+    schema_paths = main.app.openapi()["paths"]
+    assert "/ready" in schema_paths
+    assert not [p for p in schema_paths if p.startswith("/internal")]
+
+
 @pytest.mark.parametrize("compose_name", ["docker-compose.yml", "docker-compose.PaaS.yml"])
 def test_compose_health_checks_and_build_sha(compose_name: str) -> None:
     root = Path(__file__).resolve().parents[2]

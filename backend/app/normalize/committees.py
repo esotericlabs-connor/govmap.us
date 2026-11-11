@@ -7,7 +7,8 @@ subcommittee's 2-digit thomas_id (matches the membership file's keys).
 
 Must run after the members + committees exist (FKs). Memberships are replaced
 wholesale each run — they churn with reorganizations, and a full swap inside one
-transaction avoids drift.
+transaction avoids drift. An empty membership snapshot is refused rather than
+allowed to erase every seat.
 """
 
 from __future__ import annotations
@@ -17,11 +18,12 @@ import json
 import logging
 from pathlib import Path
 
-from sqlalchemy import delete
+from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.db import async_session_factory
 from app.models.committee import Committee, CommitteeMembership
+from app.normalize.guards import check_replacement
 from app.schemas.committee import CommitteeMemberRaw, CommitteeRaw
 
 logger = logging.getLogger(__name__)
@@ -100,12 +102,16 @@ async def load_committees() -> int:
         cstmt = pg_insert(Committee).values(crows)
         cupdate = {c: getattr(cstmt.excluded, c) for c in _COMMITTEE_COLS}
         cstmt = cstmt.on_conflict_do_update(index_elements=[Committee.committee_id], set_=cupdate)
+
+        # Checked before any write so a broken membership snapshot keeps the
+        # last good committees and seats together.
+        current = await session.scalar(select(func.count()).select_from(CommitteeMembership))
+        check_replacement("committee_memberships", len(mrows), current or 0)
         await session.execute(cstmt)
 
         # Full replace of memberships (they change with reorganizations).
         await session.execute(delete(CommitteeMembership))
-        if mrows:
-            await session.execute(pg_insert(CommitteeMembership).values(mrows))
+        await session.execute(pg_insert(CommitteeMembership).values(mrows))
         await session.commit()
 
     logger.info("loaded %d committees, %d memberships", len(crows), len(mrows))

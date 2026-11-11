@@ -19,7 +19,6 @@ Requires CONGRESS_GOV_API_KEY. Run directly:
 
 from __future__ import annotations
 
-import json
 import logging
 import time
 from pathlib import Path
@@ -30,6 +29,7 @@ from pydantic import BaseModel, ValidationError
 
 from app.config import settings
 from app.pipelines.batch import BatchResult, OutageBreaker
+from app.pipelines.staging import write_json_atomic
 from app.services.upstream import (
     UpstreamCapacityError,
     UpstreamUnavailableError,
@@ -176,8 +176,7 @@ def _fetch_one(congress: int, bill_type: str, number: int) -> dict | None:
 
 
 def _stage(path: Path, data) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2))
+    write_json_atomic(path, data, indent=2)
 
 
 def run() -> BatchResult:

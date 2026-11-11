@@ -18,6 +18,7 @@ import { MemberCardBlock } from "@/components/MemberCardBlock";
 import type { CongressMap, LookupResult } from "@/lib/api";
 import { formatDateLocal } from "@/lib/format";
 import { getPartyKey, PARTY_COLORS, type PartyKey } from "@/lib/party";
+import { externalHref } from "@/lib/safe-url.mjs";
 import { useHomeZip } from "@/lib/zip-context";
 
 /**
@@ -161,6 +162,7 @@ export function UsMap({ map, result = null }: { map: CongressMap; result?: Looku
   // Curated context for the open popover's seat (special-election date/source),
   // plus when the roster was last refreshed — both surfaced in the vacant popover.
   const popoverVacancy = popover ? map.vacancies?.[popover.key] : undefined;
+  const vacancySourceHref = externalHref(popoverVacancy?.source_url);
   const rosterUpdatedLabel = formatDateLocal(map.roster_updated);
 
   // Programmatic fly-to eases the SVG viewBox with a rAF tween rather than a CSS
@@ -671,9 +673,9 @@ export function UsMap({ map, result = null }: { map: CongressMap; result?: Looku
                       {popoverVacancy?.note && (
                         <p className="mt-1 text-xs leading-relaxed text-slate-warm-500">{popoverVacancy.note}</p>
                       )}
-                      {popoverVacancy?.source_url && (
+                      {vacancySourceHref && (
                         <a
-                          href={popoverVacancy.source_url}
+                          href={vacancySourceHref}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-govblue transition-colors hover:text-govnavy"

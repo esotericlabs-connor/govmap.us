@@ -143,15 +143,20 @@ def test_text_and_referral_services_preserve_capacity_errors(
     monkeypatch.setattr(bill_enrich, "run_upstream", fetch)
     monkeypatch.setattr(committees, "run_upstream", fetch)
     bill_db = SimpleNamespace(
-        get=AsyncMock(side_effect=[None, SimpleNamespace(bill_id="hr1-119")])
+        get=AsyncMock(side_effect=[None, SimpleNamespace(bill_id="hr1-119")]),
+        commit=AsyncMock(),
     )
     committee_db = SimpleNamespace(
-        execute=AsyncMock(return_value=SimpleNamespace(first=lambda: SimpleNamespace(chamber="house")))
+        execute=AsyncMock(return_value=SimpleNamespace(first=lambda: SimpleNamespace(chamber="house"))),
+        commit=AsyncMock(),
     )
     with pytest.raises(UpstreamCapacityError):
         asyncio.run(bill_enrich.get_bill_text(bill_db, "hr1-119"))
     with pytest.raises(UpstreamCapacityError):
         asyncio.run(committees.referred_bills(committee_db, "HSAG"))
+    # Each service ended its read transaction before the upstream call.
+    bill_db.commit.assert_awaited_once()
+    committee_db.commit.assert_awaited_once()
 
 
 @pytest.mark.parametrize("cycle", [2025, 2028])
