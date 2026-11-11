@@ -28,7 +28,10 @@ services:
       - postgres-data:/var/lib/postgresql/data
 
   backend:
-    build: ./backend
+    build:
+      context: ./backend
+      args:
+        SOURCE_COMMIT: ${SOURCE_COMMIT:-unknown}
     restart: unless-stopped
     depends_on:
       postgres:
@@ -59,11 +62,18 @@ services:
       VOTEVIEW_MIN_REFETCH_HOURS: ${VOTEVIEW_MIN_REFETCH_HOURS:-6}
     volumes:
       - govmap-logs:/app/logs
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=5).close()"]
+      interval: 30s
+      timeout: 6s
+      retries: 3
+      start_period: 120s
 
   frontend:
     build:
       context: ./frontend
       args:
+        SOURCE_COMMIT: ${SOURCE_COMMIT:-unknown}
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://backend:8000}
         NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-https://govmap.us}
         NEXT_PUBLIC_MARKETING_URL: ${NEXT_PUBLIC_MARKETING_URL:-https://govmap.us}
@@ -73,6 +83,12 @@ services:
       - backend
     environment:
       API_INTERNAL_URL: http://backend:8000
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health', {signal: AbortSignal.timeout(7000)}).then(r => { if (!r.ok) process.exit(1); }).catch(() => process.exit(1));"]
+      interval: 30s
+      timeout: 8s
+      retries: 3
+      start_period: 120s
 
   cloudflared:
     image: cloudflare/cloudflared:latest

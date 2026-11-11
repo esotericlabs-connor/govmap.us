@@ -29,6 +29,22 @@ jobs:
 
   backend-tests:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: govmap_ci
+          POSTGRES_PASSWORD: ci-only-health-test
+          POSTGRES_DB: govmap_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U govmap_ci -d govmap_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql+asyncpg://govmap_ci:ci-only-health-test@127.0.0.1:5432/govmap_ci
     defaults:
       run:
         working-directory: backend
@@ -58,12 +74,16 @@ jobs:
         id: dependencies
         run: if [ -f package-lock.json ]; then npm ci; else npm install; fi
       - run: npm run lint
+      - name: Health route regression tests
+        run: node --test tests/health.test.mjs
       - run: npx next typegen
       - run: npx tsc --noEmit
       # The same production build the deploy runs inside Docker, so a broken
       # build fails here instead of on the server. All API-backed pages are
       # force-dynamic, so no backend is needed at build time.
       - run: npm run build
+      - name: Standalone frontend health integration
+        run: node --test tests/health.integration.mjs
       - name: Audit all dependencies (gate)
         if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
         run: npm audit --json > npm-audit.json

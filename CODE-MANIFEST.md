@@ -4,7 +4,57 @@ What's been built, in what order, and what's next. This is a living log — add 
 
 ## Build log
 
-**2026-11-10 — Group 0: backup service moved into the Compose stack (cutover pending)**
+**2026-11-10 — Group 1: application readiness and release identity (CI/deployment pending)**
+The operator approved only health/readiness, build SHA reporting and deployment
+container health checks. External uptime monitoring, stale-data alerts,
+webhook work and disk thresholds remain on hold.
+Preserved backend `/health` as liveness and added `/ready` with a bounded,
+read-only ORM schema/access check. Added the frontend's public `/health` route
+to probe backend readiness without caching and fail with 503 on upstream
+failure, invalid responses or mismatched known build commits. Both Docker
+images accept a validated build-time `SOURCE_COMMIT`; an unstamped build
+reports an explicit null identifier. Both Compose variants now report backend
+and frontend health without adding host ports or automatic restart tooling.
+Added regression tests for database failures, timeout, cancellation, unknown
+and invalid commits, payload validation and Compose wiring. CI now checks
+readiness against isolated PostgreSQL (empty table, missing schema, bad
+authentication) and exercises the built standalone frontend against a test
+backend through unhealthy, mismatched and recovered states.
+**Pending:** CI, enable automatic source-commit availability during builds in
+both deployment environments, deploy and rehearse failures in isolated test,
+then promote and verify production container health and matching SHA values.
+No local application or tests were run; no migrations are required.
+
+**2026-11-10 — Group 0: credential rotation and operational release gates verified**
+GitHub confirmed the backup folder fix was merged through PR #4.
+[Main CI run 42958859237](https://github.com/esotericlabs-connor/govmap.us/actions/runs/42958859237)
+passed on `1e6867429226f395c31eaee369ef64314977cee5`; the operator confirmed
+that exact SHA in the production deployment. Production uses the PaaS Compose
+file with backups enabled; a blank scheduler setting uses its enabled default.
+The legacy Deploy workflow remains disabled, and the operator removed the
+old VM runner from GitHub. The test resource uses the PaaS Compose file with
+scheduled refreshes and backups explicitly disabled. The backup and restore
+baseline is accepted; recurring rehearsals continue separately.
+Updated [README.md](README.md) to reflect the live container backup service
+and record credential rotation and release gates. Updated [.env.example](.env.example)
+with the current deployment settings and removed the obsolete claim that
+regenerating secrets and rerunning pipelines recovers an existing deployment.
+In particular, changing `POSTGRES_PASSWORD` alone does not rotate the role
+password in an initialized database volume.
+The operator confirmed rotation and verification of Congress.gov, FEC, HUD,
+Turnstile and notification webhook credentials. Production's previously reused
+database password was then changed on the `govmap` role using a hidden prompt,
+verified with a TCP login, and updated in the deployment settings and vault.
+After redeploy, the operator confirmed application operation and a fresh
+authenticated connection from the backup service. Dev already has a separate
+rotated database password. The production tunnel is environment-specific;
+no inherited tunnel or internal-operations credential was reported.
+**Pending:** promote these documentation changes through CI. Old VM deletion
+remains gated on the retention period ending no earlier than 2026-12-09 and
+operator approval. The next unattended backup heartbeat and recurring recovery
+checks remain operational follow-ups, not claims established by a manual run.
+
+**2026-11-10 — Group 0: backup service moved into the Compose stack (live on production)**
 The nightly bundle now has a `backup` service in
 [docker-compose.PaaS.yml](docker-compose.PaaS.yml), built from
 [backup/](backup/), so backups are versioned and deployed with the app instead
@@ -31,10 +81,17 @@ It idles unless enabled (test environments stay disabled), runs daily at
 at least 24 hours old. The host timer's script, systemd units and their tests
 were removed from the repository; the guide lists the commands to remove an
 installed copy. Tests cover the destination checks, entrypoint privilege
-drop, failure paths, heartbeat handling and scheduler. **Pending:** CI;
-enabling it on production; confirming its first bundle, heartbeat and
-off-site copy; removing the installed host timer; and a scratch restore of a
-container bundle.
+drop, failure paths, heartbeat handling and scheduler. CI passed, and
+production is enabled: the operator confirmed bundles are being written and
+the off-site copy now reads only the `backups/` folder. The installed host
+timer, its script and environment file were removed from the server.
+An operator-run off-site restore rehearsal of the production container bundle
+created at `2026-11-11T04:24:54Z` passed `CHECKSUMS_OK`, `REQUIRED_FILES_OK`
+and `RESTORE_OK` in an isolated PostgreSQL 16 container. The restored revision
+was `0013`, with 539 members, 19,512 bills, 290 votes and 46,012 ZIP-district
+rows. The scratch container and extracted files were removed.
+**Pending:** confirming both off-site destinations and retention of earlier
+versions before deleting the old local host bundle.
 
 **2026-11-10 — Private deployment references (verification pending)**
 The operator removed the environment-specific recovery guide and renamed the

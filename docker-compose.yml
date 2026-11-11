@@ -26,7 +26,10 @@ services:
       - postgres-data:/var/lib/postgresql/data
 
   backend:
-    build: ./backend
+    build:
+      context: ./backend
+      args:
+        SOURCE_COMMIT: ${SOURCE_COMMIT:-unknown}
     container_name: govmap-backend
     restart: unless-stopped
     depends_on:
@@ -87,11 +90,18 @@ services:
       # across redeploys. Grab the files with `docker cp` or
       # `docker compose exec backend cat` (see docs/logs-and-bug-reports.md).
       - govmap-logs:/app/logs
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=5).close()"]
+      interval: 30s
+      timeout: 6s
+      retries: 3
+      start_period: 120s
 
   frontend:
     build:
       context: ./frontend
       args:
+        SOURCE_COMMIT: ${SOURCE_COMMIT:-unknown}
         # Baked into the client bundle at build time (see frontend/Dockerfile).
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://api.govmap.us}
         NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-https://app.govmap.us}
@@ -108,6 +118,12 @@ services:
       # Server-side rendering reaches the backend directly over the compose
       # network instead of hairpinning through the public API hostname.
       API_INTERNAL_URL: http://backend:8000
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health', {signal: AbortSignal.timeout(7000)}).then(r => { if (!r.ok) process.exit(1); }).catch(() => process.exit(1));"]
+      interval: 30s
+      timeout: 8s
+      retries: 3
+      start_period: 120s
     ports:
       # Loopback only — for host-side tooling. The tunnel reaches this over the
       # compose network at http://frontend:3000.

@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://govmap:govmap@localhost:5432/govmap"
     cors_origins: str = "http://localhost:3000"
     scheduler_enabled: bool = True
+    app_commit_sha: str = Field(default="unknown", pattern=r"^(unknown|[a-f0-9]{40})$")
     trusted_proxy_cidrs: str = ""
     upstream_max_concurrent_requests: int = Field(default=4, ge=1, le=32)
     congress_requests_per_hour: int = Field(default=4500, ge=1)

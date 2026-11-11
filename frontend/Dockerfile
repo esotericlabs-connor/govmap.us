@@ -26,9 +26,13 @@ RUN npm run build
 # --- runner: minimal runtime image ---
 FROM node:24-slim AS runner
 WORKDIR /app
+ARG SOURCE_COMMIT=unknown
 ENV NODE_ENV=production \
     PORT=3000 \
-    HOSTNAME=0.0.0.0
+    HOSTNAME=0.0.0.0 \
+    APP_COMMIT_SHA=$SOURCE_COMMIT
+
+RUN node -e "if (!/^(unknown|[a-f0-9]{40})$/.test(process.env.APP_COMMIT_SHA)) { throw new Error('SOURCE_COMMIT must be a full Git SHA or unknown'); }"
 
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next/standalone ./
