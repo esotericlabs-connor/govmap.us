@@ -6,7 +6,7 @@ from app.db import get_db
 from app.models.member import Member
 from app.models.vote import Vote, VotePosition
 from app.schemas.vote import VoteOut
-from app.types import Chamber, VoteId
+from app.types import MAX_LIST_OFFSET, Chamber, VoteId
 
 router = APIRouter(prefix="/api/votes", tags=["votes"])
 
@@ -15,11 +15,11 @@ router = APIRouter(prefix="/api/votes", tags=["votes"])
 async def list_votes(
     db: AsyncSession = Depends(get_db),
     chamber: Chamber | None = None,
-    congress: int | None = None,
-    session: int | None = None,
+    congress: int | None = Query(default=None, ge=0, le=1000),
+    session: int | None = Query(default=None, ge=0, le=10),
     bill_id: str | None = None,
-    limit: int = Query(default=50, le=250),
-    offset: int = 0,
+    limit: int = Query(default=50, ge=1, le=250),
+    offset: int = Query(default=0, ge=0, le=MAX_LIST_OFFSET),
 ) -> list[Vote]:
     # Most-recent first (newest date, then highest roll within a day).
     stmt = select(Vote).order_by(

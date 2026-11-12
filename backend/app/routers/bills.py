@@ -8,9 +8,9 @@ from app.db import get_db
 from app.models.bill import Bill, BillAction, Cosponsor
 from app.models.member import Member
 from app.schemas.bill import BillOut
-from app.services.bill_enrich import enrich_bill, get_bill_text
+from app.services.bill_enrich import BillTextChangedError, enrich_bill, get_bill_text
 from app.services.upstream import UpstreamCapacityError
-from app.types import BillId
+from app.types import MAX_LIST_OFFSET, BillId
 
 logger = logging.getLogger(__name__)
 
@@ -20,12 +20,12 @@ router = APIRouter(prefix="/api/bills", tags=["bills"])
 @router.get("", response_model=list[BillOut])
 async def list_bills(
     db: AsyncSession = Depends(get_db),
-    congress: int | None = None,
+    congress: int | None = Query(default=None, ge=0, le=1000),
     bill_type: str | None = None,
     sponsor: str | None = Query(default=None, description="sponsor bioguide_id"),
     policy_area: str | None = None,
-    limit: int = Query(default=50, le=250),
-    offset: int = 0,
+    limit: int = Query(default=50, ge=1, le=250),
+    offset: int = Query(default=0, ge=0, le=MAX_LIST_OFFSET),
 ) -> list[Bill]:
     # Most-recently-updated first — matches how the pipeline prioritizes and how
     # a "what's moving in Congress" view wants them.
@@ -157,9 +157,17 @@ async def bill_detail(bill_id: BillId, db: AsyncSession = Depends(get_db)) -> di
 async def bill_full_text(bill_id: BillId, db: AsyncSession = Depends(get_db)) -> dict:
     """The bill's full legislative text as plain text for in-platform rendering,
     fetched from the official GPO/govinfo 'Formatted Text' version on first view
-    and cached. 404 when the bill is unknown or has no readable text version yet
-    (e.g. only a PDF exists, or text isn't published)."""
-    text = await get_bill_text(db, bill_id)
+    and cached until its bill detail is refreshed. 404 when the bill is unknown
+    or has no readable text version yet (e.g. only a PDF exists, or text isn't
+    published). A concurrent detail refresh returns a retryable 503."""
+    try:
+        text = await get_bill_text(db, bill_id)
+    except BillTextChangedError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="bill changed while fetching text; please retry",
+            headers={"Retry-After": "1"},
+        ) from exc
     if text is None:
         raise HTTPException(status_code=404, detail="no in-app text available for this bill")
     return text

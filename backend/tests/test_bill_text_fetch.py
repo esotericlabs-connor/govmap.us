@@ -2,6 +2,7 @@ import asyncio
 import contextlib
 import time
 from collections.abc import Iterator
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, Mock
@@ -167,6 +168,7 @@ def test_html_reduction_stays_linear_on_malformed_input(doc: str) -> None:
 
 def test_cut_short_text_is_stored_as_truncated(monkeypatch: pytest.MonkeyPatch) -> None:
     events: list[str] = []
+    bill = SimpleNamespace(enriched_at=None, updated_at=datetime(2025, 1, 3, tzinfo=UTC))
     stored = SimpleNamespace(
         bill_id="hr1-119",
         text_version="Introduced in House",
@@ -176,9 +178,9 @@ def test_cut_short_text_is_stored_as_truncated(monkeypatch: pytest.MonkeyPatch) 
         fetched_at=None,
     )
     db = SimpleNamespace(
-        get=AsyncMock(side_effect=[None, SimpleNamespace(bill_id="hr1-119"), stored]),
+        get=AsyncMock(side_effect=[bill, None, stored]),
         commit=AsyncMock(side_effect=lambda: events.append("commit")),
-        execute=AsyncMock(),
+        execute=AsyncMock(return_value=SimpleNamespace(one_or_none=lambda: bill)),
     )
 
     async def upstream(_source: str, fn: Any, *_args: Any, **_kwargs: Any) -> Any:
@@ -205,6 +207,8 @@ def test_cut_short_text_is_stored_as_truncated(monkeypatch: pytest.MonkeyPatch) 
     params = db.execute.await_args.args[0].compile(dialect=postgresql.dialect()).params
     assert params["plain"] == "SEC. 1."
     assert params["truncated"] is True
+    assert params["bill_revision_at"] == bill.updated_at
+    db.get.assert_awaited_with(bill_enrich.BillText, "hr1-119", populate_existing=True)
 
 
 def test_enriched_bill_is_expired_so_the_caller_rereads_it(

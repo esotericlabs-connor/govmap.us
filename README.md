@@ -60,6 +60,15 @@ Every pipeline follows the same three-layer contract:
 
 Nothing skips a layer. The full identifier and normalization rules are non-negotiable and documented in [AGENTS.md](AGENTS.md).
 
+Bill text is stored in PostgreSQL against its bill-detail refresh revision,
+not cached forever. After a detail refresh, the next text view fetches the
+latest readable official version again within the existing upstream budgets.
+Older cached rows are refreshed lazily after migration `0016`; there is no
+bulk refetch. A failed refresh retains the old stored copy without presenting
+it as current. A concurrent detail change returns a retryable unavailable
+response. This does not expand the scheduled bill coverage or promise instant
+updates to every bill upstream.
+
 ## Tech stack
 
 | Layer | Technology |
@@ -172,9 +181,9 @@ recoverable off-server backups and an explicit manual deployment.
 ### Deployment topology and configuration
 
 The deployment uses [docker-compose.PaaS.yml](docker-compose.PaaS.yml), with
-five services: `postgres`, `backend`, `frontend`, `cloudflared` and `backup`
-(idle unless `BACKUP_ENABLED=true`; see the
-[backup service guide](docs/backup-service.md)). For a
+seven services: `postgres`, `backend`, `worker`, `frontend`, `cloudflared`,
+`backup` and `pgbackrest`. The two backup schedulers are opt-in; see the
+[backup service guide](docs/backup-service.md). For a
 revision containing this renamed file, update each resource's repository
 Compose path after that revision is available on its branch and before a
 manual deployment. A running resource is not changed by the repository rename.
@@ -373,8 +382,8 @@ logs or secrets into a test environment.
 
 Use consistent logical Postgres dumps and separate log archives, keep
 off-server copies encrypted, verify transferred checksums, and test restoration
-into a named scratch database without replacing the live database. Protect
-local plaintext and remove temporary copies and the scratch database after
+into a newly created, network-isolated PostgreSQL target without replacing
+the live database. Protect local plaintext and remove temporary copies and the target after
 successful verification.
 Keep backup passphrases or private identities separately and recoverably.
 `/tank` or another filesystem on the same host is not an off-server backup.
@@ -386,17 +395,24 @@ off-site copier: one job sends both `backups` and `pgbackrest` to its first
 destination and copies them to each additional destination. Configure
 encryption for off-server copies. The configuration is bootstrapped in dev,
 where isolated LSN- and clock-time-targeted restores and a logical-bundle
-restore have succeeded. Their source destinations were not identified;
-independent destination restores and scheduled-operation checks remain before
-production.
-Deployment configuration and secrets remain in the operator's vault, not in
-either backup. The earlier host timer, script and environment file have been
+restore have succeeded. Their source destinations were not identified.
+Separate destination drills are explicitly deferred, not a feature-readiness
+gate. The finite foundation closeout covers application-row recovery,
+scheduled operation and an operator-approved host reboot.
+
+GovMap prepares the two local backup sources; the deployment operator owns
+external copying, encryption and recovery access. New logical bundles include
+checksummed non-secret deployment templates, backup settings and source
+provenance. Secrets and other deployment overrides remain in the operator's
+vault. Neither source is a raw mirror of running PostgreSQL files.
+The earlier host timer, script and environment file have been
 removed. A container bundle retrieved from off-site passed checksum,
 required-file and isolated PostgreSQL restore checks on 2026-11-11 UTC, at
 revision `0013`; that historical drill did not test pgBackRest. The heartbeat
-ping and an earlier email test notification were verified; a real
-missed-heartbeat alert has not been rehearsed.
-Recurring restore checks are tracked in [CODE-MANIFEST.md](CODE-MANIFEST.md).
+ping, an earlier email test notification, and an operator-triggered failure
+alert were verified. A missed-interval transition was not separately rehearsed;
+the successful failure-email test must not be described as that test.
+Closeout evidence and reopening conditions are tracked in [CODE-MANIFEST.md](CODE-MANIFEST.md).
 Keep the old local bundle until replacement copies and earlier-version
 retention satisfy the removal gates in the provider-neutral
 [backup service guide](docs/backup-service.md), which covers operation and
@@ -456,8 +472,8 @@ a fresh backup-client connection. Dev uses a separate rotated database password.
 
 **Operational follow-ups:** confirm source status and freshness after backend
 restarts, including the daily jobs; validate pgBackRest archive checks,
-full-backup heartbeats and Duplicati copies; rehearse PITR from each off-site
-destination; and continue periodic recovery checks. A previous `ok` row
+full-backup heartbeats and Duplicati copies; and finish the approved application-row
+and reboot checks. Separate destination restores are deferred. A previous `ok` row
 restored from an older database does not verify a job on the new server.
 `partial` is degraded, not an unconditional success.
 

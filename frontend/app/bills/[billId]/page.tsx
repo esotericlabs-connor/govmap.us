@@ -31,7 +31,7 @@ async function getBill(billId: string): Promise<BillDetail | null> {
 }
 
 async function getBillText(billId: string): Promise<BillText | null> {
-  // Capacity failures get an unavailable notice; other failures omit this section.
+  // Capacity or concurrent-refresh failures get an unavailable notice.
   try {
     return await apiGet<BillText>(`/api/bills/${encodeURIComponent(billId)}/text`);
   } catch (err) {

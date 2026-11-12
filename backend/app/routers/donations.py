@@ -7,7 +7,7 @@ from app.db import get_db
 from app.models.finance import MemberFinance
 from app.models.member import Member
 from app.services.donations import get_donation_cycles, get_donations
-from app.types import BioguideId
+from app.types import MAX_LIST_OFFSET, BioguideId
 
 router = APIRouter(prefix="/api/members", tags=["donations"])
 
@@ -35,7 +35,7 @@ async def member_donations(
     bioguide_id: BioguideId,
     db: AsyncSession = Depends(get_db),
     cycle: int | None = Query(default=None, ge=1976, le=2100),
-    offset: int = Query(default=0, ge=0),
+    offset: int = Query(default=0, ge=0, le=MAX_LIST_OFFSET),
     limit: int = Query(default=50, ge=1, le=100),
     sort: str = "amount",
     q: str | None = Query(default=None, max_length=100),

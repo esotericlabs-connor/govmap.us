@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import re
@@ -14,6 +15,14 @@ import pytest
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="requires Linux Bash and GNU tar")
 
 _BACKUP_DIR = Path(__file__).resolve().parents[2] / "backup"
+_RECOVERY_FILES = {
+    "docker-compose.PaaS.yml": "docker-compose.PaaS.yml",
+    "pgbackrest.conf": "backup/pgbackrest.conf",
+    "database.Dockerfile": "database/Dockerfile",
+    "backup.Dockerfile": "backup/Dockerfile",
+    "backup-service.md": "docs/backup-service.md",
+}
+_SOURCE_COMMIT = "a" * 40
 _HEARTBEAT = "https://hc.example.test/ping/synthetic-token"
 _POSTGRES = """#!/usr/bin/env python3
 import json
@@ -86,6 +95,7 @@ exit "${FAKE_BACKUP_EXIT:-0}"
 class Context:
     destination: Path
     logs: Path
+    config: Path
     pg_log: Path
     curl_log: Path
     sleep_log: Path
@@ -108,6 +118,11 @@ def context(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Context:
     logs.mkdir()
     (logs / "app.log").write_text("synthetic app log\n", encoding="utf-8")
     (logs / "bug_reports.log").write_text("synthetic bug report\n", encoding="utf-8")
+    config = tmp_path / "recovery-config"
+    config.mkdir()
+    for name, source in _RECOVERY_FILES.items():
+        (config / name).write_bytes((_BACKUP_DIR.parent / source).read_bytes())
+    (config / "source-commit.txt").write_text(f"{_SOURCE_COMMIT}\n", encoding="utf-8")
 
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
@@ -119,6 +134,8 @@ def context(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Context:
         "BACKUP_ENABLED",
         "BACKUP_HEARTBEAT_URL",
         "BACKUP_INTERVAL_MINUTES",
+        "GOVMAP_PGBACKREST_ENABLED",
+        "GOVMAP_PGBACKREST_TIME_UTC",
         "BACKUP_TIME_UTC",
         "FAKE_BACKUP_EXIT",
         "FAKE_CURL_EXIT",
@@ -134,6 +151,7 @@ def context(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Context:
     context = Context(
         destination=destination,
         logs=logs,
+        config=config,
         pg_log=tmp_path / "pg.log",
         curl_log=tmp_path / "curl.log",
         sleep_log=tmp_path / "sleep.log",
@@ -144,6 +162,7 @@ def context(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Context:
     monkeypatch.setenv("BACKUP_TARGET", "production")
     monkeypatch.setenv("BACKUP_DIR", str(destination))
     monkeypatch.setenv("BACKUP_LOG_DIR", str(logs))
+    monkeypatch.setenv("BACKUP_CONFIG_DIR", str(config))
     monkeypatch.setenv("PGPASSWORD", "synthetic-password")
     monkeypatch.setenv("FAKE_PG_LOG", str(context.pg_log))
     monkeypatch.setenv("FAKE_CURL_LOG", str(context.curl_log))
@@ -223,12 +242,18 @@ def test_backup_publishes_verified_bundle_and_pings_after_publish(
         "govmap-backup/RESTORE.txt",
         "govmap-backup/SHA256SUMS",
     } <= names
-    assert not any("config" in name for name in names)
+    assert {
+        f"govmap-backup/deployment-config/{name}"
+        for name in (*_RECOVERY_FILES, "source-commit.txt", "backup-settings.env")
+    } <= names
     assert {"app.log", "bug_reports.log"} <= log_names
     assert "backup_target=production\n" in manifest_text
     assert "alembic_revision=0013\n" in manifest_text
     assert "postgres_server_version=16.9\n" in manifest_text
-    assert "deployment_config=not included" in manifest_text
+    assert "deployment_config=included (non-secret templates and backup settings only)\n" in manifest_text
+    assert "deployment_config_version=1\n" in manifest_text
+    assert f"source_commit={_SOURCE_COMMIT}\n" in manifest_text
+    assert "secrets=not included" in manifest_text
 
     calls = _pg_calls(context)
     assert all(call["host"] == "postgres" for call in calls)
@@ -240,6 +265,124 @@ def test_backup_publishes_verified_bundle_and_pings_after_publish(
     assert len(curl) == 1
     assert _HEARTBEAT not in json.dumps(curl[0]["args"])
     assert curl[0]["stdin"] == f'url = "{_HEARTBEAT}"\n'
+
+
+def test_recovery_snapshot_is_allowlisted_and_checksums_cover_every_file(
+    context: Context, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    canary = "synthetic-private-config-must-not-be-exported"
+    for name in ("CLOUDFLARE_TUNNEL_TOKEN", "ALERT_WEBHOOK_URL", "UNRELATED_SETTING"):
+        monkeypatch.setenv(name, canary)
+    monkeypatch.setenv("BACKUP_HEARTBEAT_URL", _HEARTBEAT)
+    monkeypatch.setenv("BACKUP_ENABLED", "true")
+    monkeypatch.setenv("BACKUP_TIME_UTC", "04:15")
+    monkeypatch.setenv("BACKUP_INTERVAL_MINUTES", "30")
+    monkeypatch.setenv("GOVMAP_PGBACKREST_ENABLED", "true")
+    monkeypatch.setenv("GOVMAP_PGBACKREST_TIME_UTC", "05:20")
+    (context.config / ".env").write_text(canary, encoding="utf-8")
+    (context.config / "unapproved.txt").write_text(canary, encoding="utf-8")
+
+    result = _backup()
+
+    assert result.returncode == 0, result.stderr
+    with tarfile.open(context.destination / "govmap-backup.tar.gz", "r:gz") as archive:
+        contents: dict[str, bytes] = {}
+        for member in archive.getmembers():
+            if member.isfile():
+                stream = archive.extractfile(member)
+                assert stream is not None
+                contents[member.name.removeprefix("govmap-backup/")] = stream.read()
+        config_names = {
+            name.removeprefix("deployment-config/")
+            for name in contents if name.startswith("deployment-config/")
+        }
+        assert config_names == {*_RECOVERY_FILES, "source-commit.txt", "backup-settings.env"}
+        for content in contents.values():
+            assert canary.encode() not in content
+            assert _HEARTBEAT.encode() not in content
+        assert contents["deployment-config/source-commit.txt"] == f"{_SOURCE_COMMIT}\n".encode()
+        assert contents["deployment-config/backup-settings.env"].decode() == (
+            "BACKUP_TARGET=production\n"
+            "BACKUP_ENABLED=true\n"
+            "BACKUP_TIME_UTC=04:15\n"
+            "BACKUP_INTERVAL_MINUTES=30\n"
+            "GOVMAP_PGBACKREST_ENABLED=true\n"
+            "GOVMAP_PGBACKREST_TIME_UTC=05:20\n"
+        )
+        checksummed = set()
+        for line in contents["SHA256SUMS"].decode().splitlines():
+            digest, path = line.split("  ", 1)
+            name = path.removeprefix("./")
+            assert hashlib.sha256(contents[name]).hexdigest() == digest
+            checksummed.add(name)
+        assert checksummed == contents.keys() - {"SHA256SUMS"}
+
+
+@pytest.mark.parametrize("kind", ["missing", "empty", "symlink", "directory", "copy-failure"])
+def test_required_config_failure_keeps_previous_bundle(
+    context: Context, monkeypatch: pytest.MonkeyPatch, kind: str
+) -> None:
+    monkeypatch.setenv("BACKUP_HEARTBEAT_URL", _HEARTBEAT)
+    previous = _write_previous_bundle(context)
+    file = context.config / "docker-compose.PaaS.yml"
+    if kind == "copy-failure":
+        _install(context.bin_dir, "cp", "#!/usr/bin/env bash\nexit 1\n")
+    else:
+        file.unlink()
+        if kind == "empty":
+            file.touch()
+        elif kind == "symlink":
+            file.symlink_to(context.config / "backup.Dockerfile")
+        elif kind == "directory":
+            file.mkdir()
+
+    result = _backup()
+
+    assert result.returncode != 0
+    assert "recovery configuration" in result.stderr
+    assert previous.read_bytes() == b"previous bundle"
+    assert not list(context.destination.glob(".govmap-backup-work-*"))
+    assert _curl_calls(context) == []
+
+
+@pytest.mark.parametrize("commit", ["unknown", "not-a-commit"])
+def test_recovery_config_provenance_is_explicit(context: Context, commit: str) -> None:
+    (context.config / "source-commit.txt").write_text(f"{commit}\n", encoding="utf-8")
+
+    result = _backup()
+
+    if commit == "unknown":
+        assert result.returncode == 0, result.stderr
+        assert "configuration provenance is not verified" in result.stderr
+    else:
+        assert result.returncode != 0
+        assert "Invalid recovery configuration source commit" in result.stderr
+        assert _pg_calls(context) == []
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("BACKUP_ENABLED", "invalid-private-value"),
+        ("GOVMAP_PGBACKREST_ENABLED", "invalid-private-value"),
+        ("BACKUP_TIME_UTC", "invalid-private-value"),
+        ("GOVMAP_PGBACKREST_TIME_UTC", "invalid-private-value"),
+        ("BACKUP_INTERVAL_MINUTES", "invalid-private-value"),
+        ("BACKUP_INTERVAL_MINUTES", "31"),
+    ],
+)
+def test_recovery_snapshot_rejects_invalid_settings_without_exporting_them(
+    context: Context, monkeypatch: pytest.MonkeyPatch, name: str, value: str
+) -> None:
+    monkeypatch.setenv(name, value)
+    previous = _write_previous_bundle(context)
+
+    result = _backup()
+
+    assert result.returncode != 0
+    assert "invalid-private-value" not in result.stdout + result.stderr
+    assert previous.read_bytes() == b"previous bundle"
+    assert _pg_calls(context) == []
 
 
 @pytest.mark.parametrize("kind", ["missing", "symlink", "file"])
@@ -514,6 +657,8 @@ def test_compose_backup_service_is_hardened_and_fails_closed() -> None:
     assert "BACKUP_ENABLED: ${BACKUP_ENABLED:-false}" in service
     assert "BACKUP_TARGET: ${BACKUP_TARGET:-unconfigured}" in service
     assert "BACKUP_INTERVAL_MINUTES: ${BACKUP_INTERVAL_MINUTES:-1440}" in service
+    assert "GOVMAP_PGBACKREST_ENABLED: ${GOVMAP_PGBACKREST_ENABLED:-false}" in service
+    assert "GOVMAP_PGBACKREST_TIME_UTC: ${GOVMAP_PGBACKREST_TIME_UTC:-03:30}" in service
     assert "- ./backups:/backups" in service
     assert "${" not in service.split("volumes:", 1)[1]
     assert "- govmap-logs:/logs:ro" in service

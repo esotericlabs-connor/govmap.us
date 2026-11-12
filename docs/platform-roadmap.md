@@ -632,14 +632,22 @@ attachment size, indexes, request budget, full backfill duration, recurring
 storage growth, backup duration and measured restore time. Do not authorize
 an unbounded all-history download without this estimate.
 
-Backups remain a working foundation, not a completed-forever task. New raw
-archives, worker state, source registry and history stores must enter the
-recovery inventory. PostgreSQL now has a local pgBackRest WAL archive and
-daily full backups with seven-day retention; the daily logical dump remains an
-independent fallback. Duplicati copies both directories to two off-site
-destinations. Local PITR depends on continuous archive health, and off-site
-PITR depends on the latest complete Duplicati repository copy. Both still
-require a rehearsed restore and measured storage/restore times.
+The approved foundation closeout is finite. Keep the two working backup
+sources, add only the agreed non-secret configuration snapshot, and complete
+the remaining application-row/reboot/automation checks. Do not repeat the
+passed logical and PITR drills or require independent destination restores
+before incremental feature work; the operator explicitly deferred those.
+See the current [build log](../CODE-MANIFEST.md) for evidence and remaining
+items rather than treating this older roadmap as a second acceptance queue.
+
+PostgreSQL uses local pgBackRest base backups and WAL with seven-day retention,
+plus an independent daily logical fallback. The operator copies both
+directories using the existing external backup job and chosen destinations.
+Local PITR depends on archive health; off-site PITR depends on a complete
+external copy. Routine alerts and security updates continue after closeout.
+Revisit the design for actual failures, demonstrated capacity problems or
+infrastructure/persistence changes, including newly retained raw archives or
+history stores that need to enter the recovery inventory.
 
 ## 14. Immediate work queue
 

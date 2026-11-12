@@ -4,6 +4,12 @@ This guide describes the repository's backup service without identifying a
 particular host or deployment provider. It is intended for an operator who
 needs to create, monitor and rehearse recovery of a GovMap backup.
 
+**The simple contract:** GovMap prepares recoverable local copies of its
+database, logs and approved non-secret configuration. The deployment operator
+backs up **both** of the resource's `backups` and `pgbackrest` directories with
+their external backup tool. GovMap does not configure destinations or hold
+their decryption credentials. Ordinary website users do not administer backups.
+
 **Protect the backups:** Neither local backup directory is encrypted. The
 logical bundle contains database contents and private logs; the pgBackRest
 repository contains the database cluster and its WAL. Keep both directories
@@ -21,7 +27,8 @@ Two backup services run in the same Compose stack:
    backups
    using a seven-day time-based full-backup retention policy. Its repository
    is local to this resource, under `./pgbackrest`.
-2. `backup` creates a separate logical `pg_dump` bundle and logs daily at
+2. `backup` creates a separate logical `pg_dump` bundle, logs and non-secret
+   recovery configuration daily at
    `BACKUP_TIME_UTC` (default `02:30` UTC) under `./backups`. It is an
    independent fallback, not the source of PITR.
 
@@ -45,12 +52,29 @@ repository-format change. Keep the shared config limited to options both
 versions support: `archive-push-batch-size` is not recognized by the Alpine
 3.22 sidecar and causes `info` to report an invalid configuration. Dev
 acceptance and the restore rehearsal below are the proof (stanza, archive
-check, full backup and restore); after them, move the sidecar to a newer
-Alpine so both match.
+check, full backup and restore). Review compatibility when either image is
+updated; a version difference alone is not a reason to redesign working backups.
 
-**Deployment configuration and secrets are not included.** The `.env` values,
-tunnel token and other credentials are kept in the operator's vault and must
-be recoverable independently of the server.
+**Non-secret templates are included; actual secrets are not.** New logical
+bundles contain `deployment-config/` with the source-controlled, unrendered
+Compose template, pgBackRest configuration, database/backup image recipes,
+this guide, the backup image's source commit and its effective backup switches
+and schedules. The source files are baked into the image from an explicit
+build-context allowlist, not exported from Coolify.
+
+This is not a complete live-platform export. Recover other deployment
+overrides, `.env` values, tunnel settings and credentials from the operator's
+vault, which must be accessible independently of the server. Never archive
+a rendered Compose configuration, full environment dump, or parent resource
+directory. `source_commit=unknown` produces a warning and must not be treated
+as verified configuration provenance.
+
+**Start here:** [identify the environment](#identify-the-environment-first),
+[enable backups](#bootstrap-pgbackrest), then select the two
+[Duplicati sources](#off-site-copies-with-duplicati). For recovery, choose
+[a logical dump](#rehearse-a-restore) or [a point in time](#rehearse-a-pgbackrest-point-in-time-restore).
+Do not mirror a running PostgreSQL data directory; copy the consistent
+artifacts GovMap produces.
 
 The worker's `worker-staging` volume is not included either: it holds only the
 latest source snapshots, which the next refresh of each source rewrites.
@@ -159,7 +183,8 @@ exists or can be restored. Duplicati copies both trees; exclude
 | --- | --- |
 | `database.dump` | Consistent custom-format dump of the `govmap` PostgreSQL database |
 | `logs.tar` | The shared `/app/logs` volume: API (`app.log`), refresh worker (`worker.log`) and bug-report logs |
-| `MANIFEST.txt` | Creation time, backup target, PostgreSQL server and `pg_dump` versions, Alembic revision |
+| `MANIFEST.txt` | Creation time, backup target, PostgreSQL/`pg_dump` versions, observed Alembic revision, configuration format and source provenance |
+| `deployment-config/` | Unrendered Compose template, pgBackRest configuration, image recipes, source commit, effective backup settings and this guide |
 | `SHA256SUMS` | Checksums of the recorded files |
 | `RESTORE.txt` | Basic restore notes for that bundle |
 
@@ -170,9 +195,52 @@ own manifest and restore notes.
 The database dump and logs are collected separately, so they are not a single
 transactionally synchronized snapshot. The bundle does not recreate the
 operating system, deployment platform, off-site backup configuration,
-external routes or policies, PostgreSQL cluster-wide roles, or the deployed
-source commit. Record the deployed commit and keep recovery credentials
-independently of the server.
+external routes or policies, PostgreSQL cluster-wide roles, or the application
+source tree. The recorded source commit belongs to the backup image; verify
+it matches the deployment rather than assuming it does. Avoid deployments
+during a backup; the Alembic revision queried after the dump is informational,
+and the revision in the recovered database is authoritative. Keep source
+access and recovery credentials independently of the server.
+
+## Identify the environment first
+
+Use host SSH, not a capability-restricted root terminal inside a container.
+Run these in a dedicated Bash shell. Errors must stop the sequence; do not
+continue with empty variables. Copy the Compose project ID from the intended
+Coolify resource, rather than identifying production as "the one that isn't dev."
+
+```bash
+set -euo pipefail
+read -r -p 'Verified Compose project ID: ' RESOURCE_PROJECT
+read -r -p 'Expected BACKUP_TARGET (dev or production): ' EXPECTED_TARGET
+[[ "$RESOURCE_PROJECT" =~ ^[a-zA-Z0-9_-]+$ ]]
+[[ "$EXPECTED_TARGET" =~ ^(dev|production)$ ]]
+
+service_container() {
+  local service="$1"
+  local -a candidates
+  mapfile -t candidates < <(sudo docker ps -q \
+    --filter "label=com.docker.compose.project=$RESOURCE_PROJECT" \
+    --filter "label=com.docker.compose.service=$service")
+  if [[ ${#candidates[@]} -ne 1 ]]; then
+    echo "ERROR: expected exactly one running $service container" >&2
+    return 1
+  fi
+  printf '%s\n' "${candidates[0]}"
+}
+
+LIVE_PG="$(service_container postgres)"
+BACKUP_CONTAINER="$(service_container backup)"
+PGBACKREST_CONTAINER="$(service_container pgbackrest)"
+ACTUAL_TARGET="$(sudo docker exec --user 70:70 "$PGBACKREST_CONTAINER" \
+  sh -c 'printf "%s" "$BACKUP_TARGET"')"
+[[ "$ACTUAL_TARGET" == "$EXPECTED_TARGET" ]]
+sudo docker inspect --format '{{.Name}} {{index .Config.Labels "com.docker.compose.project"}} {{index .Config.Labels "com.docker.compose.service"}}' \
+  "$LIVE_PG" "$BACKUP_CONTAINER" "$PGBACKREST_CONTAINER"
+```
+
+Names change on redeploy. Repeat this selection afterward. Never print a
+complete container inspection or environment dump: both can contain secrets.
 
 ## Bootstrap pgBackRest
 
@@ -188,18 +256,20 @@ starts without archiving while the repository is initialized.
    PostgreSQL entrypoint prepares the local `pgbackrest` folder as private
    uid/gid `70:70`. Do not deploy the code directly to production before this
    dev acceptance.
-2. Find the pgBackRest container, then create the stanza while PostgreSQL is
-   running but WAL archiving is still disabled:
+2. Use [the guarded environment selection](#identify-the-environment-first),
+   then create the stanza while PostgreSQL is running but WAL archiving is
+   still disabled. Skip stanza creation if this resource's stanza already
+   exists; `no valid backups` is not a missing stanza:
 
    ```bash
-   sudo docker ps --format '{{.Names}}' --filter name=pgbackrest
-   read -r -p 'pgBackRest container: ' PGBACKREST_CONTAINER
-   sudo docker exec "$PGBACKREST_CONTAINER" pgbackrest --stanza=govmap stanza-create
-   sudo docker exec "$PGBACKREST_CONTAINER" pgbackrest --stanza=govmap info
+   sudo docker exec --user 70:70 "$PGBACKREST_CONTAINER" pgbackrest --stanza=govmap stanza-create
+   sudo docker exec --user 70:70 "$PGBACKREST_CONTAINER" pgbackrest --stanza=govmap info
    ```
 
-   Confirm `stanza-create` succeeds and `info` identifies the intended
-   environment. `info` may report `status: error (no valid backups)` and
+   Confirm the container's Compose project matches the intended Coolify
+   resource, and its `BACKUP_TARGET` is the intended environment, before
+   creating the stanza. `info` does not identify dev versus production by
+   itself. It may report `status: error (no valid backups)` and
    `wal archive min/max: none present` at this stage; that is expected before
    the first backup and WAL archive. The commands must not emit invalid-option
    warnings. Do not initialize production using a dev repository or vice versa.
@@ -245,11 +315,14 @@ same two folders.
   set a restart delay compatible with its start-rate limits. Verify behavior
   after a reboot; an enabled, active service does not prove that scheduled
   jobs or remote copies succeed.
-- **Verify every destination**: Duplicati does not document how a failed
+- **Destination confidence**: Duplicati does not document how a failed
   copy to an additional destination affects the job result. A successful job
   and matching file timestamps alone do not prove that every destination has
-  a complete, recoverable copy. Check each destination and rehearse recovery
-  from it independently.
+  a complete, recoverable copy. An independent destination restore increases
+  confidence, but the operator has deferred those separate drills for the
+  current deployment. They are not a feature-development gate. Keep the
+  configured copies and existing job-selected recovery evidence; do not
+  describe untested destinations as independently verified.
 - **Exclusions**: for the logical folder, exclude `.govmap-backup-work-*`
   and `.govmap-backup.lock`. Do not exclude files from the pgBackRest
   repository.
@@ -268,10 +341,90 @@ successfully reached Duplicati. The off-site recovery point is the newest
 complete repository version that Duplicati has uploaded; local PITR is bounded
 by the WAL archive delay (normally at most five minutes plus processing).
 
+## Prepare a new isolated restore target
+
+Use this for either recovery method. It creates a **new** labeled volume,
+never attaches live PGDATA, publishes no ports and supplies no application
+credentials. Keep all steps for one rehearsal in the same Bash shell.
+Check disk headroom for the restored repository, extracted dump and database.
+
+On the existing host, first [identify the environment](#identify-the-environment-first)
+and capture its immutable database image ID:
+
+```bash
+RESTORE_IMAGE="$(sudo docker inspect --format '{{.Image}}' "$LIVE_PG")"
+```
+
+On a replacement host without that container, build the compatible database
+image from the matching trusted Git revision instead, then set `RESTORE_IMAGE`
+to its `docker image inspect --format '{{.Id}}'` result. Do not substitute a
+newer PostgreSQL major version for a physical restore.
+
+```bash
+[[ "$RESTORE_IMAGE" =~ ^sha256:[a-f0-9]{64}$ ]]
+RESTORE_VERSION="$(sudo docker run --rm --network none --entrypoint postgres "$RESTORE_IMAGE" --version)"
+[[ "$RESTORE_VERSION" == "postgres (PostgreSQL) 16."* ]]
+printf '%s\n' "$RESTORE_VERSION"
+REHEARSAL_ID="$(cat /proc/sys/kernel/random/uuid)"
+RESTORE_PG="govmap-rehearsal-$REHEARSAL_ID"
+RESTORE_VOLUME="govmap-rehearsal-$REHEARSAL_ID"
+if sudo docker volume inspect "$RESTORE_VOLUME" >/dev/null 2>&1; then
+  echo 'ERROR: rehearsal volume already exists' >&2
+  exit 1
+fi
+sudo docker volume create --label "govmap.rehearsal=$REHEARSAL_ID" "$RESTORE_VOLUME"
+sudo docker run --rm --network none --read-only --user 0:0 \
+  --cap-drop ALL --cap-add CHOWN --cap-add FOWNER \
+  --security-opt no-new-privileges:true --entrypoint sh \
+  --mount "type=volume,src=$RESTORE_VOLUME,dst=/var/lib/postgresql/data,volume-nocopy" \
+  "$RESTORE_IMAGE" -ceu '
+    test -z "$(ls -A /var/lib/postgresql/data)"
+    chmod 700 /var/lib/postgresql/data
+    chown 70:70 /var/lib/postgresql/data
+  '
+RESTORE_ARGS=(
+  --network none --read-only --user 70:70 --cap-drop ALL
+  --security-opt no-new-privileges:true
+  --label "govmap.rehearsal=$REHEARSAL_ID"
+  --mount "type=volume,src=$RESTORE_VOLUME,dst=/var/lib/postgresql/data,volume-nocopy"
+  --tmpfs /tmp:rw,nosuid,nodev,uid=70,gid=70,mode=700
+  --tmpfs /var/run/postgresql:rw,nosuid,nodev,uid=70,gid=70,mode=700
+)
+REPOSITORY_ARGS=()
+
+start_restore_target() {
+  sudo docker run -d --name "$RESTORE_PG" "${RESTORE_ARGS[@]}" \
+    "${REPOSITORY_ARGS[@]}" --entrypoint sh "$RESTORE_IMAGE" -ceu '
+      printf "local all all trust\n" > /tmp/rehearsal_hba.conf
+      exec postgres -D /var/lib/postgresql/data \
+        -c archive_mode=off -c archive_command= -c listen_addresses= \
+        -c unix_socket_directories=/var/run/postgresql \
+        -c unix_socket_permissions=0700 -c hba_file=/tmp/rehearsal_hba.conf \
+        -c logging_collector=off -c log_destination=stderr
+    '
+}
+
+assert_restore_target() {
+  [[ "$RESTORE_PG" == "govmap-rehearsal-$REHEARSAL_ID" ]]
+  [[ "$RESTORE_VOLUME" == "govmap-rehearsal-$REHEARSAL_ID" ]]
+  [[ "$(sudo docker inspect --format '{{index .Config.Labels "govmap.rehearsal"}}' "$RESTORE_PG")" == "$REHEARSAL_ID" ]]
+  [[ "$(sudo docker inspect --format '{{.HostConfig.NetworkMode}}' "$RESTORE_PG")" == none ]]
+  [[ "$(sudo docker inspect --format '{{range .Mounts}}{{if eq .Destination "/var/lib/postgresql/data"}}{{.Name}}{{end}}{{end}}' "$RESTORE_PG")" == "$RESTORE_VOLUME" ]]
+  [[ "$(sudo docker volume inspect --format '{{index .Labels "govmap.rehearsal"}}' "$RESTORE_VOLUME")" == "$REHEARSAL_ID" ]]
+}
+```
+
+Require PostgreSQL **16** from the version command. The temporary `trust`
+authentication applies only to this isolated container's private Unix socket,
+not the live server or a network listener. The normal GovMap entrypoint is
+deliberately bypassed so it cannot change a read-only recovery repository.
+Do not start the target until completing the appropriate restore step below.
+
 ## Rehearse a pgBackRest point-in-time restore
 
-Do this in dev or another isolated PostgreSQL 16 target, independently from
-each destination relied on for recovery. When its connection details are
+Do this in dev or another isolated PostgreSQL 16 target. The normal Duplicati
+job-selected restore is sufficient for the current operator-approved drill.
+When its connection details are
 available, Duplicati's **Restore** followed by **Direct restore from backup
 files** can specify a particular destination. A normal job restore can also
 exercise recovery, but does not independently verify a destination if the
@@ -280,49 +433,88 @@ passphrase, but does not prove the full repository or its required WAL is
 recoverable. Restoring the complete repository is not enough either: the
 isolated PostgreSQL instance must actually start and reach the requested target.
 
-1. Use Duplicati to restore the complete `pgbackrest` source to a new private
-   scratch directory. Do not write it over the live repository. Restore the
-   logical `backups` folder separately if you also want to test the fallback.
-2. Provide that scratch repository read-only to a disposable PostgreSQL 16
-   container with the same pgBackRest configuration, a newly created empty
-   data volume and a private writable socket directory. Never mount the live
-   `postgres-data` volume. Ensure the scratch repository and new data volume
-   are private and accessible to uid/gid `70:70`. Disable networking and
-   archiving, and keep source API credentials and scheduled refreshes out of
-   the isolated target. Start `postgres` directly as uid/gid `70:70`: the
-   GovMap image's normal entrypoint changes repository permissions and cannot
-   be used with a read-only repository mount. Provide a writable temporary
-   directory for pgBackRest's spool and locks.
-3. Before starting PostgreSQL, run `pgbackrest --stanza=govmap info` against
-   the restored repository and confirm it reports the expected stanza and a
-   completed full backup. Then, with the disposable PostgreSQL data directory
-   empty, restore to a UTC timestamp inside the available archive range:
+1. Create a new private scratch directory. Stop if it already exists:
 
    ```bash
-   pgbackrest --stanza=govmap --type=time \
-     --target='2026-11-11 12:00:00+00' --target-action=promote restore
+   sudo mkdir -m 700 -- /srv/govmap-pitr-test
    ```
 
-   Replace the example timestamp with a known time after the selected full
-   backup completed and before an archived commit or abort record. File
-   modification times alone do not establish the WAL's transaction-time
-   boundaries. The command must finish successfully; do not run it against
-   production or an existing data directory. An LSN-targeted restore can also
-   exercise replay to a specific WAL position, but does not by itself verify
-   recovery to a clock-time target.
-4. Start only the isolated PostgreSQL instance with the restored repository
-   mounted at `/pgbackrest`. Use the GovMap database image, which already
-   contains the config at `/etc/pgbackrest/pgbackrest.conf`; do not bind-mount
-   it from the repository. Keep external routes and the worker
-   disabled. Check the recovery log for the stopping record and promotion,
-   and confirm the last replayed transaction is at or before the target.
-   Query the migration revision and representative row counts, then record
-   the Duplicati destination, restored version, requested target, last
-   replayed transaction time and results. WAL-only markers test the time
-   boundary but do not demonstrate rollback of application-row changes.
-5. Stop the disposable instance and remove only the named scratch repository
-   and data volume created for the rehearsal. Keep production database files
-   and its pgBackRest repository untouched.
+   In Duplicati, restore the **complete** `pgbackrest` source from one job
+   version into `/srv/govmap-pitr-test/pgbackrest`, not its original location.
+   This must be the repository root containing `backup/` and `archive/`;
+   account for any extra parent directories created by the restore UI.
+2. [Prepare a new isolated target](#prepare-a-new-isolated-restore-target).
+   Make only the **restored copy** accessible to uid 70; never run these
+   permission commands against the live source:
+
+   ```bash
+   RESTORED_REPOSITORY=/srv/govmap-pitr-test/pgbackrest
+   [[ "$(sudo realpath -e -- "$RESTORED_REPOSITORY")" == "$RESTORED_REPOSITORY" ]]
+   sudo test -d "$RESTORED_REPOSITORY/backup"
+   sudo test -d "$RESTORED_REPOSITORY/archive"
+   sudo chown -hR 70:70 -- "$RESTORED_REPOSITORY"
+   sudo chmod -R go-rwx -- "$RESTORED_REPOSITORY"
+   REPOSITORY_ARGS=(--mount "type=bind,src=$RESTORED_REPOSITORY,dst=/pgbackrest,readonly")
+   sudo docker run --rm "${RESTORE_ARGS[@]}" "${REPOSITORY_ARGS[@]}" \
+     --entrypoint pgbackrest "$RESTORE_IMAGE" --stanza=govmap info
+   ```
+
+3. Select a completed full backup **before the target**, with the necessary
+   WAL in this restored repository. Enter its label from `info` and the
+   known UTC target, including its offset:
+
+   ```bash
+   read -r -p 'Full-backup label from info: ' RESTORE_SET
+   read -r -p 'Recovery target timestamp (UTC, including +00): ' RESTORE_TARGET
+   [[ "$RESTORE_SET" =~ ^[0-9]{8}-[0-9]{6}F$ ]]
+   [[ -n "$RESTORE_TARGET" ]]
+   sudo docker run --rm "${RESTORE_ARGS[@]}" "${REPOSITORY_ARGS[@]}" \
+     --entrypoint pgbackrest "$RESTORE_IMAGE" --stanza=govmap \
+     --set="$RESTORE_SET" --type=time --target="$RESTORE_TARGET" \
+     --target-action=promote restore
+   ```
+
+   For an LSN drill, use `--type=lsn` and an explicitly recorded LSN such as
+   `0/33000078` instead of a timestamp. Do not run a second restore into this
+   populated volume. A clock-time target must follow the selected backup's
+   completion and precede a later archived transaction's commit/abort record.
+   WAL file timestamps do not establish that boundary.
+4. Start the isolated database, inspect its log, and check its state:
+
+   ```bash
+   start_restore_target
+   assert_restore_target
+   sudo docker logs --tail 100 "$RESTORE_PG"
+   sudo docker exec --user 70:70 "$RESTORE_PG" \
+     psql -h /var/run/postgresql -U govmap -d govmap -v ON_ERROR_STOP=1 -Atc \
+     "SELECT pg_is_in_recovery(), current_setting('archive_mode'), current_setting('listen_addresses'), pg_last_xact_replay_timestamp();"
+   ```
+
+   Wait for startup before querying. Require promotion (`f`), archiving `off`,
+   an empty listen address and the log's correct stopping boundary. A server
+   still recovering, or one that never reached its target, is not a pass.
+5. Query the recovered schema and application data:
+
+   ```bash
+   sudo docker exec --user 70:70 "$RESTORE_PG" \
+     psql -h /var/run/postgresql -U govmap -d govmap -v ON_ERROR_STOP=1 -Atc \
+     'SELECT (SELECT version_num FROM alembic_version), (SELECT count(*) FROM members), (SELECT count(*) FROM bills), (SELECT count(*) FROM votes), (SELECT count(*) FROM source_runs);'
+   ```
+
+   Compare with the selected snapshot, not a newer live database. For the
+   application-row drill also require **A, not B or the base value**.
+   Record the job version, backup label, target, replay boundary and results;
+   record the destination as unidentified if the UI did not identify it.
+6. Follow [target cleanup](#remove-the-isolated-target), then remove only the
+   known restored scratch copy:
+
+   ```bash
+   sudo rm -r -- /srv/govmap-pitr-test/pgbackrest
+   sudo rmdir -- /srv/govmap-pitr-test
+   ```
+
+   If Duplicati created different nested paths, inspect and remove those exact
+   paths instead; never use a broad parent-directory deletion to make cleanup work.
 
 If the target predates the earliest retained full backup or required WAL,
 restore to a later point or investigate the repository; do not call the drill
@@ -362,7 +554,7 @@ full-backup results:
 sudo docker ps --format '{{.Names}}' --filter name=pgbackrest
 read -r -p 'pgBackRest container: ' PGBACKREST_CONTAINER
 sudo docker logs --since 48h "$PGBACKREST_CONTAINER"
-sudo docker exec "$PGBACKREST_CONTAINER" pgbackrest --stanza=govmap info
+sudo docker exec --user 70:70 "$PGBACKREST_CONTAINER" pgbackrest --stanza=govmap info
 ```
 
 Check PostgreSQL's archiver counters and the local repository's free space:
@@ -444,6 +636,13 @@ unset PGBACKREST_CONTAINER POSTGRES_CONTAINER PGBACKREST_HOST_DIR
 Keep `BACKUP_HOST_DIR` set if you will rehearse a restore from the local
 bundle in this session; otherwise `unset BACKUP_HOST_DIR`.
 
+When using Coolify's container terminal, check which user it selected. A
+terminal opened as root in these capability-restricted containers may not
+be able to read the private backup directory owned by uid 70. That does not
+prove the bundle is missing. Prefer host-side `docker exec --user 70:70` for
+backup inspections; a failed permission check must not be reported as an
+empty or missing backup.
+
 ## Rehearse a restore
 
 Use only a trusted backup: restoring a PostgreSQL dump can execute SQL.
@@ -497,13 +696,15 @@ sudo bash -c 'set -euo pipefail; cd /srv/govmap-restore-test/unpacked/govmap-bac
 
 Inspect the manifest privately. Compare the target or resource, timestamp,
 PostgreSQL version and revision with the intended snapshot. Container bundles
-record `deployment_config=not included`; earlier host-timer bundles may
-include a configuration directory, possibly under a different name. When one
-is included, check that the files you need are present and covered by the
-recorded checksums.
+made before configuration-snapshot version 1 record
+`deployment_config=not included`. New bundles include non-secret
+`deployment-config/`; earlier host-timer bundles can contain a differently
+named configuration directory and may contain sensitive configuration.
+Inspect those privately. When configuration is included, check that the
+required files are present and covered by the recorded checksums.
 
 ```bash
-sudo grep -E '^(created_utc|backup_target|resource_id|postgres_server_version|postgres_image|alembic_revision|[[:alnum:]_]+_config)=' /srv/govmap-restore-test/unpacked/govmap-backup/MANIFEST.txt
+sudo grep -E '^(created_utc|backup_target|resource_id|postgres_server_version|postgres_image|alembic_revision|source_commit|deployment_config_version|[[:alnum:]_]+_config)=' /srv/govmap-restore-test/unpacked/govmap-backup/MANIFEST.txt
 ```
 
 ```bash
@@ -512,8 +713,9 @@ sudo find /srv/govmap-restore-test/unpacked/govmap-backup -mindepth 1 -maxdepth 
 
 If deployment configuration was included, confirm there is exactly one
 matching directory and that its expected files are present. No match is
-expected for container bundles or when configuration was deliberately
-omitted.
+expected for older container bundles or when configuration was deliberately
+omitted. Recover their configuration from the matching Git revision and
+operator's vault; the older database dumps remain usable.
 
 `CHECKSUMS_OK` means the listed files match checksums stored in that same
 bundle; it is not an independent signature or proof of a successful database
@@ -522,34 +724,26 @@ uncertain target.
 
 ### Restore the database into scratch space
 
-Use a compatible PostgreSQL version on the isolated instance. In the **same
-Bash session**, enter the name of its running container; this is not a
-credential. Verify the name and image belong to the isolated instance before
-continuing:
+After verifying the bundle, [prepare a new isolated target](#prepare-a-new-isolated-restore-target).
+Do not reuse a PITR target or a live database. Initialize the empty volume
+using the same PostgreSQL 16 image, then start only this isolated server:
 
 ```bash
-read -r -p 'Isolated PostgreSQL container: ' RESTORE_PG
+sudo docker run --rm "${RESTORE_ARGS[@]}" --entrypoint initdb "$RESTORE_IMAGE" \
+  -D /var/lib/postgresql/data -U govmap --auth=trust
+start_restore_target
+assert_restore_target
+sudo docker logs --tail 30 "$RESTORE_PG"
+sudo docker exec --user 70:70 "$RESTORE_PG" pg_isready -h /var/run/postgresql -U govmap
 ```
 
-Reject an empty or invalid name:
+Wait for startup, then create a new scratch database:
 
 ```bash
-if [[ "${RESTORE_PG:-}" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]*$ ]]; then echo RESTORE_TARGET_NAME_VALID; else unset RESTORE_PG; echo 'ERROR: invalid container name' >&2; false; fi
-```
-
-```bash
-sudo docker inspect --format '{{.Name}} {{.Config.Image}}' "$RESTORE_PG"
-```
-
-The container name and image alone do not prove isolation; verify the target
-independently and stop if it is uncertain.
-
-The following examples use the `govmap` PostgreSQL role and require its local
-authentication to be configured already. Do not put a database password on
-the command line. Create a new scratch database:
-
-```bash
-sudo docker exec -i "$RESTORE_PG" createdb --no-password --username=govmap govmap_restore_check && echo SCRATCH_CREATED
+assert_restore_target
+sudo docker exec --user 70:70 "$RESTORE_PG" createdb --no-password \
+  --host=/var/run/postgresql --username=govmap govmap_restore_check
+echo SCRATCH_CREATED
 ```
 
 If creation fails or the database already exists, **stop**; do not drop an
@@ -562,7 +756,12 @@ sudo -v
 ```
 
 ```bash
-set -o pipefail; sudo cat -- /srv/govmap-restore-test/unpacked/govmap-backup/database.dump | sudo docker exec -i "$RESTORE_PG" pg_restore --no-password --username=govmap --no-owner --no-privileges --exit-on-error --dbname=govmap_restore_check && echo RESTORE_OK
+assert_restore_target
+sudo cat -- /srv/govmap-restore-test/unpacked/govmap-backup/database.dump |
+  sudo docker exec -i --user 70:70 "$RESTORE_PG" pg_restore --no-password \
+    --host=/var/run/postgresql --username=govmap --no-owner --no-privileges \
+    --exit-on-error --dbname=govmap_restore_check
+echo RESTORE_OK
 ```
 
 Require `RESTORE_OK`. A failure can leave a partial scratch database; keep
@@ -570,7 +769,10 @@ it isolated while investigating. Check its revision and representative
 counts:
 
 ```bash
-sudo docker exec -i "$RESTORE_PG" psql --no-password --username=govmap --dbname=govmap_restore_check --set=ON_ERROR_STOP=1 --no-align --tuples-only --command='SELECT (SELECT version_num FROM alembic_version), (SELECT count(*) FROM members), (SELECT count(*) FROM bills), (SELECT count(*) FROM votes), (SELECT count(*) FROM zip_districts);'
+sudo docker exec --user 70:70 "$RESTORE_PG" psql --no-password \
+  --host=/var/run/postgresql --username=govmap --dbname=govmap_restore_check \
+  --set=ON_ERROR_STOP=1 --no-align --tuples-only \
+  --command='SELECT (SELECT version_num FROM alembic_version), (SELECT count(*) FROM members), (SELECT count(*) FROM bills), (SELECT count(*) FROM votes), (SELECT count(*) FROM zip_districts);'
 ```
 
 Compare the revision with the bundle manifest and the counts with evidence
@@ -579,16 +781,8 @@ and a current live database may have changed since the dump.
 
 ### Clean up
 
-After verification, confirm the container is still the isolated target and
-remove **only the scratch database created by this rehearsal**:
-
-```bash
-sudo docker exec -i "$RESTORE_PG" dropdb --no-password --username=govmap govmap_restore_check && echo SCRATCH_DROPPED
-```
-
-```bash
-unset RESTORE_PG
-```
+After verification, [remove the isolated target](#remove-the-isolated-target).
+There is no need to run `dropdb` against any live server.
 
 The extracted files include sensitive data. Remove only the specific paths
 created for this rehearsal:
@@ -609,17 +803,405 @@ sudo rmdir -- /srv/govmap-restore-test
 deleting an unknown directory. If the restored archive was nested, remove
 its exact path and then only the empty subdirectories.
 
+## Remove the isolated target
+
+Save the non-secret results first. Use the variables from the preparation
+step; do not find a container or volume merely by a similar-looking name:
+
+```bash
+assert_restore_target
+sudo docker stop "$RESTORE_PG"
+sudo docker rm "$RESTORE_PG"
+[[ "$(sudo docker volume inspect --format '{{index .Labels "govmap.rehearsal"}}' "$RESTORE_VOLUME")" == "$REHEARSAL_ID" ]]
+sudo docker volume rm "$RESTORE_VOLUME"
+unset RESTORE_PG RESTORE_VOLUME RESTORE_ARGS REPOSITORY_ARGS REHEARSAL_ID
+```
+
+If setup failed before creating a container, inspect the exact volume's label
+and mounts before removing it separately. A missing label or unexpected mount
+is a reason to stop, not to force removal. Never use volume pruning or a
+wildcard to clean up a rehearsal.
+
+## Prove an application-row rollback in dev
+
+Do this once after the reviewed dev deployment passes CI. It uses an existing
+bill and changes only its title and automatically updated timestamp. No new
+table, endpoint or source identity is created. **Never run it in production.**
+
+### 1. Stop dev writers
+
+Record the original dev scheduler setting. Set dev's
+   `SCHEDULER_ENABLED=false`, redeploy dev, and wait for old workers to stop.
+   [Rediscover the environment](#identify-the-environment-first). Require
+   `EXPECTED_TARGET=dev`, a successful archive check, and a completed full
+   backup from before the test; record that backup's label. Ensure no other
+   operator is running a refresh. Stop only the verified dev frontend/backend
+   to prevent request-time enrichment while leaving the idle worker available:
+
+   ```bash
+   [[ "$EXPECTED_TARGET" == dev && "$ACTUAL_TARGET" == dev ]]
+   DEV_WORKER="$(service_container worker)"
+   DEV_BACKEND="$(service_container backend)"
+   DEV_FRONTEND="$(service_container frontend)"
+   DEV_SYSTEM_ID="$(sudo docker exec --user 70:70 "$LIVE_PG" \
+     psql -h /var/run/postgresql -U govmap -d govmap -v ON_ERROR_STOP=1 -Atc \
+     'SELECT system_identifier FROM pg_control_system();')"
+   [[ "$DEV_SYSTEM_ID" =~ ^[0-9]+$ ]]
+   sudo docker exec "$DEV_WORKER" python -c \
+     'from app.config import settings; assert not settings.scheduler_enabled; assert settings.upstream_budget_scope == "worker"'
+   sudo docker stop "$DEV_FRONTEND" "$DEV_BACKEND"
+   ```
+
+### 2. Save the original row
+
+Choose one existing, fully enriched dev bill. Keep its original fields in
+   a new private host directory **before any write**. The following temporary
+   helper runs inside the idle worker, using its existing database connection.
+   It never fetches from an upstream source or prints credentials:
+
+   ```bash
+   umask 077
+   ROW_TEST_DIR="$HOME/govmap-row-test"
+   mkdir -m 700 -- "$ROW_TEST_DIR"
+   read -r -p 'Existing fully enriched dev bill ID: ' BILL_ID
+   cat > "$ROW_TEST_DIR/drill.py" <<'PY'
+import asyncio
+import json
+import os
+import sys
+from datetime import datetime
+from typing import Literal
+from uuid import uuid4
+
+from pydantic import AwareDatetime, BaseModel, Field
+from sqlalchemy import func, select, update
+
+from app.config import settings
+from app.db import async_session_factory, engine
+from app.models.bill import Bill
+
+
+class BillChoice(BaseModel):
+    bill_id: str = Field(pattern=r"^[a-z]+\d+-\d+$", max_length=20)
+
+
+class State(BillChoice):
+    title: str | None
+    updated_at: AwareDatetime
+    system_id: str
+    nonce: str = Field(pattern=r"^[a-f0-9]{32}$")
+
+
+class Change(BaseModel):
+    phase: Literal["A", "B"]
+    updated_at: AwareDatetime
+
+
+def value(state: State, phase: str) -> str:
+    return f"GovMap recovery {phase} {state.nonce}"
+
+
+def emit(data: dict[str, str | int | None]) -> None:
+    print(json.dumps(data), flush=True)
+
+
+async def main() -> None:
+    if settings.scheduler_enabled or settings.upstream_budget_scope != "worker":
+        raise RuntimeError("Run only in the verified, idle dev worker")
+    mode = sys.argv[1]
+    async with async_session_factory() as db:
+        control = func.pg_control_system().table_valued("system_identifier")
+        system_id = str(await db.scalar(select(control.c.system_identifier)))
+        if system_id != os.environ["GOVMAP_REHEARSAL_SYSTEM_ID"]:
+            raise RuntimeError("Worker database is not the verified dev PostgreSQL instance")
+        if mode == "capture":
+            ident = BillChoice(bill_id=sys.argv[2])
+            bill = await db.get(Bill, ident.bill_id)
+            if bill is None or bill.enriched_at is None:
+                raise RuntimeError("Choose an existing, fully enriched bill")
+            state = State(
+                bill_id=bill.bill_id, title=bill.title, updated_at=bill.updated_at,
+                system_id=system_id, nonce=uuid4().hex,
+            )
+            print(state.model_dump_json(), flush=True)
+            return
+
+        state = State.model_validate_json(sys.stdin.readline())
+        if state.system_id != system_id:
+            raise RuntimeError("Database identity differs from the saved state")
+        if mode == "expected-a":
+            print(value(state, "A"), flush=True)
+            return
+
+        async def change(
+            expected_title: str | None, expected_time: datetime,
+            title: str | None, stamp: datetime | None = None,
+        ) -> datetime:
+            values: dict[str, str | datetime | None] = {"title": title}
+            if stamp is not None:
+                values["updated_at"] = stamp
+            result = await db.execute(
+                update(Bill)
+                .where(
+                    Bill.bill_id == state.bill_id,
+                    Bill.title.is_not_distinct_from(expected_title),
+                    Bill.updated_at == expected_time,
+                )
+                .values(**values)
+                .returning(Bill.updated_at)
+            )
+            changed_at = result.scalar_one_or_none()
+            if changed_at is None:
+                raise RuntimeError("Row changed unexpectedly; refusing to overwrite it")
+            await db.commit()
+            return changed_at
+
+        if mode == "mark":
+            a_time = await change(state.title, state.updated_at, value(state, "A"))
+            emit({"phase": "A", "updated_at": a_time.isoformat(), "value": value(state, "A")})
+            target = await db.scalar(select(func.clock_timestamp()))
+            await db.commit()
+            emit({"target": target.isoformat(sep=" ")})
+            await asyncio.sleep(2)
+            b_time = await change(value(state, "A"), a_time, value(state, "B"))
+            emit({"phase": "B", "updated_at": b_time.isoformat(), "value": value(state, "B")})
+            lsn = await db.scalar(select(func.pg_switch_wal()))
+            await db.commit()
+            emit({"wal_switch_lsn": str(lsn)})
+        elif mode == "cleanup":
+            events = [json.loads(line) for line in sys.stdin if line.strip()]
+            changes = [Change.model_validate(event) for event in events if "phase" in event]
+            if not changes:
+                raise RuntimeError("No recorded commit; inspect the row without forcing cleanup")
+            last = changes[-1]
+            await change(
+                value(state, last.phase), last.updated_at, state.title, state.updated_at
+            )
+            bill = await db.get(Bill, state.bill_id)
+            if bill is None or bill.title != state.title or bill.updated_at != state.updated_at:
+                raise RuntimeError("Original row fields did not match after cleanup")
+            remaining = await db.scalar(
+                select(func.count()).select_from(Bill)
+                .where(Bill.title.in_([value(state, "A"), value(state, "B")]))
+            )
+            if remaining != 0:
+                raise RuntimeError("A rehearsal marker remains; inspect it before resuming")
+            emit({"restored_bill": state.bill_id, "remaining_markers": remaining})
+        else:
+            raise RuntimeError("Unknown operation")
+
+
+async def run() -> None:
+    try:
+        await main()
+    finally:
+        await engine.dispose()
+
+
+asyncio.run(run())
+PY
+   (
+     set -o noclobber
+     sudo docker exec -i -e GOVMAP_REHEARSAL_SYSTEM_ID="$DEV_SYSTEM_ID" \
+       "$DEV_WORKER" python -c "$(cat "$ROW_TEST_DIR/drill.py")" \
+       capture "$BILL_ID" > "$ROW_TEST_DIR/row.json"
+   )
+   test -s "$ROW_TEST_DIR/row.json"
+   sync -f -- "$ROW_TEST_DIR/row.json"
+   ```
+
+   Inspect `row.json` privately and confirm the bill ID/original fields.
+   Do not overwrite this file or repeat capture after changing the row.
+
+### 3. Write A and B around a recorded target
+
+Commit A, record a database-clock target after A, then commit B after
+   the target and switch WAL. Preserve the commit evidence:
+
+   ```bash
+   (set -o noclobber; : > "$ROW_TEST_DIR/changes.jsonl")
+   sudo docker exec -i -e GOVMAP_REHEARSAL_SYSTEM_ID="$DEV_SYSTEM_ID" \
+     "$DEV_WORKER" python -c "$(cat "$ROW_TEST_DIR/drill.py")" \
+     mark < "$ROW_TEST_DIR/row.json" | tee -a "$ROW_TEST_DIR/changes.jsonl"
+   sudo docker exec --user 70:70 "$PGBACKREST_CONTAINER" pgbackrest --stanza=govmap check
+   ```
+
+   Require A and B records, the target and a successful archive check.
+   Do not rerun `mark`; an unexpected title/timestamp fails closed.
+
+### 4. Recover the copied repository
+
+Let the existing Duplicati job finish after these commits. Restore that
+   complete repository once and follow the [PITR steps](#rehearse-a-pgbackrest-point-in-time-restore),
+   using the **recorded pre-test full-backup label** and the exact `target`
+   from `changes.jsonl`. Do not choose a newer full backup made after A.
+
+### 5. Require the restored application value A
+
+After the isolated instance reaches its target and promotes, verify the
+   application value, not just counts or a WAL marker:
+
+   ```bash
+   EXPECTED_A="$(sudo docker exec -i -e GOVMAP_REHEARSAL_SYSTEM_ID="$DEV_SYSTEM_ID" \
+     "$DEV_WORKER" python -c "$(cat "$ROW_TEST_DIR/drill.py")" expected-a \
+     < "$ROW_TEST_DIR/row.json")"
+   assert_restore_target
+   sudo docker exec -i --user 70:70 "$RESTORE_PG" \
+     psql -h /var/run/postgresql -U govmap -d govmap -v ON_ERROR_STOP=1 -At \
+     -v bill_id="$BILL_ID" -v expected_a="$EXPECTED_A" <<'SQL'
+SELECT count(*) = 1 FROM bills WHERE bill_id = :'bill_id' AND title = :'expected_a';
+SQL
+   ```
+
+   Require `t`: the row is A, not B and not its original base-backup value.
+   Keep the stopping-boundary log and this result as the recovery evidence.
+
+### 6. Restore the original live dev fields
+
+Use the saved timestamp guard:
+
+   ```bash
+   [[ "$EXPECTED_TARGET" == dev && "$ACTUAL_TARGET" == dev ]]
+   { cat "$ROW_TEST_DIR/row.json"; cat "$ROW_TEST_DIR/changes.jsonl"; } |
+     sudo docker exec -i -e GOVMAP_REHEARSAL_SYSTEM_ID="$DEV_SYSTEM_ID" \
+       "$DEV_WORKER" python -c "$(cat "$ROW_TEST_DIR/drill.py")" cleanup
+   ```
+
+   Require `remaining_markers: 0`. Cleanup restores both the original title
+   and `updated_at`. If a command failed after a commit but before its log
+   reached the host, keep the private state and inspect the row; never remove
+   the comparison guard to force a write.
+
+### 7. Resume dev and remove rehearsal files
+
+Start the same dev frontend/backend, restore the **original** scheduler
+   setting through Coolify, and redeploy dev if that setting changed:
+
+   ```bash
+   sudo docker start "$DEV_BACKEND" "$DEV_FRONTEND"
+   ```
+
+   Rediscover containers and verify dev health. Clean the isolated target
+   and its restored repository as above. Only after live cleanup succeeds:
+
+   ```bash
+   rm -- "$ROW_TEST_DIR/drill.py" "$ROW_TEST_DIR/row.json" "$ROW_TEST_DIR/changes.jsonl"
+   rmdir -- "$ROW_TEST_DIR"
+   ```
+
+If recovery fails, preserve the evidence but still perform guarded live-row
+cleanup and restore the intended dev service state. A failed drill is not
+permission to leave test data in the application.
+
 ## Recovery on another host
 
 Full host recovery requires compatible infrastructure, the matching source
 revision, separately retained credentials and an isolated deployment target.
-First retrieve and verify an off-site bundle, then restore its database to a
-new scratch target as above. Keep schedulers disabled and use a separate,
-access-restricted test route while checking the recovered application.
-Restoring logs, replacing a database and production cutover are separate
-operator-approved operations; do not overwrite existing data or start a
-second production connector. A successful scratch restore alone is not proof
-that full host recovery has been rehearsed.
+
+1. Retrieve a trusted off-site logical bundle and, for PITR, the complete
+   repository version. Verify the bundle checksums and target. Preserve these
+   restored sources unchanged throughout recovery.
+2. Recover the recorded Git revision and the vault-held deployment settings.
+   The snapshot contains templates, not the live platform or its secrets.
+   Recreate Docker/Coolify, DNS/tunnel configuration and access policies from
+   the operator's records. Keep all public routes and ingestion disabled.
+3. Use the compatible PostgreSQL 16 image and one of the isolated restore
+   procedures above. Require the expected schema and representative records,
+   not just a healthy container. Start with code matching the recovered
+   schema; apply later reviewed migrations only as an intentional upgrade.
+4. Prepare a **new** application resource with new named storage. Stop its
+   application writers before loading data. For a logical recovery, initialize
+   its empty PostgreSQL cluster/role with the vault-held password and import
+   into a new empty `govmap` database using `pg_restore --no-owner
+   --no-privileges --exit-on-error`. For PITR, restore the selected backup to
+   its verified-empty PGDATA while PostgreSQL is stopped; do not transplant a
+   directory from a running rehearsal server. Keep the original resource and
+   recovery sources untouched.
+5. Keep `SCHEDULER_ENABLED=false`, archiving disabled and source credentials
+   withheld while checking the recovered application's read-only views on
+   an access-restricted route. PITR restores cluster roles/passwords from
+   that point; reconcile them with the vault before connecting the app.
+6. Before reusing upstream credentials, stop every old caller and allow a
+   full 60-minute drain with upstream traffic disabled. Restore the request
+   ledger with the database; do not clear it to bypass the drain.
+7. Prepare the new resource's private backup directories. Initialize its
+   **new, empty** pgBackRest repository, enable archiving through a controlled
+   restart, and require a successful archive check and full backup. Do not
+   initialize over the preserved recovery repository.
+8. With operator approval, cut over the route, restore the intended worker
+   setting, and configure this resource's two source directories in Duplicati.
+   Confirm backups, heartbeats and an external copy before retiring old data.
+   Restore old logs only to private archival storage, not over active logs.
+
+A successful isolated database restore is not proof that whole-host recovery
+or production cutover has been rehearsed.
+
+## Verify automation, alerts and a real reboot
+
+These are finite acceptance checks, not a requirement to keep repeating
+successful restores. Reuse applicable logs from the final deployed version.
+
+### Scheduled operation
+
+1. Inspect the logical backup log for a real scheduled `Backup completed.`
+   and the bundle's new timestamp. Check its manifest's known source SHA
+   against the deployment and its `deployment-config/` checksums.
+2. Inspect the pgBackRest log for a scheduled full backup and `info` for its
+   new completed full entry. Require a real successful archive check too.
+3. Match those completion times to the three real heartbeat checks. A manual
+   success ping or container health alone does not prove any of these jobs ran.
+4. Require a subsequent successful unattended Duplicati job that includes
+   both source directories. Record its job/version/time and warnings/errors.
+   A 30-minute schedule is not a guaranteed 30-minute off-site recovery point.
+
+### Alert delivery
+
+The operator already verified explicit failure-alert email delivery. For a
+future retest, use a **disposable** Healthchecks check with the same email
+integration: send that check's `/fail`, confirm its Down transition and email,
+then remove the disposable check. Never put its secret URL in shell history
+or a screenshot. Do not manually ping any of the three real checks.
+
+An explicit failure proves alert delivery, not a missed-interval transition.
+If a timer test is later needed, stop pinging a disposable check and wait for
+its configured grace to expire. That additional test is not a current
+closeout gate.
+
+### Reboot the shared host
+
+Only the operator performs this, during a confirmed maintenance window.
+
+1. Confirm fresh successful backups and an external copy, vault access
+   independent of this host, out-of-band console access, and no active
+   deployment, backup or restore. Record any intentionally stopped services.
+2. Inspect Duplicati's unit without dumping secret-bearing settings:
+
+   ```bash
+   sudo systemctl is-enabled duplicati.service
+   sudo systemctl is-active duplicati.service
+   sudo systemctl show duplicati.service \
+     -p FragmentPath -p User -p Group -p Restart -p RestartUSec -p RequiresMountsFor
+   cat /proc/sys/kernel/random/boot_id
+   ```
+
+   Verify the existing job/configuration and destination credentials are on
+   persistent storage. Privately confirm any SMB/local mount is really
+   mounted, not just an empty directory. Keep the established restart delay;
+   change unit ordering only if actual dependencies require it.
+3. After explicitly confirming the shared-host outage, the operator runs
+   `sudo systemctl reboot`.
+4. Reconnect and require a different boot ID, Duplicati automatically active,
+   the same persisted jobs/settings, and usable source/destination mounts.
+   Rediscover dev and production containers; require their intended health,
+   matching release identities, schema, archiving and archive checks.
+5. Let Duplicati start its next job itself and verify completion. Do not count
+   a manual run or `is-enabled` alone as automatic recovery after reboot.
+
+Do not change backup products, retention or destinations for this check.
+Once the application-row drill, this reboot and the recorded scheduled cycle
+pass alongside release CI, close backup engineering for the present
+infrastructure. Reopen it for an infrastructure/persistence change, an actual
+failure or a demonstrated capacity problem, not another identical exercise.
 
 ## Removing the earlier host timer
 

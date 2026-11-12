@@ -1,5 +1,7 @@
+import ast
 import json
 import os
+import re
 import shlex
 import shutil
 import stat
@@ -13,6 +15,22 @@ import pytest
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="requires Linux Bash and GNU tar")
 
 _SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
+
+
+def test_restore_guide_shell_and_embedded_python_syntax() -> None:
+    guide = (_SCRIPTS.parent / "docs" / "backup-service.md").read_text(encoding="utf-8")
+    blocks = re.findall(r"^\s*```bash\n(.*?)^\s*```\s*$", guide, re.MULTILINE | re.DOTALL)
+    assert blocks
+    for block in blocks:
+        result = subprocess.run(
+            ["bash", "-n"], input=block, capture_output=True, text=True, check=False, timeout=10
+        )
+        assert result.returncode == 0, result.stderr
+    helpers = re.findall(r"<<'PY'\n(.*?)\nPY\n", guide, re.DOTALL)
+    assert len(helpers) == 1
+    ast.parse(helpers[0])
+
+
 _DOCKER = """#!/usr/bin/env python3
 import json
 import os

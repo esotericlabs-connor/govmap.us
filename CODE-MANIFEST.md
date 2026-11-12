@@ -4,6 +4,64 @@ What's been built, in what order, and what's next. This is a living log — add 
 
 ## Build log
 
+**2026-11-11 — Final foundation closeout (in progress)**
+The operator approved a finite backup/security/reliability closeout before
+incremental UX, data and features. Baseline `c76974b` is aligned on dev/main
+with successful CI; both environments were reported redeployed at that
+revision. The current working changes have not yet passed CI.
+
+- Keep the working `backups` and `pgbackrest` sources and the existing
+  external backup product. Independent destination drills are explicitly
+  deferred and are not a release gate; prior job-selected recovery evidence
+  remains valid within its stated limits.
+- The logical bundle now includes allowlisted non-secret deployment
+  templates, backup settings, source provenance and the recovery guide under
+  its existing checksums. Runtime secrets and other deployment overrides
+  remain in the operator's vault. New image/config tests await CI.
+- The static code review found cached bill text was returned forever, even
+  after a bill-detail refresh. The operator approved fixing it in this
+  closeout. Migration `0016` adds a nullable cache revision; existing text is
+  retained and revalidated lazily. Detail refreshes invalidate the cached
+  revision, and a short post-fetch row lock prevents an old in-flight request
+  from replacing newer text. The response shape and readable-version fallback
+  are unchanged; concurrent revision changes use the existing 503 UI state.
+  Regression tests cover legacy/stub caches, both detail writers, identity-map
+  refresh, failed upstream calls and concurrent cache writers. They await CI.
+- Read-only operator checks show schema `0015`, database sizes of 161 MB
+  (dev) and 191 MB (production), low observed connection use and about 106 GB
+  available on the shared filesystem. This is evidence against an immediate
+  database replacement, not a prediction of unlimited future capacity.
+- Dev archiving is on with successful archives and no recorded failures.
+  Production archiving was off; its stanza has now been initialized but its
+  first full backup and controlled enablement remain pending. Production's
+  daily logical bundle exists: a root terminal lacking directory access
+  initially gave a misleading missing-file result; uid 70 verified it.
+- The operator confirmed immediate failure-alert email delivery. No additional
+  missed-interval drill is required for closeout. Application-row rollback,
+  real reboot/scheduled-operation evidence, final CI and the readiness
+  decision remain open.
+- A risk-based baseline security review found no high-confidence exploitable
+  issue in inspected paths. This is not a blanket security certification.
+  A follow-up static security review of the new backup executable/configuration
+  changes and revision-aware text cache also found no exploitable issue.
+  Runtime exposure and final CI are still open.
+- The general static reliability review found one more input-validation gap:
+  the public bill, vote and member lists accepted a negative `limit`/`offset`
+  or an out-of-range integer filter, which PostgreSQL rejects at execution
+  time (a 500 instead of a 422). They now share bounded paging (`offset`
+  ≤ 1,000,000, `limit` ≥ 1, int-safe `congress`/`session`), as does the
+  donations ledger's offset. ASGI regressions await CI. A worker-shutdown
+  cancellation releases a source lock before its pull thread exits; staging
+  publication is atomic, so this narrow window is an accepted follow-up,
+  not a blocker. Frontend data pages handle API failures and have error
+  boundaries.
+- The recovery guide now includes environment-identity guards, newly labeled
+  isolated Docker targets, logical/PITR procedures, guarded A/B row cleanup,
+  whole-host recovery responsibilities and a finite reboot/automation check.
+  New CI checks parse its Bash and embedded Python without executing server
+  operations. These instructions and the new application-row drill have not
+  yet been exercised on the operator's server.
+
 **2026-11-11 — Local pgBackRest PITR with Duplicati off-site**
 Implemented on `dev`; CI is green and services are healthy in dev. In dev,
 the stanza is created, WAL archiving and the archive check succeed, the first
@@ -12,8 +70,9 @@ completed without warnings. Isolated restores of job-selected snapshots
 replayed WAL to a post-backup LSN and to a clock-time target between two
 WAL-only marker commits. PostgreSQL 16.15 promoted at revision `0015`;
 representative row counts matched dev. The source destinations were not
-identified, and independent destination restores and application-row rollback
-remain to be verified. Dev's logical-backup service is enabled and its
+identified. Separate destination drills were subsequently deferred by the
+operator; application-row rollback remains in the closeout. Dev's
+logical-backup service is enabled and its
 catch-up run published a bundle. A job-selected copy passed checksums and
 restored into an isolated PostgreSQL instance at revision `0015`, with the
 same representative counts. Its source destination was not identified.
@@ -39,8 +98,8 @@ beyond Duplicati was added.
 - Off-site PITR is bounded by the most recent complete Duplicati copy of the
   repository, not by the local WAL archive. CI builds and scans the custom
   database image and tests scheduler/config/Compose behavior. The operator
-  must still independently restore and recover from each destination relied
-  on for disaster recovery. The clock-time drill did not modify application
+  has deferred independent destination drills for the current deployment.
+  The clock-time drill did not modify application
   rows, so it did not demonstrate rolling back an application-data change.
 - Dev's Duplicati job is configured for a 30-minute schedule. Its host
   systemd service is enabled and active, with a 15-second restart delay. One
@@ -68,8 +127,9 @@ beyond Duplicati was added.
   files and never use pgBackRest's remote protocol, where matching versions
   are required, and the 2.56 to 2.58 release notes list no repository-format
   change. Dev has completed stanza creation, a check, a full backup and
-  isolated LSN- and clock-time-targeted restores; per-destination recovery
-  remains open. Move the sidecar to a newer Alpine after acceptance.
+  isolated LSN- and clock-time-targeted restores. Per-destination recovery is
+  explicitly deferred. Check compatibility when updating either image;
+  matching version numbers alone is not a new closeout requirement.
 - The first dev `info` call exposed two incompatibilities: the 2.55 sidecar
   rejects `archive-push-batch-size`, and pgBackRest interprets application
   variables named `PGBACKREST_*` as its own options. The unsupported setting

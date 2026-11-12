@@ -11,12 +11,22 @@ RUN apk add --no-cache bash coreutils curl findutils flock jq pgbackrest postgre
 ENV PATH="/usr/libexec/postgresql16:${PATH}" \
     HOME=/tmp
 
-COPY entrypoint.sh /usr/local/bin/govmap-backup-entrypoint
-COPY run.sh /usr/local/bin/govmap-backup-scheduler
-COPY pgbackrest-run.sh /usr/local/bin/govmap-pgbackrest-scheduler
-COPY backup.sh /usr/local/bin/govmap-backup
-COPY pgbackrest.conf /etc/pgbackrest/pgbackrest.conf
+COPY backup/entrypoint.sh /usr/local/bin/govmap-backup-entrypoint
+COPY backup/run.sh /usr/local/bin/govmap-backup-scheduler
+COPY backup/pgbackrest-run.sh /usr/local/bin/govmap-pgbackrest-scheduler
+COPY backup/backup.sh /usr/local/bin/govmap-backup
+COPY backup/pgbackrest.conf /etc/pgbackrest/pgbackrest.conf
 RUN chmod 755 /usr/local/bin/govmap-backup-entrypoint /usr/local/bin/govmap-backup-scheduler /usr/local/bin/govmap-pgbackrest-scheduler /usr/local/bin/govmap-backup
+
+# Unrendered, source-controlled recovery files only; never copy a platform
+# environment export or mount deployment files from the Coolify host.
+COPY docker-compose.PaaS.yml /usr/local/share/govmap-recovery/docker-compose.PaaS.yml
+COPY backup/pgbackrest.conf /usr/local/share/govmap-recovery/pgbackrest.conf
+COPY database/Dockerfile /usr/local/share/govmap-recovery/database.Dockerfile
+COPY backup/Dockerfile /usr/local/share/govmap-recovery/backup.Dockerfile
+COPY docs/backup-service.md /usr/local/share/govmap-recovery/backup-service.md
+ARG SOURCE_COMMIT=unknown
+RUN bash -eu -c '[[ "$SOURCE_COMMIT" =~ ^(unknown|[a-f0-9]{40})$ ]] || { echo "SOURCE_COMMIT must be a full Git SHA or unknown" >&2; exit 1; }; printf "%s\n" "$SOURCE_COMMIT" > /usr/local/share/govmap-recovery/source-commit.txt'
 
 # Starts as root only to prepare the backup directory; the entrypoint drops
 # to uid/gid 70 before scheduling or running any backup.
