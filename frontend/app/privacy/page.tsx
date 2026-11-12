@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import { LegalLayout } from "@/components/LegalLayout";
 import { siteConfig } from "@/lib/site-config";
 
@@ -41,17 +43,18 @@ export default function PrivacyPage() {
 
       <h2>Links to other services</h2>
       <p>
-        When you follow a link to a donation platform (Patreon, Ko-fi, Open
-        Collective, and the others on our Support page), a social account, or
-        our source repository, you leave GovMap and that service&apos;s own
-        privacy policy applies.
+        When you follow a link to a donation platform (Ko-fi, Buy Me a Coffee,
+        or Liberapay, listed on our <Link href="/support">Support page</Link>),
+        one of our social accounts, or our source repository, you leave GovMap
+        and that service&apos;s own privacy policy applies.
       </p>
 
       <h2>Where our data comes from</h2>
       <p>
         The government information GovMap displays comes from public, official
         sources, which we read on our servers and normalize into a consistent
-        format. Our sourcing and methodology are published openly.
+        format. Our sourcing and methodology are published openly — see{" "}
+        <Link href="/about">About</Link> and <Link href="/security">Security</Link>.
       </p>
 
       <h2>What changes when accounts arrive</h2>
@@ -70,7 +73,14 @@ export default function PrivacyPage() {
 
       <h2>Contact</h2>
       <p>
-        Questions about privacy? Reach us through our{" "}
+        Questions about privacy?{" "}
+        {siteConfig.contactEmail && (
+          <>
+            Email{" "}
+            <a href={`mailto:${siteConfig.contactEmail}`}>{siteConfig.contactEmail}</a> or{" "}
+          </>
+        )}
+        reach us through our{" "}
         <a href={siteConfig.githubUrl} target="_blank" rel="noreferrer">
           GitHub repository
         </a>

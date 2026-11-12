@@ -7,26 +7,28 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { BugReport } from "@/components/BugReport";
-import { GovmapWord } from "@/components/GovmapWord";
 import { HomeZipChip } from "@/components/HomeZipChip";
 import { UniversalSearch } from "@/components/UniversalSearch";
 import { siteConfig } from "@/lib/site-config";
 
-type NavItem = { label: string; href: string; external?: boolean };
-
-const MARKETING_NAV: NavItem[] = [
-  { label: "About", href: "/#about" },
-  { label: "GitHub", href: siteConfig.githubUrl, external: true },
-  { label: "Privacy Policy", href: "/privacy" },
-  { label: "Support", href: "/#support" },
-];
+type NavItem = { label: string; href: string };
 
 const APP_NAV: NavItem[] = [
-  { label: "Congress", href: "/congress" },
+  { label: "Map", href: "/" },
   { label: "Members", href: "/members" },
   { label: "Bills", href: "/bills" },
   { label: "Votes", href: "/votes" },
 ];
+
+const PROJECT_NAV: NavItem[] = [
+  { label: "About GovMap", href: "/about" },
+  { label: "Support the project", href: "/support" },
+];
+
+// "/" would prefix-match every route, so the map is active only on itself.
+function isActive(pathname: string, href: string): boolean {
+  return href === "/" ? pathname === "/" : pathname.startsWith(href);
+}
 
 function MenuIcon() {
   return (
@@ -52,53 +54,30 @@ function CloseIcon() {
 function NavLink({
   item,
   active,
-  isMobile,
   onClick,
 }: {
   item: NavItem;
   active: boolean;
-  isMobile?: boolean;
   onClick?: () => void;
 }) {
   return (
     <Link
       href={item.href}
-      {...(item.external ? { target: "_blank", rel: "noreferrer" } : {})}
       onClick={onClick}
-      className={`relative transition-colors ${
-        isMobile
-          ? "rounded-md px-3 py-2 text-base font-medium"
-          : "text-sm font-medium"
-      } ${
-        active
-          ? "text-white"
-          : "text-white/70 hover:text-white"
+      aria-current={active ? "page" : undefined}
+      className={`rounded-md px-3 py-2 text-base font-medium transition-colors ${
+        active ? "bg-white/10 text-white" : "text-white/70 hover:bg-white/5 hover:text-white"
       }`}
     >
       {item.label}
-      {active && !isMobile && (
-        <span className="absolute -bottom-2 left-1/2 h-0.5 w-4 -translate-x-1/2 rounded-full bg-govblue" />
-      )}
     </Link>
   );
 }
 
-export function SiteHeader({
-  variant = "marketing",
-}: {
-  variant?: "marketing" | "app";
-}) {
-  const navItems = variant === "marketing" ? MARKETING_NAV : APP_NAV;
+export function SiteHeader() {
   const pathname = usePathname();
-  const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-
-  useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 10);
-    onScroll();
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
-  }, []);
+  const close = () => setMenuOpen(false);
 
   useEffect(() => {
     if (menuOpen) document.body.style.overflow = "hidden";
@@ -111,24 +90,14 @@ export function SiteHeader({
     };
   }, [menuOpen]);
 
-  // App pages have no hero, so the bar is glassy from the top; the marketing
-  // header floats transparent over the hero until you scroll.
-  const isGlassy = variant === "app" || scrolled || menuOpen;
-
   return (
-    <header
-      className={`fixed inset-x-0 top-0 z-50 transition-all duration-300 ${
-        isGlassy
-          ? "border-b border-white/10 bg-govnavy/80 backdrop-blur-lg"
-          : "border-b border-transparent bg-transparent"
-      }`}
-    >
+    <header className="fixed inset-x-0 top-0 z-50 border-b border-white/10 bg-govnavy/80 backdrop-blur-lg">
       <div className="relative flex w-full items-center justify-between gap-4 px-6 py-3.5">
         <Link
-          href={variant === "app" ? siteConfig.appUrl : "/"}
+          href={siteConfig.appUrl}
           className="shrink-0"
-          aria-label={variant === "app" ? "GovMap" : "GovMap.us home"}
-          onClick={() => setMenuOpen(false)}
+          aria-label="GovMap.us home"
+          onClick={close}
         >
           <Image
             src="/logo-dark-transparent.png"
@@ -140,48 +109,18 @@ export function SiteHeader({
           />
         </Link>
 
-        {/* Universal search — prominent and centered on app pages. */}
-        {variant === "app" && (
-          <div className="hidden flex-1 justify-center px-4 md:flex">
-            <UniversalSearch className="w-full max-w-xl" />
-          </div>
-        )}
+        {/* Universal search — prominent and centered on desktop. */}
+        <div className="hidden flex-1 justify-center px-4 md:flex">
+          <UniversalSearch className="w-full max-w-xl" />
+        </div>
 
-        {/* Desktop nav — marketing only. On app pages every destination lives
-            behind the menu button (right), keeping the bar to logo + search. */}
-        {variant === "marketing" && (
-          <nav
-            className="absolute left-1/2 top-1/2 hidden -translate-x-1/2 -translate-y-1/2 items-center gap-6 md:flex"
-            aria-label="Primary"
-          >
-            {navItems.map((item) => (
-              <NavLink key={item.href} item={item} active={pathname.startsWith(item.href)} />
-            ))}
-          </nav>
-        )}
+        <div className="hidden shrink-0 sm:block">
+          <HomeZipChip />
+        </div>
 
-        {variant === "marketing" && (
-          <div className="hidden shrink-0 items-center gap-4 md:flex">
-            <Link
-              href={siteConfig.appUrl}
-              className="transform rounded-full bg-white px-5 py-2 text-sm font-semibold text-govnavy shadow-md transition-transform duration-200 hover:-translate-y-0.5 active:translate-y-0"
-            >
-              Enter <GovmapWord />
-            </Link>
-          </div>
-        )}
-
-        {variant === "app" && (
-          <div className="hidden shrink-0 sm:block">
-            <HomeZipChip />
-          </div>
-        )}
-
-        {/* Menu button — always shown on app pages (holds the nav), mobile-only
-            on marketing (which keeps its inline nav on desktop). */}
         <button
           type="button"
-          className={`shrink-0 text-white ${variant === "app" ? "" : "md:hidden"}`}
+          className="shrink-0 text-white"
           aria-label={menuOpen ? "Close menu" : "Open menu"}
           aria-expanded={menuOpen}
           onClick={() => setMenuOpen((v) => !v)}
@@ -198,8 +137,8 @@ export function SiteHeader({
             <div
               className={`fixed inset-0 z-[55] bg-govnavy/70 backdrop-blur-sm transition-opacity duration-300 ${
                 menuOpen ? "opacity-100" : "pointer-events-none opacity-0"
-              } ${variant === "app" ? "" : "md:hidden"}`}
-              onClick={() => setMenuOpen(false)}
+              }`}
+              onClick={close}
               aria-hidden={true}
             />
             {/* Right-side blade. Portaled to <body> so the header's backdrop-blur
@@ -208,7 +147,7 @@ export function SiteHeader({
             <div
               className={`fixed inset-y-0 right-0 z-[60] flex w-full max-w-[340px] transform flex-col border-l border-white/10 bg-govnavy/95 shadow-2xl transition-transform duration-300 ease-out ${
                 menuOpen ? "translate-x-0" : "translate-x-full"
-              } ${variant === "app" ? "" : "md:hidden"}`}
+              }`}
               aria-hidden={!menuOpen}
             >
               <div className="flex items-center justify-between px-6 py-3.5">
@@ -217,7 +156,7 @@ export function SiteHeader({
                 </span>
                 <button
                   type="button"
-                  onClick={() => setMenuOpen(false)}
+                  onClick={close}
                   aria-label="Close menu"
                   className="text-white transition-colors hover:text-white/70"
                 >
@@ -226,55 +165,51 @@ export function SiteHeader({
               </div>
               <nav
                 className="flex flex-1 flex-col gap-1 overflow-y-auto px-6 pb-6"
-                aria-label={variant === "app" ? "Primary" : "Mobile"}
+                aria-label="Primary"
               >
                 {/* Search here only where the centered bar is hidden (mobile). */}
-                {variant === "app" && (
-                  <div className="mb-3 md:hidden">
-                    <UniversalSearch onNavigate={() => setMenuOpen(false)} />
-                  </div>
-                )}
-                {navItems.map((item) => (
+                <div className="mb-3 md:hidden">
+                  <UniversalSearch onNavigate={close} />
+                </div>
+                {APP_NAV.map((item) => (
                   <NavLink
                     key={item.href}
                     item={item}
-                    active={pathname.startsWith(item.href)}
-                    isMobile
-                    onClick={() => setMenuOpen(false)}
+                    active={isActive(pathname, item.href)}
+                    onClick={close}
                   />
                 ))}
-                <div className="mt-4 border-t border-white/10 pt-4">
-                  {variant === "marketing" ? (
-                    <Link
-                      href={siteConfig.appUrl}
-                      onClick={() => setMenuOpen(false)}
-                      className="block w-full rounded-full bg-white px-5 py-3 text-center text-base font-semibold text-govnavy shadow-lg"
-                    >
-                      Enter <GovmapWord />
-                    </Link>
-                  ) : (
-                    <div className="space-y-1">
-                      <Link
-                        href="/account"
-                        onClick={() => setMenuOpen(false)}
-                        className="block rounded-md px-3 py-2 text-base font-medium text-white/80 transition-colors hover:bg-white/5"
-                      >
-                        Sign In
-                      </Link>
-                      <BugReport
-                        triggerClassName="block w-full rounded-md px-3 py-2 text-left text-base font-medium text-white/80 transition-colors hover:bg-white/5"
-                        triggerLabel="Report a problem"
-                      />
-                    </div>
-                  )}
+                <div className="mt-4 space-y-1 border-t border-white/10 pt-4">
+                  <Link
+                    href="/account"
+                    onClick={close}
+                    className="block rounded-md px-3 py-2 text-base font-medium text-white/80 transition-colors hover:bg-white/5"
+                  >
+                    Sign In
+                  </Link>
+                  <BugReport
+                    triggerClassName="block w-full rounded-md px-3 py-2 text-left text-base font-medium text-white/80 transition-colors hover:bg-white/5"
+                    triggerLabel="Report a problem"
+                  />
                 </div>
-                {/* Home-area chip lives outside the menu on desktop; surface it
-                    here for mobile, where it's part of the app experience. */}
-                {variant === "app" && (
-                  <div className="mt-4 border-t border-white/10 pt-4 sm:hidden">
-                    <HomeZipChip />
-                  </div>
-                )}
+                {/* Home-area chip lives in the bar on desktop; surface it here
+                    for mobile, where it's part of the app experience. */}
+                <div className="mt-4 border-t border-white/10 pt-4 sm:hidden">
+                  <HomeZipChip />
+                </div>
+
+                {/* Project links pinned to the bottom of the blade. */}
+                <div className="mt-auto flex flex-col gap-1 border-t border-white/10 pt-4">
+                  {PROJECT_NAV.map((item) => (
+                    <NavLink
+                      key={item.href}
+                      item={item}
+                      active={isActive(pathname, item.href)}
+                      onClick={close}
+                    />
+                  ))}
+                  <p className="px-3 pt-3 text-xs text-white/40">{siteConfig.tagline}</p>
+                </div>
               </nav>
             </div>
           </>,

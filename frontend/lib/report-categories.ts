@@ -24,7 +24,7 @@ export const REPORT_CATEGORY_NAMES = Object.keys(REPORT_CATEGORIES);
 export function defaultCategoryForPath(pathname: string): { category: string; subcategory: string } {
   const at = (category: string, subcategory: string) => ({ category, subcategory });
   if (pathname.includes("/donations")) return at("Finance", "Itemized donations");
-  if (pathname.startsWith("/congress")) return at("Map", "District / state map");
+  if (pathname === "/") return at("Map", "District / state map");
   if (pathname === "/members") return at("Members", "Roster");
   if (pathname.startsWith("/members")) return at("Members", "Profile");
   if (pathname.startsWith("/bills")) return at("Bills", "Bill detail");

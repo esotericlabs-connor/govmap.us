@@ -10,7 +10,7 @@ export const metadata = {
 export default function AccountPage() {
   return (
     <>
-      <SiteHeader variant="app" />
+      <SiteHeader />
       <main className="flex min-h-screen items-center justify-center bg-white px-6 pb-16 pt-24">
         <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-card">
           <h1 className="font-display text-2xl font-bold text-govnavy">

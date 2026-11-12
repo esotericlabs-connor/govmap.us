@@ -3,19 +3,21 @@ import Link from "next/link";
 
 import { BrandIcon } from "@/components/BrandIcon";
 import { BugReport } from "@/components/BugReport";
+import { CapitolBackdrop } from "@/components/PageBanner";
 import { siteConfig } from "@/lib/site-config";
 
 type FooterLink = { label: string; href: string; external?: boolean };
 
 const EXPLORE: FooterLink[] = [
-  { label: "Home", href: "/" },
-  { label: "Congress", href: "/congress" },
+  { label: "Map", href: "/" },
   { label: "Members", href: "/members" },
+  { label: "Bills", href: "/bills" },
+  { label: "Votes", href: "/votes" },
 ];
 
 const PROJECT: FooterLink[] = [
-  { label: "About", href: "/#about" },
-  { label: "Support", href: "/#support" },
+  { label: "About", href: "/about" },
+  { label: "Support", href: "/support" },
   { label: "GitHub", href: siteConfig.githubUrl, external: true },
 ];
 
@@ -50,17 +52,7 @@ function FooterCol({ title, links }: { title: string; links: FooterLink[] }) {
 export function SiteFooter() {
   return (
     <footer className="relative isolate overflow-hidden bg-govnavy-800 text-sm">
-      {/* Capitol backdrop — rendered exactly like the hero (Next Image,
-          object-cover at 100vw) so the scale matches, just cropped to the bottom
-          of the photo. The scrim dims it for the light text; dial the /70. */}
-      <Image
-        src="/capitol-hero.jpg"
-        alt=""
-        fill
-        sizes="100vw"
-        className="-z-10 object-cover object-bottom"
-      />
-      <div className="absolute inset-0 -z-10 bg-govnavy/70" aria-hidden="true" />
+      <CapitolBackdrop />
 
       <div className="mx-auto max-w-6xl px-6 pb-10 pt-20">
         <div className="grid gap-12 sm:grid-cols-2 lg:grid-cols-4">
@@ -82,26 +74,27 @@ export function SiteFooter() {
                   <BrandIcon name={social.icon} className="h-5 w-5" />
                 </a>
               ))}
-              {/* Placeholder support address until a real inbox is provisioned. */}
-              <a
-                href="mailto:support@govmap.us"
-                aria-label="Email GovMap.us"
-                className="text-white/70 transition-colors hover:text-white"
-              >
-                <svg
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.9"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  className="h-5 w-5"
-                  aria-hidden="true"
+              {siteConfig.contactEmail && (
+                <a
+                  href={`mailto:${siteConfig.contactEmail}`}
+                  aria-label="Email GovMap.us"
+                  className="text-white/70 transition-colors hover:text-white"
                 >
-                  <rect x="2.5" y="4.5" width="19" height="15" rx="2.5" />
-                  <path d="m3 7 9 6 9-6" />
-                </svg>
-              </a>
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.9"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className="h-5 w-5"
+                    aria-hidden="true"
+                  >
+                    <rect x="2.5" y="4.5" width="19" height="15" rx="2.5" />
+                    <path d="m3 7 9 6 9-6" />
+                  </svg>
+                </a>
+              )}
             </div>
           </div>
 

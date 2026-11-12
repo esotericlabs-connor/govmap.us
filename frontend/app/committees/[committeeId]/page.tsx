@@ -357,10 +357,10 @@ export default async function CommitteeDetailPage({
   const { committeeId } = await params;
   return (
     <>
-      <SiteHeader variant="app" />
+      <SiteHeader />
       <main className="bg-slate-warm-50 pb-20 pt-28">
         <div className="mx-auto max-w-6xl px-6">
-          <BackLink href="/congress">Back to map</BackLink>
+          <BackLink href="/">Back to map</BackLink>
           <Suspense fallback={<PageSkeleton />}>
             <CommitteeDetailContent committeeId={committeeId} />
           </Suspense>

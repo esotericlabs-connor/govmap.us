@@ -20,7 +20,7 @@ const spaceGrotesk = Space_Grotesk({
 });
 
 const DESCRIPTION =
-  "A nonpartisan, plain-English view of the entire US federal government — who represents you, how they vote, who runs the agencies that govern you, where the money goes, and how a bill becomes law.";
+  "A nonpartisan view of your government, from city council to Congress — starting with who represents you in Congress, how they vote, the bills they write and where their campaign money comes from. Real public records, always sourced.";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://govmap.us"),

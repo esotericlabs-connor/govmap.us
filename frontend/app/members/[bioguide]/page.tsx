@@ -41,10 +41,10 @@ export default async function MemberDetailPage({ params }: { params: Promise<{ b
   const { bioguide } = await params;
   return (
     <>
-      <SiteHeader variant="app" />
+      <SiteHeader />
       <main className="bg-slate-warm-50 pb-20 pt-28">
         <div className="mx-auto max-w-6xl px-6">
-          <BackLink href="/congress">Back to map</BackLink>
+          <BackLink href="/">Back to map</BackLink>
           <Suspense fallback={<PageSkeleton />}>
             <MemberDetailContent bioguide={bioguide} />
           </Suspense>

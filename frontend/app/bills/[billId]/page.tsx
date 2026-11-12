@@ -163,13 +163,16 @@ async function BillDetailContent({ billId }: { billId: string }) {
         <div className="lg:col-span-2">
           <div className="space-y-10">
             {(bill.summary || textHref) && (
-              <Section title="What this bill does">
+              <Section title="What this bill does (official CRS summary)">
                 {bill.summary ? (
                   <p className="whitespace-pre-line leading-relaxed text-slate-warm-700">
                     {bill.summary}
                   </p>
                 ) : (
-                  <EmptyState>No plain-English summary published yet for this bill.</EmptyState>
+                  <EmptyState>
+                    The Congressional Research Service hasn&apos;t published a summary of this
+                    bill yet.
+                  </EmptyState>
                 )}
                 {textHref && (
                   <a
@@ -290,7 +293,7 @@ export default async function BillDetailPage({ params }: { params: Promise<{ bil
   const { billId } = await params;
   return (
     <>
-      <SiteHeader variant="app" />
+      <SiteHeader />
       <main className="bg-slate-warm-50 pb-20 pt-28">
         <div className="mx-auto max-w-6xl px-6">
           <BackLink href="/bills">All Bills</BackLink>

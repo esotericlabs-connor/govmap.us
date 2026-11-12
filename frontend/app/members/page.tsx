@@ -126,7 +126,7 @@ export default async function MembersPage({
 
   return (
     <>
-      <SiteHeader variant="app" />
+      <SiteHeader />
       <main className="bg-slate-warm-50 pb-20 pt-28">
         <div className="mx-auto max-w-7xl px-6">
           <Reveal>

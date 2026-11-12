@@ -100,7 +100,7 @@ function VoteListSkeleton() {
 export default function VotesPage() {
   return (
     <>
-      <SiteHeader variant="app" />
+      <SiteHeader />
       <main className="bg-slate-warm-50 pb-20 pt-28">
         <div className="mx-auto max-w-5xl px-6">
           <Reveal>

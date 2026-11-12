@@ -4,6 +4,40 @@ What's been built, in what order, and what's next. This is a living log — add 
 
 ## Build log
 
+**2026-11-12 — UX pass 1: app at the root, About/Support/Security pages**
+First UX increment after the foundation closeout. Frontend only; no schema,
+API or data change.
+
+- `govmap.us` now opens the map directly: the `/congress` page moved to
+  `app/page.tsx` and `/congress` is a permanent redirect to `/` (query string
+  carried through, so `?member=` deep links still work). The marketing landing
+  page, `ThemedSection` and `GovmapWord` were removed; `SiteHeader` lost its
+  unreachable marketing variant and the `variant` prop.
+- The footer's Capitol-photo/navy-scrim look is now a shared component
+  (`components/PageBanner.tsx`: `CapitolBackdrop`, `PageBanner`, `BannerCard`)
+  used by the footer, `/about`, `/support`, `/privacy` and `/security`. Other
+  app pages adopt it in later passes.
+- New `/about` (mission, ambition, coverage clearly badged Live vs Planned —
+  only Congress is live — principles, the sources actually in use) and
+  `/support` (Ko-fi, Buy Me a Coffee, Liberapay). Patreon, Open Collective,
+  thanks.dev and the fiscal-sponsor note were removed.
+- `/security` rewritten as "Security & Transparency": open source (GPLv3, CI
+  gates, pinned dependencies), transparency (sourced records, no AI content,
+  donation-funded), public data only, plain-English protections, and the
+  disclosure policy. Its scope no longer lists the nonexistent
+  `api.govmap.us`.
+- The official `@govmapus` Mastodon/Bluesky/Instagram accounts and
+  `support@govmap.us` are confirmed by the operator and linked
+  (`siteConfig.contactEmail` is set).
+- The side menu ends with About and Support links; "Congress" is now "Map".
+- Bill pages label the summary "(official CRS summary)"; the empty state
+  explains CRS hasn't published one, instead of implying a plain-English
+  rewrite.
+- Follow-up candidate: `services/bill_enrich.enrich_bill` returns early once
+  `enriched_at` is set, so a bill first enriched on view before CRS published
+  its summary may never pick it up (the scheduled `congress_gov_bills` pull
+  does refresh the bills it covers). Address in the data-groundwork phase.
+
 **2026-11-11 — Final foundation closeout (closed 2026-11-12: Go with named follow-ups)**
 The operator approved a finite backup/security/reliability closeout before
 incremental UX, data and features. It started from baseline `c76974b`
@@ -1318,7 +1352,7 @@ Adapted from the original end-to-end plan, reordered to prove the pipeline contr
 - **OPM PLUM and White House scrapers are fragile by nature** (HTML scrapes with no API). They need to fail loudly on structural change, not silently return stale data — flagged in the original plan and still true.
 - **Pipeline status is persisted in Postgres** (the `pipeline_status` table / `PipelineStatusRow`), written by `record_run()` and read by `/internal/pipeline-status`, so it survives restarts and redeploys. This supersedes the old ephemeral `pipeline_status.json` (promoted to a table in schema 0002) — no volume/permission concern remains. A fresh DB simply shows no rows until each source's first run.
 - **2027 rollover: the tracked Congress/session/cycle are time-coupled and must be bumped together in January 2027.** All three are env-overridable (change the deploy `.env` + `docker-compose.yml` defaults, not code): `CONGRESS_NUMBER` 119 → 120, `CONGRESS_SESSION` 2 → 1 (120th's first session = 2027), and `FEC_CYCLE` 2026 → 2028. Defaults live in `backend/app/config.py`; the runtime values are wired in the backend and worker `environment:` blocks of `docker-compose.PaaS.yml` (backend only in the legacy `docker-compose.yml`). Roll all three at once — a mismatch (e.g. new Congress but old cycle) silently pulls the wrong session's bills/votes or the wrong finance cycle. The per-run coverage caps (`CONGRESS_GOV_BILL_LIMIT`, `VOTES_LIMIT`) don't need touching; only these three values. The first members refresh of the new Congress will be withheld by the departure guard (more than 3 members leave); confirm it with `python -m app.pipelines.refresh members --allow-roster-turnover`.
-- **Marketing site has no real social handles or support/donation link.** `frontend/lib/site-config.ts` ships with `socialLinks: []` and `supportUrl: null` on purpose rather than placeholder/fake links — fill them in as real accounts and a donation link exist.
+- **Social handles and support links are live.** `frontend/lib/site-config.ts` lists the operator-confirmed `@govmapus` accounts, `support@govmap.us` and three donation platforms. Only real, owned accounts belong there.
 - **Favicon is a stopgap crop**, not a designed icon mark — see README → *Sites & branding*. Fine for now, worth revisiting once there's a proper icon-only asset.
 - **DNS not yet configured** for the `app.` subdomain split. `frontend/middleware.ts` assumes `app.govmap.us` resolves to the same deployment as `govmap.us` — that DNS record (and matching `cloudflared` routing) needs to exist before the split works in production.
 - **The `/congress` map is a computed seat-chart, not geographic.** `CongressCartogram` draws one dot per member (a hemicycle) because congressional-district geometry can't be generated or downloaded on the static build box. The geographic upgrade — real district polygons — is deferred; when built it must stay self-contained (serve simplified geometry from our own API or a committed asset, **never** per-visitor third-party map tiles/tracking).

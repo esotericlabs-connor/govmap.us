@@ -1,241 +1,65 @@
-import Image from "next/image";
-import type { ReactNode } from "react";
-
-import { BrandIcon } from "@/components/BrandIcon";
-import { GovmapWord } from "@/components/GovmapWord";
-import { SiteFooter } from "@/components/SiteFooter";
+import { CongressExplorer } from "@/components/CongressExplorer";
 import { SiteHeader } from "@/components/SiteHeader";
-import { ThemedSection } from "@/components/ThemedSection";
-import { siteConfig } from "@/lib/site-config";
+import { serverApiBase, type ChamberSummary, type CongressMap } from "@/lib/api";
 
-const BRANCHES = [
-  {
-    name: "Legislative",
-    covers: "535 members of Congress, bills, votes, committees, campaign finance, lobbying.",
-    cadence: "Every 30 min in session, daily otherwise",
-  },
-  {
-    name: "Executive",
-    covers: "President, VP, Cabinet, 15 departments, agency heads, executive orders.",
-    cadence: "Weekly sync + daily Federal Register feed",
-  },
-  {
-    name: "Judicial",
-    covers: "9 SCOTUS justices, 179 circuit judges, 677 district judges, opinions.",
-    cadence: "As opinions are published",
-  },
-];
+// Rendered on demand — the backend isn't reachable during the image build, so
+// prerendering would fetch a dead host.
+export const dynamic = "force-dynamic";
 
-const PRINCIPLES = [
-  "Nonpartisan above all else",
-  "Data only — no editorializing, no spin",
-  "Plain English, no jargon",
-  "Mobile-first & accessible",
-  "Open methodology, publicly documented",
-  "All three branches, equal pillars",
-];
+export const metadata = {
+  description:
+    "Find your representatives and explore every seat in the U.S. House and Senate — from city council to Congress, starting with Congress.",
+};
 
-function CheckIcon() {
+async function getJSON<T>(path: string): Promise<T | null> {
+  try {
+    const res = await fetch(`${serverApiBase()}${path}`, { cache: "no-store" });
+    if (!res.ok) return null;
+    return (await res.json()) as T;
+  } catch {
+    return null;
+  }
+}
+
+function LoadingSkeleton() {
   return (
-    <svg viewBox="0 0 20 20" fill="none" className="h-5 w-5 shrink-0 text-govblue" aria-hidden="true">
-      <path
-        d="M5 10.5L8.5 14L15 6.5"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
+    <section className="bg-slate-warm-50">
+      <div className="mx-auto w-full max-w-6xl px-6 pb-16 pt-24 sm:pt-28">
+        <div className="mb-4 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+          <h1 className="font-display text-2xl font-bold tracking-tight text-govnavy sm:text-3xl">
+            Congress
+          </h1>
+          <p className="text-sm text-slate-warm-500">The map is warming up — one moment.</p>
+        </div>
+        <div className="-mx-6 h-[55vh] min-h-[340px] animate-pulse bg-slate-200 sm:mx-0 sm:h-[560px] sm:rounded-2xl" />
+      </div>
+    </section>
   );
 }
 
-/**
- * Static passthrough — the marketing center sections render with no entrance
- * animation. Keeps the existing <Reveal> call sites unchanged; `delay` is
- * accepted but ignored. (The animated scroll-reveal still lives in
- * components/Reveal.tsx for the detail pages.)
- */
-function Reveal({
-  className,
-  children,
-}: {
-  className?: string;
-  delay?: number;
-  children: ReactNode;
-}) {
-  return <div className={className}>{children}</div>;
-}
+export default async function HomePage() {
+  const [map, summary] = await Promise.all([
+    getJSON<CongressMap>("/api/map"),
+    getJSON<ChamberSummary>("/api/summary"),
+  ]);
 
-export default function MarketingHomePage() {
+  if (!map) {
+    return (
+      <>
+        <SiteHeader />
+        <main>
+          <LoadingSkeleton />
+        </main>
+      </>
+    );
+  }
+
   return (
     <>
-      <SiteHeader variant="marketing" />
-
-      <main className="bg-white">
-        {/* Hero */}
-        <section className="relative isolate overflow-hidden bg-govnavy">
-          <Image
-            src="/capitol-hero.jpg"
-            alt=""
-            fill
-            priority
-            sizes="100vw"
-            className="-z-10 object-cover object-center"
-          />
-
-          <div className="mx-auto w-full max-w-6xl px-6 pb-24 pt-36 sm:pb-32 sm:pt-48">
-            <div className="max-w-3xl">
-              <div className="animate-rise" style={{ animationDelay: "100ms" }}>
-                <h1 className="font-display text-4xl font-bold leading-[1.35] tracking-tight text-govnavy sm:text-6xl lg:text-7xl">
-                  See your{" "}
-                  {/* Solid, square-cornered highlight — like a text-selection block. */}
-                  <span className="highlight-sweep box-decoration-clone px-1.5 text-white [text-shadow:none]">
-                    government
-                  </span>{" "}
-                  <span className="text-govred">with clarity</span>
-                </h1>
-                <p className="mt-6 max-w-xl rounded-2xl bg-white/30 px-5 py-4 text-lg leading-relaxed text-black backdrop-blur-md sm:text-xl">
-                  Govmap.us is a nonpartisan, end-to-end live-synced view of the
-                  entire US federal government — who represents you, how they
-                  vote, who runs the agencies that govern you, where the money
-                  goes, and how a bill becomes law. Real data, always sourced. No
-                  press. No spin.
-                </p>
-              </div>
-            <div
-              className="mt-10 flex flex-wrap items-center gap-4 animate-rise"
-              style={{ animationDelay: "250ms" }}
-            >
-              <a
-                href={siteConfig.appUrl}
-                className="transform rounded-full bg-white px-7 py-3.5 font-semibold text-govnavy shadow-lg shadow-black/10 transition-transform duration-200 hover:-translate-y-0.5 hover:bg-slate-warm-50 active:translate-y-0"
-              >
-                Enter <GovmapWord /> →
-              </a>
-              <a
-                href="#about"
-                className="rounded-full border border-white/30 bg-white/10 px-7 py-3.5 font-semibold text-white shadow-lg shadow-black/10 backdrop-blur-sm transition-all hover:-translate-y-0.5 hover:border-white/50 hover:bg-white/20"
-              >
-                How it works
-              </a>
-            </div>
-          </div>
-          </div>
-        </section>
-
-        {/* Center info — the ONLY part with a light/dark toggle (top-right of
-            this block). The Capitol-backed hero + footer sit outside it. */}
-        <ThemedSection>
-          {/* About */}
-          <section id="about" className="scroll-mt-24 bg-slate-warm-50 dark:bg-govnavy">
-            <div className="mx-auto max-w-6xl px-6 py-24 sm:py-32">
-              <Reveal>
-                <h2 className="font-display text-3xl font-bold text-govnavy dark:text-white sm:text-4xl">
-                  One nonpartisan view of all three branches
-                </h2>
-                <p className="mt-4 max-w-3xl text-lg text-slate-warm-600 dark:text-slate-300">
-                  Most civic tools stop at Congress. GovMap treats the
-                  Legislative, Executive, and Judicial branches as equal pillars
-                  and connects them: a bill&apos;s full journey from introduction,
-                  through signature or veto, to any judicial challenge, in a
-                  single timeline.
-                </p>
-              </Reveal>
-
-              <div className="mt-14 grid gap-6 sm:grid-cols-3">
-                {BRANCHES.map((branch, i) => (
-                  <Reveal key={branch.name} delay={i * 100} className="h-full">
-                    <div className="h-full rounded-2xl border border-slate-warm-200 bg-white p-6 shadow-card transition-shadow duration-300 hover:shadow-card-hover dark:border-white/10 dark:bg-white/5">
-                      <h3 className="font-display text-lg font-bold text-govnavy dark:text-white">{branch.name}</h3>
-                      <p className="mt-2 text-slate-warm-600 dark:text-slate-300">{branch.covers}</p>
-                      <p className="mt-4 text-xs font-semibold uppercase tracking-wider text-govblue">
-                        {branch.cadence}
-                      </p>
-                    </div>
-                  </Reveal>
-                ))}
-              </div>
-
-              <Reveal className="mt-20">
-                <div className="rounded-2xl bg-white p-8 shadow-card dark:border dark:border-white/10 dark:bg-white/5">
-                  <h3 className="font-display text-xl font-bold text-govnavy dark:text-white">
-                    Built on a few rules we don&apos;t bend
-                  </h3>
-                  <ul className="mt-6 grid gap-x-6 gap-y-4 sm:grid-cols-2">
-                    {PRINCIPLES.map((principle) => (
-                      <li key={principle} className="flex items-start gap-3 text-slate-700 dark:text-slate-300">
-                        <CheckIcon />
-                        <span>{principle}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              </Reveal>
-            </div>
-          </section>
-
-          {/* Support */}
-          <section id="support" className="scroll-mt-24 bg-white dark:bg-govnavy">
-            <div className="mx-auto max-w-6xl px-6 py-24 sm:py-32">
-              <Reveal>
-                <h2 className="font-display text-3xl font-bold text-govnavy dark:text-white sm:text-4xl">
-                  Support GovMap
-                </h2>
-                <p className="mt-4 max-w-3xl text-lg text-slate-warm-600 dark:text-slate-300">
-                  GovMap is a nonprofit, nonpartisan civic tool — no advertising,
-                  no political funding. It runs on donations and the time of
-                  people who believe transparent government tooling should exist.
-                  If it&apos;s useful to you, chip in.
-                </p>
-              </Reveal>
-
-              <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {siteConfig.supportLinks.map((link, i) => (
-                  <Reveal key={link.href} delay={i * 80}>
-                    <a
-                      href={link.href}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="group flex items-center gap-4 rounded-xl border border-slate-warm-200 bg-white p-4 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-govblue-400 hover:shadow-card-hover dark:border-white/10 dark:bg-white/5 dark:hover:border-govblue"
-                    >
-                      <BrandIcon
-                        name={link.icon}
-                        className="h-7 w-7 shrink-0 text-slate-400 transition-colors group-hover:text-govblue"
-                      />
-                      <span className="font-medium text-govnavy dark:text-white">{link.label}</span>
-                    </a>
-                  </Reveal>
-                ))}
-              </div>
-
-              <Reveal className="mt-16">
-                <div className="rounded-2xl border border-dashed border-slate-300 p-6 dark:border-white/15 sm:p-8">
-                  <h3 className="font-display text-xl font-bold text-govnavy dark:text-white">
-                    Seeking Fiscal Sponsorship
-                  </h3>
-                  <p className="mt-2 max-w-2xl text-slate-warm-600 dark:text-slate-300">
-                    GovMap is also looking for a fiscal sponsor — a 501(c)(3) or
-                    civic-tech organization that can host a nonpartisan,
-                    open-source government-transparency project. If that&apos;s you
-                    (or someone you know), we&apos;d love to talk.
-                  </p>
-                  <a
-                    href={siteConfig.githubUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="group mt-6 inline-flex items-center gap-1.5 self-start rounded-full bg-govnavy px-5 py-2.5 text-sm font-semibold text-white transition-all duration-200 hover:-translate-y-px hover:bg-govnavy/90 dark:bg-govblue dark:text-govnavy dark:hover:bg-govblue-400"
-                  >
-                    Get in touch on GitHub
-                    <span className="transition-transform group-hover:translate-x-0.5">→</span>
-                  </a>
-                </div>
-              </Reveal>
-            </div>
-          </section>
-        </ThemedSection>
+      <SiteHeader />
+      <main>
+        <CongressExplorer map={map} summary={summary} />
       </main>
-
-      <SiteFooter />
     </>
   );
 }

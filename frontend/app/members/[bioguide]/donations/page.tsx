@@ -123,7 +123,7 @@ export default async function DonationsPage({
 
   return (
     <>
-      <SiteHeader variant="app" />
+      <SiteHeader />
       <main className="bg-slate-warm-50 pb-20 pt-28">
         <div className="mx-auto max-w-4xl px-6">
           <BackLink href={`/members/${bioguide}`}>Back to member</BackLink>

@@ -1,9 +1,8 @@
 import type { Config } from "tailwindcss";
 
 const config: Config = {
-  // Class-based dark mode, scoped: `dark:` utilities only apply under an
-  // element that carries the `dark` class (see components/ThemedSection.tsx),
-  // never globally — the marketing page toggles it for its center sections only.
+  // Class-based dark mode. Nothing toggles the `dark` class today, so `dark:`
+  // utilities are inert; kept so a future theme toggle needs no config change.
   darkMode: "class",
   // Must include components/ — Tailwind only generates classes it finds in
   // these globs, so anything outside them would render completely unstyled.

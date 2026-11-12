@@ -190,7 +190,7 @@ export default async function VoteDetailPage({ params }: { params: Promise<{ vot
   const { voteId } = await params;
   return (
     <>
-      <SiteHeader variant="app" />
+      <SiteHeader />
       <main className="bg-slate-warm-50 pb-20 pt-28">
         <div className="mx-auto max-w-6xl px-6">
           <BackLink href="/votes">All Votes</BackLink>

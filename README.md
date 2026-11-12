@@ -83,17 +83,19 @@ Self-hosting is the current low-cost deployment choice. Application containers a
 
 ## Sites & branding
 
-GovMap serves the marketing site and platform on one host:
+GovMap serves the whole app on one host:
 
-- **govmap.us** — the marketing site (`frontend/app/page.tsx`): what GovMap is, why it exists, and a way in.
-- **govmap.us/congress** — the platform entry point, with members, bills and votes on the same host.
+- **govmap.us** — the app itself: the Congress map at `/` (`frontend/app/page.tsx`), with members, bills and votes alongside. The old `/congress` path permanently redirects to `/`.
+- **govmap.us/about**, **/support**, **/security**, **/privacy** — the project pages: mission and coverage, donations, security and transparency, and privacy.
 - **dev.govmap.us** — the separate test environment, protected by Cloudflare Access and seeded from a production snapshot.
 
 Navigation uses relative paths defined in `frontend/lib/site-config.ts`. Separate `app.govmap.us` and `api.govmap.us` hosts are not part of the current deployment. Browser `/api/*` requests are forwarded by Next.js to the private backend.
 
+The visual signature — the Capitol photo under a navy scrim with white text — lives in `frontend/components/PageBanner.tsx` and is shared by the footer and page banners.
+
 Brand assets live in `frontend/public/` (`logo-dark.png`, `logo-light.png` — full lockups with an opaque background baked in, meant for full-bleed placement, not floating over an arbitrary background color). The favicon (`frontend/app/icon.png`) is a square crop of just the Capitol mark from the dark logo, generated because no standalone icon-only asset existed yet — a proper source mark would give a cleaner result and is a fine thing to swap in later.
 
-**Open:** `siteConfig.socialLinks` and `contactEmail` are intentionally empty — nothing fake is linked until real accounts exist. `supportLinks` holds the six live donation platforms shown on the landing page; the landing page also carries a "seeking a fiscal sponsor" note.
+**Links:** `siteConfig.socialLinks` and `contactEmail` hold the official `@govmapus` accounts and `support@govmap.us`; `supportLinks` holds the three donation platforms (Ko-fi, Buy Me a Coffee, Liberapay) shown on `/support`. Only real, owned accounts are listed.
 
 ## Local development
 
