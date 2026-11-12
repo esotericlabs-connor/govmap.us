@@ -529,17 +529,11 @@ disk space and both service logs. The logical backup log shows its daily
 `Backup completed.`; the pgBackRest log shows archive checks and daily full
 backup completion. The steps below are for shell access.
 
-Find the running backup container's name:
-
-```bash
-sudo docker ps --format '{{.Names}}' --filter name=backup
-```
-
-In the **same Bash session**, enter it (this is not a credential):
-
-```bash
-read -r -p 'Backup container: ' BACKUP_CONTAINER
-```
+First run [the guarded environment selection](#identify-the-environment-first)
+in the same Bash session. It sets `LIVE_PG`, `BACKUP_CONTAINER` and
+`PGBACKREST_CONTAINER` for exactly one verified environment. Do not pick
+containers by name filters instead: `name=backup` also matches `pgbackrest`,
+and every filter matches both environments.
 
 Check the schedule and recent results:
 
@@ -547,12 +541,9 @@ Check the schedule and recent results:
 sudo docker logs --since 48h "$BACKUP_CONTAINER"
 ```
 
-Find the pgBackRest container and inspect its recent archive-check and
-full-backup results:
+Inspect pgBackRest's recent archive-check and full-backup results:
 
 ```bash
-sudo docker ps --format '{{.Names}}' --filter name=pgbackrest
-read -r -p 'pgBackRest container: ' PGBACKREST_CONTAINER
 sudo docker logs --since 48h "$PGBACKREST_CONTAINER"
 sudo docker exec --user 70:70 "$PGBACKREST_CONTAINER" pgbackrest --stanza=govmap info
 ```
@@ -560,8 +551,7 @@ sudo docker exec --user 70:70 "$PGBACKREST_CONTAINER" pgbackrest --stanza=govmap
 Check PostgreSQL's archiver counters and the local repository's free space:
 
 ```bash
-sudo docker ps --format '{{.Names}}' --filter name=postgres
-read -r -p 'PostgreSQL container: ' POSTGRES_CONTAINER
+POSTGRES_CONTAINER="${LIVE_PG:?run the guarded environment selection first}"
 sudo docker exec "$POSTGRES_CONTAINER" psql --no-password -U govmap -d govmap -Atc \
   "SELECT current_setting('archive_mode'), current_setting('archive_timeout'), archived_count, failed_count, last_archived_wal, last_archived_time, last_failed_time FROM pg_stat_archiver"
 ```
@@ -606,9 +596,22 @@ owner. A plain run there fails by design: `BACKUP_TARGET` is `unconfigured`
 and the `backups` folder was never handed to the backup user. Instead, write
 one throwaway bundle to a scratch directory in the container's `/tmp`, with
 the heartbeat blanked so it can't ping another environment's monitor. `/tmp`
-is memory-backed, so check the database size first:
+is memory-backed, so check the database size first.
+
+The guarded environment selection stops here because `BACKUP_TARGET` is
+`unconfigured`. Select the dev backup container by its Compose project ID
+instead. Copy that ID from the dev Coolify resource; this test is for dev
+only:
 
 ```bash
+set -euo pipefail
+read -r -p 'Verified dev Compose project ID: ' DEV_PROJECT
+[[ "$DEV_PROJECT" =~ ^[a-zA-Z0-9_-]+$ ]]
+mapfile -t DEV_BACKUP < <(sudo docker ps -q \
+  --filter "label=com.docker.compose.project=$DEV_PROJECT" \
+  --filter "label=com.docker.compose.service=backup")
+[[ ${#DEV_BACKUP[@]} -eq 1 ]]
+BACKUP_CONTAINER="${DEV_BACKUP[0]}"
 sudo docker exec --user 70:70 "$BACKUP_CONTAINER" \
   psql -h postgres -U govmap -d govmap -Atc "select pg_size_pretty(pg_database_size(current_database()))"
 ```
@@ -630,7 +633,7 @@ unset BACKUP_CONTAINER
 ```
 
 ```bash
-unset PGBACKREST_CONTAINER POSTGRES_CONTAINER PGBACKREST_HOST_DIR
+unset PGBACKREST_CONTAINER POSTGRES_CONTAINER PGBACKREST_HOST_DIR DEV_PROJECT DEV_BACKUP
 ```
 
 Keep `BACKUP_HOST_DIR` set if you will rehearse a restore from the local
