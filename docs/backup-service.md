@@ -205,14 +205,20 @@ access and recovery credentials independently of the server.
 ## Identify the environment first
 
 Use host SSH, not a capability-restricted root terminal inside a container.
-Run these in a dedicated Bash shell. Errors must stop the sequence; do not
-continue with empty variables. Copy the Compose project ID from the intended
-Coolify resource, rather than identifying production as "the one that isn't dev."
+Start a disposable shell with `bash` first, so a failed guard ends only that
+shell and returns you to your login shell. Errors must stop the sequence; do
+not continue with empty variables. Copy the Compose project ID from the
+intended Coolify resource, rather than identifying production as "the one
+that isn't dev."
+
+Fill in the quoted values before pasting. This guide deliberately avoids
+interactive prompts in pasted blocks: a prompt would consume the next pasted
+line as its answer. An empty value fails the checks below.
 
 ```bash
 set -euo pipefail
-read -r -p 'Verified Compose project ID: ' RESOURCE_PROJECT
-read -r -p 'Expected BACKUP_TARGET (dev or production): ' EXPECTED_TARGET
+RESOURCE_PROJECT=''   # Compose project ID from the intended Coolify resource
+EXPECTED_TARGET=''    # dev or production
 [[ "$RESOURCE_PROJECT" =~ ^[a-zA-Z0-9_-]+$ ]]
 [[ "$EXPECTED_TARGET" =~ ^(dev|production)$ ]]
 
@@ -439,16 +445,26 @@ isolated PostgreSQL instance must actually start and reach the requested target.
    sudo mkdir -m 700 -- /srv/govmap-pitr-test
    ```
 
-   In Duplicati, restore the **complete** `pgbackrest` source from one job
-   version into `/srv/govmap-pitr-test/pgbackrest`, not its original location.
-   This must be the repository root containing `backup/` and `archive/`;
-   account for any extra parent directories created by the restore UI.
+   In Duplicati, choose **Restore**, select the job version, select the
+   **complete** `pgbackrest` source, and restore it to a different location:
+   `/srv/govmap-pitr-test`. Never restore over the original location.
+   Duplicati 2.3 places the folder's contents (`backup/` and `archive/`)
+   directly in that directory, as observed in the dev drill. Find where they
+   landed:
+
+   ```bash
+   sudo find /srv/govmap-pitr-test -maxdepth 6 -type d \( -name backup -o -name archive \) -print
+   ```
+
+   If they are nested deeper, set `RESTORED_REPOSITORY` below to the exact
+   directory that directly contains both.
 2. [Prepare a new isolated target](#prepare-a-new-isolated-restore-target).
    Make only the **restored copy** accessible to uid 70; never run these
    permission commands against the live source:
 
    ```bash
-   RESTORED_REPOSITORY=/srv/govmap-pitr-test/pgbackrest
+   RESTORED_REPOSITORY=/srv/govmap-pitr-test
+   [[ "$RESTORED_REPOSITORY" == /srv/govmap-pitr-test || "$RESTORED_REPOSITORY" == /srv/govmap-pitr-test/* ]]
    [[ "$(sudo realpath -e -- "$RESTORED_REPOSITORY")" == "$RESTORED_REPOSITORY" ]]
    sudo test -d "$RESTORED_REPOSITORY/backup"
    sudo test -d "$RESTORED_REPOSITORY/archive"
@@ -460,12 +476,13 @@ isolated PostgreSQL instance must actually start and reach the requested target.
    ```
 
 3. Select a completed full backup **before the target**, with the necessary
-   WAL in this restored repository. Enter its label from `info` and the
-   known UTC target, including its offset:
+   WAL in this restored repository: `info`'s WAL maximum must be past the
+   segment holding the first transaction after the target. Fill in its label
+   from `info` and the known UTC target, including its offset:
 
    ```bash
-   read -r -p 'Full-backup label from info: ' RESTORE_SET
-   read -r -p 'Recovery target timestamp (UTC, including +00): ' RESTORE_TARGET
+   RESTORE_SET=''      # e.g. 20261111-172302F
+   RESTORE_TARGET=''   # e.g. 2026-11-12 01:51:04.748183+00:00
    [[ "$RESTORE_SET" =~ ^[0-9]{8}-[0-9]{6}F$ ]]
    [[ -n "$RESTORE_TARGET" ]]
    sudo docker run --rm "${RESTORE_ARGS[@]}" "${REPOSITORY_ARGS[@]}" \
@@ -484,15 +501,24 @@ isolated PostgreSQL instance must actually start and reach the requested target.
    ```bash
    start_restore_target
    assert_restore_target
-   sudo docker logs --tail 100 "$RESTORE_PG"
+   for _ in $(seq 1 60); do
+     state="$(sudo docker exec --user 70:70 "$RESTORE_PG" psql -h /var/run/postgresql -U govmap -d govmap -Atc 'SELECT pg_is_in_recovery()' 2>/dev/null || true)"
+     [[ "$state" == f ]] && break
+     sleep 5
+   done
+   sudo docker logs "$RESTORE_PG" 2>&1 | grep -E 'recovery stopping|selected new timeline|ready to accept|FATAL|PANIC' || true
    sudo docker exec --user 70:70 "$RESTORE_PG" \
      psql -h /var/run/postgresql -U govmap -d govmap -v ON_ERROR_STOP=1 -Atc \
      "SELECT pg_is_in_recovery(), current_setting('archive_mode'), current_setting('listen_addresses'), pg_last_xact_replay_timestamp();"
    ```
 
-   Wait for startup before querying. Require promotion (`f`), archiving `off`,
-   an empty listen address and the log's correct stopping boundary. A server
-   still recovering, or one that never reached its target, is not a pass.
+   The loop waits up to five minutes for promotion. A single early
+   `FATAL: the database system is starting up` comes from the loop itself and
+   is harmless. Require promotion (`f`), archiving `off`, an empty listen
+   address and the log's correct stopping boundary (`recovery stopping before
+   commit of transaction …` for the first transaction after the target, then
+   `selected new timeline`). A server still recovering, or one that never
+   reached its target, is not a pass.
 5. Query the recovered schema and application data:
 
    ```bash
@@ -509,12 +535,13 @@ isolated PostgreSQL instance must actually start and reach the requested target.
    known restored scratch copy:
 
    ```bash
-   sudo rm -r -- /srv/govmap-pitr-test/pgbackrest
+   sudo rm -r -- "$RESTORED_REPOSITORY/backup" "$RESTORED_REPOSITORY/archive"
    sudo rmdir -- /srv/govmap-pitr-test
    ```
 
-   If Duplicati created different nested paths, inspect and remove those exact
-   paths instead; never use a broad parent-directory deletion to make cleanup work.
+   If the repository was nested, `rmdir` fails; remove only the exact empty
+   parent directories Duplicati created, deepest first. Never use a broad
+   parent-directory deletion to make cleanup work.
 
 If the target predates the earliest retained full backup or required WAL,
 restore to a later point or investigate the repository; do not call the drill
@@ -605,7 +632,7 @@ only:
 
 ```bash
 set -euo pipefail
-read -r -p 'Verified dev Compose project ID: ' DEV_PROJECT
+DEV_PROJECT=''   # Compose project ID copied from the dev Coolify resource
 [[ "$DEV_PROJECT" =~ ^[a-zA-Z0-9_-]+$ ]]
 mapfile -t DEV_BACKUP < <(sudo docker ps -q \
   --filter "label=com.docker.compose.project=$DEV_PROJECT" \
@@ -860,13 +887,20 @@ Record the original dev scheduler setting. Set dev's
 Choose one existing, fully enriched dev bill. Keep its original fields in
    a new private host directory **before any write**. The following temporary
    helper runs inside the idle worker, using its existing database connection.
-   It never fetches from an upstream source or prints credentials:
+   It never fetches from an upstream source or prints credentials. To list
+   candidates (read-only):
 
    ```bash
+   sudo docker exec --user 70:70 "$LIVE_PG" psql -h /var/run/postgresql -U govmap -d govmap -Atc \
+     "SELECT bill_id, left(title, 60) FROM bills WHERE enriched_at IS NOT NULL ORDER BY enriched_at DESC LIMIT 5;"
+   ```
+
+   ```bash
+   BILL_ID=''   # an existing, fully enriched dev bill, e.g. hr9381-119
+   [[ "$BILL_ID" =~ ^[a-z]+[0-9]+-[0-9]+$ ]]
    umask 077
    ROW_TEST_DIR="$HOME/govmap-row-test"
    mkdir -m 700 -- "$ROW_TEST_DIR"
-   read -r -p 'Existing fully enriched dev bill ID: ' BILL_ID
    cat > "$ROW_TEST_DIR/drill.py" <<'PY'
 import asyncio
 import json

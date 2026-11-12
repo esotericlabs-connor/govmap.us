@@ -8,7 +8,8 @@ What's been built, in what order, and what's next. This is a living log — add 
 The operator approved a finite backup/security/reliability closeout before
 incremental UX, data and features. Baseline `c76974b` is aligned on dev/main
 with successful CI; both environments were reported redeployed at that
-revision. The current working changes have not yet passed CI.
+revision. Closeout commits `72a52d7` and `9c986c0` passed CI and are
+deployed in dev (schema `0016`); production is still at the baseline.
 
 - Keep the working `backups` and `pgbackrest` sources and the existing
   external backup product. Independent destination drills are explicitly
@@ -17,7 +18,7 @@ revision. The current working changes have not yet passed CI.
 - The logical bundle now includes allowlisted non-secret deployment
   templates, backup settings, source provenance and the recovery guide under
   its existing checksums. Runtime secrets and other deployment overrides
-  remain in the operator's vault. New image/config tests await CI.
+  remain in the operator's vault. New image/config tests passed CI.
 - The static code review found cached bill text was returned forever, even
   after a bill-detail refresh. The operator approved fixing it in this
   closeout. Migration `0016` adds a nullable cache revision; existing text is
@@ -26,7 +27,8 @@ revision. The current working changes have not yet passed CI.
   from replacing newer text. The response shape and readable-version fallback
   are unchanged; concurrent revision changes use the existing 503 UI state.
   Regression tests cover legacy/stub caches, both detail writers, identity-map
-  refresh, failed upstream calls and concurrent cache writers. They await CI.
+  refresh, failed upstream calls and concurrent cache writers. They passed CI
+  at `72a52d7`; migration `0016` is deployed in dev.
 - Read-only operator checks show schema `0015`, database sizes of 161 MB
   (dev) and 191 MB (production), low observed connection use and about 106 GB
   available on the shared filesystem. This is evidence against an immediate
@@ -37,20 +39,23 @@ revision. The current working changes have not yet passed CI.
   daily logical bundle exists: a root terminal lacking directory access
   initially gave a misleading missing-file result; uid 70 verified it.
 - The operator confirmed immediate failure-alert email delivery. No additional
-  missed-interval drill is required for closeout. Application-row rollback,
-  real reboot/scheduled-operation evidence, final CI and the readiness
+  missed-interval drill is required for closeout. Application-row rollback
+  passed (below). Real reboot/scheduled-operation evidence and the readiness
   decision remain open.
 - A risk-based baseline security review found no high-confidence exploitable
   issue in inspected paths. This is not a blanket security certification.
   A follow-up static security review of the new backup executable/configuration
   changes and revision-aware text cache also found no exploitable issue.
-  Runtime exposure and final CI are still open.
+  A further review of the operator runbook's commands found no data-loss,
+  wrong-environment, secret-exposure or isolation hazard; its one lower-risk
+  note (name-filtered container selection) was fixed in `9c986c0`. CI passed
+  at `72a52d7` and `9c986c0`.
 - The general static reliability review found one more input-validation gap:
   the public bill, vote and member lists accepted a negative `limit`/`offset`
   or an out-of-range integer filter, which PostgreSQL rejects at execution
   time (a 500 instead of a 422). They now share bounded paging (`offset`
   ≤ 1,000,000, `limit` ≥ 1, int-safe `congress`/`session`), as does the
-  donations ledger's offset. ASGI regressions await CI. A worker-shutdown
+  donations ledger's offset. ASGI regressions passed CI. A worker-shutdown
   cancellation releases a source lock before its pull thread exits; staging
   publication is atomic, so this narrow window is an accepted follow-up,
   not a blocker. Frontend data pages handle API failures and have error
@@ -59,8 +64,24 @@ revision. The current working changes have not yet passed CI.
   isolated Docker targets, logical/PITR procedures, guarded A/B row cleanup,
   whole-host recovery responsibilities and a finite reboot/automation check.
   New CI checks parse its Bash and embedded Python without executing server
-  operations. These instructions and the new application-row drill have not
-  yet been exercised on the operator's server.
+  operations. Pasted blocks now use fill-in values instead of interactive
+  prompts, which consumed the next pasted line.
+- **Application-row recovery drill passed in dev (2026-11-12 UTC).** With the
+  scheduler off and the web services stopped, bill `hr9381-119` was set to
+  marker A (committed 01:51:04.746 UTC), a database-clock target
+  `2026-11-12 01:51:04.748183+00:00` was recorded, and marker B was committed
+  at 01:51:06.752. A fresh job-selected Duplicati restore of the complete
+  `pgbackrest` source (WAL through `…076`; destination unidentified) was
+  restored from the pre-test full backup `20261111-172302F` into a new
+  labeled, network-less volume. Recovery stopped before B's commit
+  (transaction 1101), promoted to timeline 2 with archiving off, and the
+  restored bill held exactly A at schema `0016` (539 members, 19,489 bills,
+  283 votes). Guarded cleanup restored the live title and `updated_at`
+  (`AWARE Act`, `2026-11-09 12:24:09.606144+00`) with zero markers left; the
+  target, volume, scratch repository and private drill files were removed.
+  Duplicati 2.3 restored the folder's contents directly into the chosen
+  directory; the runbook now finds the repository root instead of assuming a
+  `pgbackrest` subfolder.
 
 **2026-11-11 — Local pgBackRest PITR with Duplicati off-site**
 Implemented on `dev`; CI is green and services are healthy in dev. In dev,

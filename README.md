@@ -397,8 +397,9 @@ encryption for off-server copies. The configuration is bootstrapped in dev,
 where isolated LSN- and clock-time-targeted restores and a logical-bundle
 restore have succeeded. Their source destinations were not identified.
 Separate destination drills are explicitly deferred, not a feature-readiness
-gate. The finite foundation closeout covers application-row recovery,
-scheduled operation and an operator-approved host reboot.
+gate. An application-row recovery drill (restore to a recorded point between
+two committed changes) passed in dev on 2026-11-12 UTC. The remaining finite
+closeout covers scheduled operation and an operator-approved host reboot.
 
 GovMap prepares the two local backup sources; the deployment operator owns
 external copying, encryption and recovery access. New logical bundles include
@@ -472,8 +473,8 @@ a fresh backup-client connection. Dev uses a separate rotated database password.
 
 **Operational follow-ups:** confirm source status and freshness after backend
 restarts, including the daily jobs; validate pgBackRest archive checks,
-full-backup heartbeats and Duplicati copies; and finish the approved application-row
-and reboot checks. Separate destination restores are deferred. A previous `ok` row
+full-backup heartbeats and Duplicati copies; and finish the approved
+reboot check. Separate destination restores are deferred. A previous `ok` row
 restored from an older database does not verify a job on the new server.
 `partial` is degraded, not an unconditional success.
 

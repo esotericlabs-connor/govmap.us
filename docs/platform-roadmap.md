@@ -634,7 +634,8 @@ an unbounded all-history download without this estimate.
 
 The approved foundation closeout is finite. Keep the two working backup
 sources, add only the agreed non-secret configuration snapshot, and complete
-the remaining application-row/reboot/automation checks. Do not repeat the
+the remaining reboot/automation checks (the application-row drill passed).
+Do not repeat the
 passed logical and PITR drills or require independent destination restores
 before incremental feature work; the operator explicitly deferred those.
 See the current [build log](../CODE-MANIFEST.md) for evidence and remaining
