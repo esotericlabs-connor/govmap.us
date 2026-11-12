@@ -4,12 +4,14 @@ What's been built, in what order, and what's next. This is a living log — add 
 
 ## Build log
 
-**2026-11-11 — Final foundation closeout (in progress)**
+**2026-11-11 — Final foundation closeout (closed 2026-11-12: Go with named follow-ups)**
 The operator approved a finite backup/security/reliability closeout before
-incremental UX, data and features. Baseline `c76974b` is aligned on dev/main
-with successful CI; both environments were reported redeployed at that
-revision. Closeout commits `72a52d7` and `9c986c0` passed CI and are
-deployed in dev (schema `0016`); production is still at the baseline.
+incremental UX, data and features. It started from baseline `c76974b`
+(dev/main aligned, CI green) and ships as `03929f9` (PR #34), which passed CI
+on `main` and `dev`. Production's public `/health` reports `03929f9` for the
+frontend and backend; the backend applies migrations before it serves, so
+production is at schema `0016`. The operator reports dev redeployed at the
+same release.
 
 - Keep the working `backups` and `pgbackrest` sources and the existing
   external backup product. Independent destination drills are explicitly
@@ -34,14 +36,15 @@ deployed in dev (schema `0016`); production is still at the baseline.
   available on the shared filesystem. This is evidence against an immediate
   database replacement, not a prediction of unlimited future capacity.
 - Dev archiving is on with successful archives and no recorded failures.
-  Production archiving was off; its stanza has now been initialized but its
-  first full backup and controlled enablement remain pending. Production's
-  daily logical bundle exists: a root terminal lacking directory access
+  Production's stanza was initialized while its archiving was off. After the
+  `03929f9` release the operator enabled production archiving, and its
+  archive-check and full-backup heartbeats both turned green; each is sent
+  only after a successful run. Production's daily logical bundle exists: a
+  root terminal lacking directory access
   initially gave a misleading missing-file result; uid 70 verified it.
 - The operator confirmed immediate failure-alert email delivery. No additional
-  missed-interval drill is required for closeout. Application-row rollback
-  passed (below). Real reboot/scheduled-operation evidence and the readiness
-  decision remain open.
+  missed-interval drill is required for closeout. Application-row rollback,
+  the reboot and unattended operation passed (below).
 - A risk-based baseline security review found no high-confidence exploitable
   issue in inspected paths. This is not a blanket security certification.
   A follow-up static security review of the new backup executable/configuration
@@ -82,6 +85,58 @@ deployed in dev (schema `0016`); production is still at the baseline.
   Duplicati 2.3 restored the folder's contents directly into the chosen
   directory; the runbook now finds the repository root instead of assuming a
   `pgbackrest` subfolder.
+- **Reboot and unattended operation passed (2026-11-12 UTC).** The operator
+  rebooted the shared host at about 02:33 UTC. Duplicati was enabled, started
+  by itself with its restart-delay drop-in, and later completed a job
+  unattended. Dev's three heartbeat checks are green: the 02:30 logical
+  backup, the 03:30 full backup after the reboot, and the 15-minute archive
+  check. The read-only log and manifest check was not rerun; these
+  success-only heartbeats are the recorded evidence. Each environment now
+  has its own three checks (`govmap-dev-*`, `govmap-prod-*`), as documented
+  in the runbook.
+- **Duplicati UI exposure found during the reboot check.** The host service
+  ran with its UI password on the command line, where local users can read
+  it through `ps` or `systemctl status`, and its UI listened on all
+  interfaces with host-name checking disabled. The service runs as root, so
+  UI access is root-equivalent. The operator rotated the password. The
+  runbook now requires a loopback-only UI reached through an SSH tunnel and a
+  password set once from a root-only file; verifying that end state is
+  follow-up 1.
+- Since the security-reviewed `9c986c0`, only documentation changed
+  (`fe6b856`, `71c6364`).
+
+**Readiness decision: Go with named follow-ups.** Incremental UX, data and
+feature work can start on this foundation. This is not a claim that the
+system is invulnerable or that the database supports unlimited growth.
+
+| Area | Result |
+| --- | --- |
+| Recovery artifacts | Daily logical bundle with a checksummed non-secret config snapshot, plus the pgBackRest repository; secrets stay in the vault |
+| Database recovery | Logical, LSN, clock-time and application-row restores passed in isolated targets; dev was left clean |
+| Automation | Real success-only heartbeats in dev; production archive and full-backup heartbeats green |
+| Reboot | Operator-controlled reboot; Duplicati auto-started and ran a job unattended |
+| Code and security | No high-confidence exploitable issue in reviewed paths (not a certification); confirmed bugs fixed; CI green at `03929f9` |
+| Database suitability | PostgreSQL 16 at about 160-190 MB with about 106 GB free and low connection use; adequate for incremental work, planned per slice |
+| Operator usability | One runbook for setup, monitoring, restore drills and cleanup |
+| Scope boundary | Per-destination Duplicati restores deferred by the operator and not claimed |
+
+Follow-ups (none blocks feature work):
+
+1. Confirm the Duplicati UI listens only on loopback, `--webservice-password`
+   is gone from `DAEMON_OPTS`, and `/etc/default/duplicati` is `root:root 600`.
+   Do this first; a leftover option restores the old password at each start.
+2. Add production's `pgbackrest` folder to its Duplicati job and confirm the
+   next unattended run. Until then, production's point-in-time recovery
+   exists only on this host.
+3. Confirm `govmap-prod-logical-backup` turns green after its first 02:30 UTC
+   run; a never-pinged check cannot alert.
+4. Confirm the dev worker's `SCHEDULER_ENABLED` was restored after the row
+   drill.
+5. Previously accepted: the worker-shutdown lock-release window, deferred
+   per-destination restores and optional Duplicati settings encryption.
+
+Reopen backup engineering only for an infrastructure or persistence change,
+an actual failure or a demonstrated capacity problem.
 
 **2026-11-11 — Local pgBackRest PITR with Duplicati off-site**
 Implemented on `dev`; CI is green and services are healthy in dev. In dev,

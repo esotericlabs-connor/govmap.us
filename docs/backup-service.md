@@ -289,12 +289,23 @@ starts without archiving while the repository is initialized.
    URLs. Set `BACKUP_INTERVAL_MINUTES=1440` (or leave it unset) for the daily
    logical dump. Configure dev and production separately.
 
-The archive-check heartbeat is sent every 15 minutes only after a successful
-`pgbackrest check`; its monitor should have a 15-minute period plus enough
-grace for the check and deployment restart. The full-backup heartbeat is sent
-only after a successful daily full backup; monitor it independently with a
-daily period and runtime grace. The logical-bundle heartbeat is also daily.
-Keep monitor URLs secret and do not ping them manually to simulate success.
+Each environment has three scheduled jobs, so it needs three heartbeat checks
+of its own. Never share a check between dev and production: a healthy dev ping
+would hide a broken production job. Each job pings only after it succeeds.
+Name each check `govmap-<env>-<job>` (for example `govmap-dev-…` and
+`govmap-prod-…`):
+
+| Check | Schedule (UTC) | Grace | Variable |
+| --- | --- | --- | --- |
+| `govmap-<env>-logical-backup` | Cron `30 2 * * *` | 1 hour | `BACKUP_HEARTBEAT_URL` |
+| `govmap-<env>-archive-check` | Every 15 minutes | 10 minutes | `GOVMAP_PGBACKREST_ARCHIVE_HEARTBEAT_URL` |
+| `govmap-<env>-pgbackrest-full` | Cron `30 3 * * *` | 2 hours | `GOVMAP_PGBACKREST_BACKUP_HEARTBEAT_URL` |
+
+Set the cron checks' time zone to UTC and match any changed
+`BACKUP_TIME_UTC` or `GOVMAP_PGBACKREST_TIME_UTC`. A new check stays "new"
+until its first ping and cannot alert before then, so confirm each one turns
+green after its first scheduled run. Keep the URLs secret (crop them from
+screenshots) and do not ping them manually to simulate success.
 
 ## Off-site copies with Duplicati
 
@@ -330,7 +341,9 @@ same two folders.
   `DAEMON_OPTS`: `ps` and `systemctl status` show the command line. To set or
   change the password, add `DUPLICATI__WEBSERVICE_PASSWORD=<new>` to the
   root-only (`600`) `/etc/default/duplicati`, restart once, then delete that
-  line and restart again; Duplicati keeps only a hash. Keeping
+  line and restart again; Duplicati keeps only a hash. Changing the password
+  in the UI alone is not enough: a `--webservice-password` left in
+  `DAEMON_OPTS` sets that old password again at every start. Keeping
   `--webservice-reset-jwt-config=true` in `DAEMON_OPTS` signs out existing
   browser sessions at each start.
 - **Destination confidence**: Duplicati does not document how a failed

@@ -393,13 +393,15 @@ database dump and a local pgBackRest repository for WAL archiving, daily full
 backups and seven-day point-in-time recovery. Duplicati remains the only
 off-site copier: one job sends both `backups` and `pgbackrest` to its first
 destination and copies them to each additional destination. Configure
-encryption for off-server copies. The configuration is bootstrapped in dev,
-where isolated LSN- and clock-time-targeted restores and a logical-bundle
-restore have succeeded. Their source destinations were not identified.
+encryption for off-server copies. The configuration is enabled in dev and,
+since release `03929f9`, in production. Isolated LSN- and clock-time-targeted
+restores and a logical-bundle restore have succeeded in dev. Their source
+destinations were not identified.
 Separate destination drills are explicitly deferred, not a feature-readiness
 gate. An application-row recovery drill (restore to a recorded point between
-two committed changes) passed in dev on 2026-11-12 UTC. The remaining finite
-closeout covers scheduled operation and an operator-approved host reboot.
+two committed changes) passed in dev on 2026-11-12 UTC, followed by an
+operator-controlled host reboot and unattended scheduled operation. The
+foundation closeout is complete with named follow-ups.
 
 GovMap prepares the two local backup sources; the deployment operator owns
 external copying, encryption and recovery access. New logical bundles include
@@ -472,9 +474,10 @@ together, followed by successful TCP authentication, application checks and
 a fresh backup-client connection. Dev uses a separate rotated database password.
 
 **Operational follow-ups:** confirm source status and freshness after backend
-restarts, including the daily jobs; validate pgBackRest archive checks,
-full-backup heartbeats and Duplicati copies; and finish the approved
-reboot check. Separate destination restores are deferred. A previous `ok` row
+restarts, including the daily jobs, and finish the named closeout follow-ups
+in [CODE-MANIFEST.md](CODE-MANIFEST.md): Duplicati UI lockdown, production's
+`pgbackrest` folder in Duplicati, and the first production logical-backup
+heartbeat. Separate destination restores are deferred. A previous `ok` row
 restored from an older database does not verify a job on the new server.
 `partial` is degraded, not an unconditional success.
 

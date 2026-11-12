@@ -632,9 +632,10 @@ attachment size, indexes, request budget, full backfill duration, recurring
 storage growth, backup duration and measured restore time. Do not authorize
 an unbounded all-history download without this estimate.
 
-The approved foundation closeout is finite. Keep the two working backup
-sources, add only the agreed non-secret configuration snapshot, and complete
-the remaining reboot/automation checks (the application-row drill passed).
+The approved foundation closeout is complete (Go with named follow-ups,
+2026-11-12). It kept the two working backup sources, added only the agreed
+non-secret configuration snapshot, and passed the application-row drill,
+host reboot and unattended scheduled operation.
 Do not repeat the
 passed logical and PITR drills or require independent destination restores
 before incremental feature work; the operator explicitly deferred those.
