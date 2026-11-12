@@ -156,7 +156,7 @@ jobs:
         run: |
           docker build --build-arg SOURCE_COMMIT="$GITHUB_SHA" -t govmap-backend:ci backend
           docker build --build-arg SOURCE_COMMIT="$GITHUB_SHA" -t govmap-frontend:ci frontend
-          docker build -t govmap-backup:ci backup
+          docker build --build-arg SOURCE_COMMIT="$GITHUB_SHA" -f backup/Dockerfile -t govmap-backup:ci .
           docker build -t govmap-postgres:ci database
       - name: Runtime images carry no package managers
         run: |
@@ -164,6 +164,7 @@ jobs:
           docker run --rm --entrypoint sh govmap-frontend:ci -c '! command -v npm && ! command -v npx && ! command -v yarn && ! command -v corepack'
           docker run --rm --entrypoint pgbackrest govmap-backup:ci --version
           docker run --rm --entrypoint pg_controldata govmap-backup:ci --version
+          docker run --rm --entrypoint cat govmap-backup:ci /usr/local/share/govmap-recovery/source-commit.txt | grep -Fx "$GITHUB_SHA"
           docker run --rm --entrypoint pgbackrest govmap-postgres:ci --version
       - name: Database image keeps the official PostgreSQL 16 as its only server
         run: |

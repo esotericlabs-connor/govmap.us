@@ -9,10 +9,11 @@ Create one GovMap recovery bundle from inside the Compose "backup" service:
   $BACKUP_DIR/govmap-backup.tar.gz   (BACKUP_DIR defaults to /backups)
 
 The bundle contains a consistent PostgreSQL custom-format dump (checked with
-pg_restore --list), the backend log files, a manifest, checksums and restore
-notes. Deployment configuration and secrets are NOT included; keep them in the
-operator's vault. The previous bundle is replaced only after the new one is
-complete and verified; any failure leaves it untouched. The bundle is NOT
+pg_restore --list), backend logs, non-secret deployment templates and backup
+settings, a manifest, checksums and restore notes. Actual secrets and other
+deployment overrides stay in the operator's vault. The previous bundle is
+replaced only after the new one is complete and verified; any failure leaves
+it untouched. The bundle is NOT
 encrypted: keep the host directory private and encrypt off-site copies.
 
 The destination fails closed. BACKUP_TARGET must name the environment (for
@@ -26,6 +27,8 @@ Environment:
   PGHOST/PGPORT/PGUSER/PGDATABASE   default postgres/5432/govmap/govmap
   BACKUP_DIR            default /backups
   BACKUP_LOG_DIR        default /logs (read-only mount of the backend logs)
+  BACKUP_CONFIG_DIR     default /usr/local/share/govmap-recovery (baked-in
+                        non-secret recovery files; normally leave unchanged)
   BACKUP_HEARTBEAT_URL  optional https URL requested after each published
                         bundle; passed to curl on stdin, never on the
                         command line
@@ -56,6 +59,7 @@ esac
 target="${BACKUP_TARGET:-}"
 destination="${BACKUP_DIR:-/backups}"
 log_dir="${BACKUP_LOG_DIR:-/logs}"
+config_dir="${BACKUP_CONFIG_DIR:-/usr/local/share/govmap-recovery}"
 heartbeat_url="${BACKUP_HEARTBEAT_URL:-}"
 export PGHOST="${PGHOST:-postgres}"
 export PGPORT="${PGPORT:-5432}"
@@ -75,6 +79,32 @@ if ((8#$destination_mode & 8#077)); then
 fi
 [[ -d "$log_dir" && -r "$log_dir" && -x "$log_dir" ]] || die "The log directory $log_dir is not readable."
 
+config_files=(docker-compose.PaaS.yml pgbackrest.conf database.Dockerfile backup.Dockerfile backup-service.md source-commit.txt)
+[[ -d "$config_dir" && ! -L "$config_dir" ]] || die "The recovery configuration directory must be a real directory."
+for file in "${config_files[@]}"; do
+  [[ -f "$config_dir/$file" && ! -L "$config_dir/$file" && -s "$config_dir/$file" && -r "$config_dir/$file" ]] \
+    || die "Required recovery configuration file is missing, empty, unreadable or a symlink: $file"
+done
+source_commit="$(< "$config_dir/source-commit.txt")"
+[[ "$source_commit" =~ ^(unknown|[a-f0-9]{40})$ ]] || die "Invalid recovery configuration source commit."
+if [[ "$source_commit" == "unknown" ]]; then
+  printf 'WARNING: Backup image source commit is unknown; configuration provenance is not verified.\n' >&2
+fi
+
+logical_enabled="${BACKUP_ENABLED:-false}"
+logical_time="${BACKUP_TIME_UTC:-02:30}"
+logical_interval="${BACKUP_INTERVAL_MINUTES:-1440}"
+pitr_enabled="${GOVMAP_PGBACKREST_ENABLED:-false}"
+pitr_time="${GOVMAP_PGBACKREST_TIME_UTC:-03:30}"
+[[ "$logical_enabled" =~ ^(true|false)$ && "$pitr_enabled" =~ ^(true|false)$ ]] \
+  || die "Backup enablement settings must be true or false."
+[[ "$logical_time" =~ ^([01][0-9]|2[0-3]):[0-5][0-9]$ && "$pitr_time" =~ ^([01][0-9]|2[0-3]):[0-5][0-9]$ ]] \
+  || die "Backup schedule times must be HH:MM in 24-hour UTC."
+if [[ ! "$logical_interval" =~ ^[1-9][0-9]{0,3}$ ]] \
+  || ((logical_interval < 5 || logical_interval > 1440 || 1440 % logical_interval != 0)); then
+  die "BACKUP_INTERVAL_MINUTES must be 5-1440 and divide 1440 evenly."
+fi
+
 if [[ -n "$heartbeat_url" ]]; then
   heartbeat_pattern='^https://[^[:space:]"\]+$'
   [[ "$heartbeat_url" =~ $heartbeat_pattern ]] \
@@ -82,7 +112,7 @@ if [[ -n "$heartbeat_url" ]]; then
   require_command curl
 fi
 
-for command in pg_isready pg_dump pg_restore psql flock tar gzip sha256sum stat mktemp; do
+for command in pg_isready pg_dump pg_restore psql flock tar gzip sha256sum stat mktemp cp; do
   require_command "$command"
 done
 
@@ -114,6 +144,19 @@ workdir="$(mktemp -d "$destination/.govmap-backup-work-XXXXXXXXXX")" \
   || die "Could not create a private scratch directory."
 bundle="$workdir/govmap-backup"
 mkdir -- "$bundle"
+mkdir -- "$bundle/deployment-config"
+for file in "${config_files[@]}"; do
+  cp -- "$config_dir/$file" "$bundle/deployment-config/$file" \
+    || die "Could not copy required recovery configuration: $file"
+done
+{
+  printf 'BACKUP_TARGET=%s\n' "$target"
+  printf 'BACKUP_ENABLED=%s\n' "$logical_enabled"
+  printf 'BACKUP_TIME_UTC=%s\n' "$logical_time"
+  printf 'BACKUP_INTERVAL_MINUTES=%s\n' "$logical_interval"
+  printf 'GOVMAP_PGBACKREST_ENABLED=%s\n' "$pitr_enabled"
+  printf 'GOVMAP_PGBACKREST_TIME_UTC=%s\n' "$pitr_time"
+} > "$bundle/deployment-config/backup-settings.env"
 
 pg_isready --quiet --timeout=30 || die "PostgreSQL is not ready."
 pg_dump --no-password --format=custom --lock-wait-timeout=30s > "$bundle/database.dump" \
@@ -140,7 +183,10 @@ tar --ignore-failed-read -C "$log_dir" -cf "$bundle/logs.tar" . \
   printf 'postgres_server_version=%s\n' "$server_version"
   printf 'pg_dump_version=%s\n' "$dump_version"
   printf 'alembic_revision=%s\n' "$revision"
-  printf 'deployment_config=%s\n' "not included (kept in the operator's vault)"
+  printf 'deployment_config=%s\n' "included (non-secret templates and backup settings only)"
+  printf 'deployment_config_version=1\n'
+  printf 'source_commit=%s\n' "$source_commit"
+  printf 'secrets=%s\n' "not included (kept in the operator's vault)"
 } > "$bundle/MANIFEST.txt"
 
 cat > "$bundle/RESTORE.txt" <<'EOF'
@@ -150,15 +196,28 @@ GovMap recovery bundle (container backup service)
   logs.tar       backend application and bug-report logs (/app/logs)
   MANIFEST.txt   creation time, environment, versions and schema revision
   SHA256SUMS     verify with: sha256sum -c SHA256SUMS
+  deployment-config/  non-secret templates, backup settings and recovery guide
 
-Deployment configuration and secrets are not in this bundle; recover them
-from the operator's vault.
+deployment-config/source-commit.txt identifies the backup image's source.
+The Compose template is unrendered, not an export of the running deployment.
+backup-settings.env records only the backup service's switches and schedules.
+Recover the matching application source and any other deployment overrides
+from Git and the operator's vault; do not assume template defaults were used.
+
+Secrets are not included: POSTGRES_PASSWORD, CLOUDFLARE_TUNNEL_TOKEN, source
+API credentials, INTERNAL_USER/INTERNAL_PASSWORD, TURNSTILE_SECRET_KEY,
+ALERT_WEBHOOK_URL and the three backup heartbeat URLs must come from the vault.
+The external backup encryption passphrase must be recoverable separately too.
 
 Restore the database only into a NEW, EMPTY database on an isolated host,
 never over a running production database:
 
   createdb govmap_restore
   pg_restore --no-owner --no-privileges --exit-on-error -d govmap_restore database.dump
+
+For isolated Docker recovery, PITR, verification and cutover, follow
+deployment-config/backup-service.md. Keep ingestion and upstream-dependent
+traffic disabled until the documented request-budget recovery rules are met.
 EOF
 
 (cd -- "$bundle" && find . -type f ! -name SHA256SUMS -print0 | sort -z \

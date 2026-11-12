@@ -8,8 +8,8 @@ bundle (detail + actions + cosponsors + summaries + text) and upserts it, so any
 bill a visitor opens becomes rich instantly and stays cached (`enriched_at`).
 `get_bill_text` fetches the latest GPO/govinfo "Formatted Text" version and
 reduces it to indentation-preserving plain text for in-platform rendering
-(cached in `bill_text`). A rolling backfill (pipelines/refresh.py) fills the
-long tail over time.
+(cached in `bill_text` until the next bill-detail refresh). A rolling backfill
+(pipelines/refresh.py) fills the long tail over time.
 
 Reuses the pull/normalize helpers so there's one source of truth for the shape
 of an enriched bill. Fail-soft: without a Congress.gov key, or on any fetch
@@ -67,6 +67,10 @@ _TEXT_HOSTS = frozenset({"www.congress.gov", "congress.gov", "www.govinfo.gov", 
 _TEXT_MAX_BYTES = 16 * 1024 * 1024  # raw HTML; the largest enrolled bills are a few MB
 _TEXT_DEADLINE_SECONDS = 120
 _TEXT_MAX_REDIRECTS = 3
+
+
+class BillTextChangedError(RuntimeError):
+    """The bill changed during a text fetch; retry against its new revision."""
 
 
 def _parse_bill_id(bill_id: str) -> tuple[int, str, int] | None:
@@ -240,15 +244,17 @@ def _text_payload(t: BillText) -> dict:
 
 async def get_bill_text(db: AsyncSession, bill_id: str) -> dict | None:
     """The bill's full legislative text as plain text for in-app rendering,
-    cached in `bill_text`. Fetches the latest 'Formatted Text' version on first
-    request. Returns None for an unknown bill or one with no readable text
-    version (only a PDF, or not yet published)."""
-    cached = await db.get(BillText, bill_id)
-    if cached is not None:
+    cached until its bill-detail revision changes. Fetches the latest readable
+    'Formatted Text' version on a cache miss. Returns None for an unknown bill
+    or unavailable text; a concurrent detail change raises BillTextChangedError."""
+    bill = await db.get(Bill, bill_id, populate_existing=True)
+    if bill is None:
+        return None
+    revision = bill.enriched_at or bill.updated_at
+    cached = await db.get(BillText, bill_id, populate_existing=True)
+    if cached is not None and cached.bill_revision_at == revision:
         return _text_payload(cached)
-
-    bill = await db.get(Bill, bill_id)
-    if bill is None or not settings.congress_gov_api_key:
+    if not settings.congress_gov_api_key:
         return None
     parsed = _parse_bill_id(bill_id)
     if parsed is None:
@@ -282,20 +288,52 @@ async def get_bill_text(db: AsyncSession, bill_id: str) -> dict | None:
     if truncated:
         plain = plain[:_TEXT_CAP]
 
-    await db.execute(
-        pg_insert(BillText)
-        .values(
-            bill_id=bill_id,
-            text_version=version,
-            source_url=url,
-            plain=plain,
-            truncated=truncated,
+    # Lock only after HTTP work. A detail upsert cannot race the revision check
+    # and cache write, and an old in-flight fetch cannot replace newer text.
+    current = (
+        await db.execute(
+            select(Bill.enriched_at, Bill.updated_at)
+            .where(Bill.bill_id == bill_id)
+            .with_for_update()
         )
-        .on_conflict_do_nothing(index_elements=[BillText.bill_id])
+    ).one_or_none()
+    if current is None or (current.enriched_at or current.updated_at) != revision:
+        await db.rollback()
+        logger.info("bill_enrich: bill changed during text fetch for %s; retry required", bill_id)
+        raise BillTextChangedError(bill_id)
+
+    stmt = pg_insert(BillText).values(
+        bill_id=bill_id,
+        text_version=version,
+        source_url=url,
+        plain=plain,
+        truncated=truncated,
+        bill_revision_at=revision,
     )
+    await db.execute(
+        stmt.on_conflict_do_update(
+            index_elements=[BillText.bill_id],
+            set_={
+                **{
+                    name: getattr(stmt.excluded, name)
+                    for name in (
+                        "text_version", "source_url", "plain", "truncated", "bill_revision_at"
+                    )
+                },
+                "fetched_at": func.now(),
+            },
+            where=BillText.bill_revision_at.is_distinct_from(revision),
+        )
+    )
+    # A stale cache can already be in this session's non-expiring identity map.
+    row = await db.get(BillText, bill_id, populate_existing=True)
+    if row is None:
+        await db.rollback()
+        logger.error("bill_enrich: cached text missing after write for %s", bill_id)
+        raise RuntimeError("cached bill text missing after write")
+    payload = _text_payload(row)
     await db.commit()
-    row = await db.get(BillText, bill_id)
-    return _text_payload(row) if row else None
+    return payload
 
 
 async def backfill_unenriched(limit: int) -> BatchResult:

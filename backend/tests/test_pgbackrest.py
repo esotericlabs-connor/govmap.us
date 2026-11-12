@@ -288,7 +288,39 @@ def test_both_images_bake_the_same_pgbackrest_configuration() -> None:
     assert database == backup
     for image in ("backup", "database"):
         dockerfile = (_REPO / image / "Dockerfile").read_text(encoding="utf-8")
-        assert "COPY pgbackrest.conf /etc/pgbackrest/pgbackrest.conf" in dockerfile, image
+        source = "backup/pgbackrest.conf" if image == "backup" else "pgbackrest.conf"
+        assert f"COPY {source} /etc/pgbackrest/pgbackrest.conf" in dockerfile, image
+
+
+def test_backup_build_context_excludes_everything_outside_recovery_allowlist() -> None:
+    compose = yaml.safe_load((_REPO / "docker-compose.PaaS.yml").read_text(encoding="utf-8"))
+    for name in ("backup", "pgbackrest"):
+        build = compose["services"][name]["build"]
+        assert build["context"] == "."
+        assert build["dockerfile"] == "backup/Dockerfile"
+        assert build["args"]["SOURCE_COMMIT"] == "${SOURCE_COMMIT:-unknown}"
+    ignore = (_REPO / "backup" / "Dockerfile.dockerignore").read_text(encoding="utf-8").splitlines()
+    assert ignore == [
+        "**",
+        "!backup/",
+        "backup/**",
+        "!backup/Dockerfile",
+        "!backup/Dockerfile.dockerignore",
+        "!backup/entrypoint.sh",
+        "!backup/run.sh",
+        "!backup/backup.sh",
+        "!backup/pgbackrest-run.sh",
+        "!backup/pgbackrest.conf",
+        "!database/",
+        "database/**",
+        "!database/Dockerfile",
+        "!docs/",
+        "docs/**",
+        "!docs/backup-service.md",
+        "!docker-compose.PaaS.yml",
+    ]
+    workflow = (_REPO / ".github" / "workflows" / "lint.yml").read_text(encoding="utf-8")
+    assert 'docker build --build-arg SOURCE_COMMIT="$GITHUB_SHA" -f backup/Dockerfile -t govmap-backup:ci .' in workflow
 
 
 def test_paas_compose_never_bind_mounts_a_repository_file() -> None:

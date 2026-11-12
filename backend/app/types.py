@@ -26,3 +26,7 @@ BioguideId = Annotated[
 BillId = Annotated[str, Path(min_length=1, max_length=40, pattern=r"^[A-Za-z0-9-]+$")]
 VoteId = Annotated[str, Path(min_length=1, max_length=40, pattern=r"^[A-Za-z0-9-]+$")]
 CommitteeId = Annotated[str, Path(min_length=1, max_length=40, pattern=r"^[A-Za-z0-9-]+$")]
+
+# Upper bound for list-endpoint `offset`: far beyond any real table here, but
+# keeps the value inside PostgreSQL's BIGINT and avoids arbitrarily deep scans.
+MAX_LIST_OFFSET = 1_000_000

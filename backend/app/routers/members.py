@@ -12,7 +12,7 @@ from app.models.finance import MemberFinance
 from app.models.member import Member
 from app.models.vote import Vote, VotePosition
 from app.schemas.member import MemberOut
-from app.types import BioguideId, Chamber
+from app.types import MAX_LIST_OFFSET, BioguideId, Chamber
 
 router = APIRouter(prefix="/api/members", tags=["members"])
 
@@ -27,8 +27,8 @@ async def list_members(
     # the full roster is returnable in one request without silently dropping
     # records (the House delegates + PR resident commissioner push the real
     # count past 535).
-    limit: int = Query(default=100, le=600),
-    offset: int = 0,
+    limit: int = Query(default=100, ge=1, le=600),
+    offset: int = Query(default=0, ge=0, le=MAX_LIST_OFFSET),
 ) -> list[Member]:
     stmt = (
         select(Member)

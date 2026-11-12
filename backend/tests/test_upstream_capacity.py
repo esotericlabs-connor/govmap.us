@@ -2,6 +2,7 @@ import asyncio
 import json
 import threading
 from collections.abc import Callable, Iterator
+from datetime import UTC, datetime
 from types import ModuleType, SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
@@ -173,7 +174,12 @@ def test_text_and_referral_services_preserve_capacity_errors(
     monkeypatch.setattr(bill_enrich, "run_upstream", fetch)
     monkeypatch.setattr(committees, "run_upstream", fetch)
     bill_db = SimpleNamespace(
-        get=AsyncMock(side_effect=[None, SimpleNamespace(bill_id="hr1-119")]),
+        get=AsyncMock(
+            side_effect=[
+                SimpleNamespace(enriched_at=None, updated_at=datetime(2025, 1, 3, tzinfo=UTC)),
+                None,
+            ]
+        ),
         commit=AsyncMock(),
     )
     committee_db = SimpleNamespace(

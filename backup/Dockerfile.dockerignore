@@ -1,0 +1,17 @@
+**
+!backup/
+backup/**
+!backup/Dockerfile
+!backup/Dockerfile.dockerignore
+!backup/entrypoint.sh
+!backup/run.sh
+!backup/backup.sh
+!backup/pgbackrest-run.sh
+!backup/pgbackrest.conf
+!database/
+database/**
+!database/Dockerfile
+!docs/
+docs/**
+!docs/backup-service.md
+!docker-compose.PaaS.yml

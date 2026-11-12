@@ -79,6 +79,11 @@ class BillText(Base):
     fetched_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+    # Detail refreshes invalidate cached text without deleting the last copy.
+    # NULL identifies a cache written before revision tracking was introduced.
+    bill_revision_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
 
 class BillAction(Base):

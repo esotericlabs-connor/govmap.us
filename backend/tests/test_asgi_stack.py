@@ -363,6 +363,44 @@ def test_source_runs_rejects_invalid_filters_before_querying(
     assert run_store.statements == []
 
 
+@pytest.mark.parametrize(
+    ("path", "query"),
+    [
+        ("/api/bills", "offset=-1"),
+        ("/api/bills", "offset=1000001"),
+        ("/api/bills", "offset=9223372036854775808"),
+        ("/api/bills", "limit=0"),
+        ("/api/bills", "limit=-1"),
+        ("/api/bills", "congress=-1"),
+        ("/api/bills", "congress=2147483648"),
+        ("/api/votes", "offset=-1"),
+        ("/api/votes", "limit=0"),
+        ("/api/votes", "session=2147483648"),
+        ("/api/members", "offset=-1"),
+        ("/api/members", "limit=-1"),
+        ("/api/members/A000360/donations", "offset=1000001"),
+    ],
+)
+def test_public_lists_reject_out_of_range_paging_before_querying(
+    run_store: _FakeRunStore, path: str, query: str
+) -> None:
+    # PostgreSQL rejects negative LIMIT/OFFSET and out-of-range integers at
+    # execution time; these must be a 422 here rather than a database 500.
+    status, _, payload = asyncio.run(_call(main.app, "GET", path, query=query))
+    assert status == 422
+    assert json.loads(payload)["detail"]
+    assert run_store.statements == []
+
+
+def test_public_list_accepts_paging_bounds(run_store: _FakeRunStore) -> None:
+    status, _, payload = asyncio.run(
+        _call(main.app, "GET", "/api/bills", query="offset=1000000&limit=1&congress=0")
+    )
+    assert status == 200
+    assert json.loads(payload) == []
+    assert len(run_store.statements) == 1
+
+
 def test_source_runs_returns_filtered_history_newest_first(run_store: _FakeRunStore) -> None:
     run_store.rows.append(
         SourceRun(
