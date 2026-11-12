@@ -10,6 +10,7 @@ import { BugReport } from "@/components/BugReport";
 import { HomeZipChip } from "@/components/HomeZipChip";
 import { UniversalSearch } from "@/components/UniversalSearch";
 import { siteConfig } from "@/lib/site-config";
+import { useScrollLock } from "@/lib/use-scroll-lock";
 
 type NavItem = { label: string; href: string };
 
@@ -78,14 +79,12 @@ export function SiteHeader() {
   const pathname = usePathname();
   const [menuOpen, setMenuOpen] = useState(false);
   const close = () => setMenuOpen(false);
+  useScrollLock(menuOpen);
 
   useEffect(() => {
-    if (menuOpen) document.body.style.overflow = "hidden";
-    else document.body.style.overflow = "";
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && setMenuOpen(false);
     window.addEventListener("keydown", onKey);
     return () => {
-      document.body.style.overflow = "";
       window.removeEventListener("keydown", onKey);
     };
   }, [menuOpen]);
@@ -149,6 +148,7 @@ export function SiteHeader() {
                 menuOpen ? "translate-x-0" : "translate-x-full"
               }`}
               aria-hidden={!menuOpen}
+              inert={!menuOpen}
             >
               <div className="flex items-center justify-between px-6 py-3.5">
                 <span className="text-sm font-semibold uppercase tracking-wider text-white/50">

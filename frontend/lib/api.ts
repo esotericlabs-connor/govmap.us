@@ -403,9 +403,9 @@ export async function fetchMemberCard(
 /** Client-side fetch of the full member profile, for the slide-in blade. Same
  *  shape the SSR profile page uses; fail-soft (null) so the blade can show a
  *  graceful error with a link out to the full page. */
-export async function fetchMemberDetail(bioguide: string): Promise<MemberDetail | null> {
+export async function fetchMemberDetail(bioguide: string, signal?: AbortSignal): Promise<MemberDetail | null> {
   try {
-    const res = await fetch(`${publicApiBase}/api/members/${encodeURIComponent(bioguide)}`);
+    const res = await fetch(`${publicApiBase}/api/members/${encodeURIComponent(bioguide)}`, { signal });
     if (!res.ok) return null;
     return (await res.json()) as MemberDetail;
   } catch {
@@ -416,10 +416,11 @@ export async function fetchMemberDetail(bioguide: string): Promise<MemberDetail 
 /** Client-side fetch of the election cycles a member's itemized donations can be
  *  browsed for (newest first), for the ledger's cycle picker. Fail-soft: [] on
  *  ordinary errors, which hides the picker; capacity errors remain explicit. */
-export async function fetchDonationCycles(bioguide: string): Promise<number[]> {
+export async function fetchDonationCycles(bioguide: string, signal?: AbortSignal): Promise<number[]> {
   try {
     const res = await fetch(
       `${publicApiBase}/api/members/${encodeURIComponent(bioguide)}/donations/cycles`,
+      { signal },
     );
     if (res.status === 503) throw new HttpError(res.status);
     if (!res.ok) return [];

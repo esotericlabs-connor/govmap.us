@@ -3,6 +3,7 @@ import { Inter, Space_Grotesk } from "next/font/google";
 import "./globals.css";
 
 import { MemberBlade } from "@/components/MemberBlade";
+import { MapWorkspaceProvider } from "@/lib/map-workspace";
 import { MemberBladeProvider } from "@/lib/member-blade";
 import { ZipProvider } from "@/lib/zip-context";
 
@@ -60,10 +61,12 @@ export default function RootLayout({
     >
       {/* Base background/text colors are now in globals.css */}
       <body>
-        <MemberBladeProvider>
-          <ZipProvider>{children}</ZipProvider>
-          <MemberBlade />
-        </MemberBladeProvider>
+        <MapWorkspaceProvider>
+          <MemberBladeProvider>
+            <ZipProvider>{children}</ZipProvider>
+            <MemberBlade />
+          </MemberBladeProvider>
+        </MapWorkspaceProvider>
       </body>
     </html>
   );

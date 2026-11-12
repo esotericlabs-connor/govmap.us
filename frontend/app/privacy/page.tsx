@@ -10,7 +10,7 @@ export const metadata = {
 
 export default function PrivacyPage() {
   return (
-    <LegalLayout title="Privacy Policy" updated="July 22, 2026">
+    <LegalLayout title="Privacy Policy" updated="November 12, 2026">
       <p>
         GovMap.us is a nonprofit, nonpartisan civic tool. We built it to make
         public government data easier to understand — not to collect data about
@@ -39,6 +39,21 @@ export default function PrivacyPage() {
       <p>
         GovMap sets no non-essential or advertising cookies. If that ever
         changes, we will describe it here first.
+      </p>
+
+      <h2>Saved views on your device</h2>
+      <p>
+        Your home ZIP and last map view are saved in your browser&apos;s local
+        storage. The map view contains its position, zoom, House or Senate
+        selection, and selected district or state, so returning does not lose
+        your place. This view state is not sent to our servers. Your ZIP is sent
+        to our district-lookup service when you set or restore your home area.
+      </p>
+      <p>
+        Reset on the map replaces the saved map view with the national House
+        view; it does not clear your home ZIP. Clear your home area separately,
+        or clear this site&apos;s browser storage to remove both. Navigation
+        history also remembers member views and scroll positions within a tab.
       </p>
 
       <h2>Links to other services</h2>

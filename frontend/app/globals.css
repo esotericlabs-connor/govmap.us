@@ -39,6 +39,21 @@
   transform: none;
 }
 
+@keyframes member-enter {
+  from {
+    opacity: 0;
+    transform: translateX(1rem);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.member-dialog[open] {
+  animation: member-enter 0.18s ease-out;
+}
+
 /* Hero: the blue block wipes in over "government" from left to right, easing in
    (slow start, quick finish). Runs once on load; `forwards` holds it filled.
    Uses background-size on a solid gradient so only the fill width animates — the

@@ -12,115 +12,202 @@ import {
   type ReactNode,
 } from "react";
 
-/**
- * App-wide "which member is open in the slide-in blade." Every member link on
- * the site opens the blade instead of navigating, and the state is mirrored to
- * a `?member=<bioguide>` URL param so the blade is shareable and the browser
- * Back button closes it.
- *
- * The URL is driven with the History API — NOT `router.push` — on purpose:
- * `router.push` re-runs the current route's server components (e.g. a full
- * `/api/map` refetch under the map), which would reload/flash the page beneath
- * the blade. Native `pushState`/`replaceState` leaves the underlying page
- * completely untouched; we reconcile our own state from `popstate`.
- */
-
-const PARAM = "member";
+import {
+  memberEntry,
+  memberHref,
+  memberLocation,
+  withMemberEntry,
+  type MemberEntry,
+  type MemberLocation,
+} from "@/lib/workspace-state";
 
 type MemberBladeValue = {
   openId: string | null;
+  entry: MemberEntry | null;
   open: (bioguide: string) => void;
   close: () => void;
+  back: () => void;
+  showDonations: () => void;
+  toggleExpanded: () => void;
+  saveScroll: (top: number) => void;
+  notice: string | null;
+  dismissNotice: () => void;
 };
 
 const MemberBladeContext = createContext<MemberBladeValue | null>(null);
 
-function readParam(): string | null {
-  if (typeof window === "undefined") return null;
-  return new URLSearchParams(window.location.search).get(PARAM);
-}
-
-// Current path + query with the member param set/cleared, preserving everything
-// else (other params, hash).
-function urlWith(id: string | null): string {
-  const url = new URL(window.location.href);
-  if (id) url.searchParams.set(PARAM, id);
-  else url.searchParams.delete(PARAM);
-  return `${url.pathname}${url.search}${url.hash}`;
+function currentHref(): string {
+  return `${window.location.pathname}${window.location.search}${window.location.hash}`;
 }
 
 export function MemberBladeProvider({ children }: { children: ReactNode }) {
-  const [openId, setOpenId] = useState<string | null>(null);
-  const openIdRef = useRef<string | null>(null);
-  // Did *we* push a history entry for the current open blade? (vs. a deep-link
-  // load, where there's no entry of ours to pop on close).
-  const pushedRef = useRef(false);
+  const [entry, setEntry] = useState<MemberEntry | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const pending = useRef(false);
+  const scrollPositions = useRef(new Map<string, number>());
   const pathname = usePathname();
-  const lastPath = useRef(pathname);
 
-  useEffect(() => {
-    openIdRef.current = openId;
-  }, [openId]);
-
-  // Deep-link: open from ?member= on first mount.
-  useEffect(() => {
-    const initial = readParam();
-    if (initial) {
-      pushedRef.current = false;
-      setOpenId(initial);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  const reportFailure = useCallback((error: unknown) => {
+    console.warn("Member navigation failed:", error);
+    pending.current = false;
+    setNotice("This detail view could not be opened or restored. You can still use the member's direct link.");
   }, []);
 
-  // Reconcile with browser Back/Forward.
+  const sync = useCallback(() => {
+    pending.current = false;
+    try {
+      const location = memberLocation(window.location.search);
+      if (!location) {
+        setEntry(null);
+        return;
+      }
+      const href = currentHref();
+      const previous = memberEntry(window.history.state, href);
+      const next: MemberEntry = previous ? {
+        ...previous,
+        scrollTop: scrollPositions.current.get(previous.id) ?? previous.scrollTop,
+      } : {
+        ...location,
+        version: 1,
+        id: window.crypto.randomUUID(),
+        href,
+        origin: memberHref(href, null),
+        depth: 0,
+        scrollTop: 0,
+      };
+      if (!previous || previous.scrollTop !== next.scrollTop) {
+        window.history.replaceState(withMemberEntry(window.history.state, next), "");
+      }
+      setEntry(next);
+    } catch (error) {
+      setEntry(null);
+      reportFailure(error);
+    }
+  }, [reportFailure]);
+
+  const flushScroll = useCallback(() => {
+    try {
+      const current = memberEntry(window.history.state, currentHref());
+      const top = current ? scrollPositions.current.get(current.id) : undefined;
+      if (current && top !== undefined && top !== current.scrollTop) {
+        window.history.replaceState(
+          withMemberEntry(window.history.state, { ...current, scrollTop: top }), "",
+        );
+      }
+    } catch (error) {
+      reportFailure(error);
+    }
+  }, [reportFailure]);
+
   useEffect(() => {
-    const onPop = () => {
-      pushedRef.current = false;
-      setOpenId(readParam());
+    sync();
+    window.addEventListener("popstate", sync);
+    return () => window.removeEventListener("popstate", sync);
+  }, [pathname, sync]);
+
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") flushScroll();
     };
-    window.addEventListener("popstate", onPop);
-    return () => window.removeEventListener("popstate", onPop);
-  }, []);
+    document.addEventListener("click", flushScroll, true);
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pagehide", flushScroll);
+    return () => {
+      document.removeEventListener("click", flushScroll, true);
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pagehide", flushScroll);
+    };
+  }, [flushScroll]);
 
-  // Close when the user actually navigates to another route.
-  useEffect(() => {
-    if (pathname !== lastPath.current) {
-      lastPath.current = pathname;
-      pushedRef.current = false;
-      setOpenId(null);
+  const navigate = useCallback((location: MemberLocation) => {
+    if (pending.current) return;
+    try {
+      flushScroll();
+      const current = currentHref();
+      const href = memberHref(current, location);
+      if (href === current) return;
+      const previous = memberEntry(window.history.state, current);
+      const next: MemberEntry = {
+        ...location,
+        version: 1,
+        id: window.crypto.randomUUID(),
+        href,
+        origin: previous?.origin ?? memberHref(current, null),
+        depth: (previous?.depth ?? 0) + 1,
+        scrollTop: previous?.member === location.member && previous.view === location.view
+          ? previous.scrollTop : 0,
+      };
+      window.history.pushState(withMemberEntry(window.history.state, next), "", href);
+      setEntry(next);
+    } catch (error) {
+      reportFailure(error);
     }
-  }, [pathname]);
+  }, [reportFailure, flushScroll]);
 
   const open = useCallback((bioguide: string) => {
-    const current = openIdRef.current;
-    if (current === bioguide) return;
-    if (current === null) {
-      window.history.pushState({ memberBlade: bioguide }, "", urlWith(bioguide));
-      pushedRef.current = true;
-    } else {
-      // Swapping members while open — replace so Back still just closes.
-      window.history.replaceState({ memberBlade: bioguide }, "", urlWith(bioguide));
+    navigate({ member: bioguide, view: "profile", expanded: false });
+  }, [navigate]);
+
+  const leave = useCallback((all: boolean) => {
+    if (pending.current) return;
+    try {
+      flushScroll();
+      const current = memberEntry(window.history.state, currentHref());
+      if (current && current.depth > 0) {
+        pending.current = true;
+        window.history.go(all ? -current.depth : -1);
+      } else {
+        window.history.replaceState(
+          withMemberEntry(window.history.state, null),
+          "",
+          memberHref(currentHref(), null),
+        );
+        setEntry(null);
+      }
+    } catch (error) {
+      reportFailure(error);
     }
-    setOpenId(bioguide);
-  }, []);
+  }, [reportFailure, flushScroll]);
 
-  const close = useCallback(() => {
-    if (pushedRef.current) {
-      pushedRef.current = false;
-      window.history.back(); // pops our entry → popstate clears openId
-    } else {
-      window.history.replaceState({}, "", urlWith(null));
-      setOpenId(null);
+  const close = useCallback(() => leave(true), [leave]);
+  const back = useCallback(() => leave(false), [leave]);
+  const showDonations = useCallback(() => {
+    if (entry) navigate({ member: entry.member, view: "donations", expanded: entry.expanded });
+  }, [entry, navigate]);
+  const toggleExpanded = useCallback(() => {
+    if (entry) navigate({ member: entry.member, view: entry.view, expanded: !entry.expanded });
+  }, [entry, navigate]);
+  const saveScroll = useCallback((top: number) => {
+    try {
+      const current = memberEntry(window.history.state, currentHref());
+      if (!current) return;
+      // Avoid history.replaceState on every scroll frame (browser rate limits).
+      const positions = scrollPositions.current;
+      positions.delete(current.id);
+      positions.set(current.id, Math.max(0, top));
+      if (positions.size > 100) {
+        const oldest = positions.keys().next().value;
+        if (oldest !== undefined) positions.delete(oldest);
+      }
+    } catch (error) {
+      reportFailure(error);
     }
-  }, []);
+  }, [reportFailure]);
+  const dismissNotice = useCallback(() => setNotice(null), []);
 
-  const value = useMemo(() => ({ openId, open, close }), [openId, open, close]);
-
-  return <MemberBladeContext.Provider value={value}>{children}</MemberBladeContext.Provider>;
-}
-
-export function useMemberBlade(): MemberBladeValue {
-  const ctx = useContext(MemberBladeContext);
-  if (!ctx) throw new Error("useMemberBlade must be used within a MemberBladeProvider");
-  return ctx;
+  const value = useMemo(
+    () => ({ openId: entry?.member ?? null, entry, open, close, back, showDonations, toggleExpanded, saveScroll, notice, dismissNotice }),
+    [entry, open, close, back, showDonations, toggleExpanded, saveScroll, notice, dismissNotice],
+  );
+  return (
+    <MemberBladeContext.Provider value={value}>
+      {children}
+      {notice && !entry && (
+        <div role="alert" className="fixed bottom-12 left-4 right-4 z-[80] mx-auto max-w-xl rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950 shadow-lg">
+          {notice}{" "}
+          <button type="button" className="font-semibold underline" onClick={dismissNotice}>Dismiss</button>
+        </div>
+      )}
+    </MemberBladeContext.Provider>
+  );
 }

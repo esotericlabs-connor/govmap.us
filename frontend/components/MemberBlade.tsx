@@ -1,169 +1,171 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { BladeDonations } from "@/components/BladeDonations";
 import { MemberProfileBody } from "@/components/MemberProfileBody";
 import { fetchMemberDetail, type MemberDetail } from "@/lib/api";
 import { useMemberBlade } from "@/lib/member-blade";
+import { useScrollLock } from "@/lib/use-scroll-lock";
+import type { MemberEntry } from "@/lib/workspace-state";
 
 function BladeSkeleton() {
   return (
-    <div className="animate-pulse">
+    <div className="animate-pulse" role="status" aria-label="Loading member details">
       <div className="flex items-center gap-5">
         <div className="h-16 w-16 shrink-0 rounded-full bg-slate-warm-200" />
         <div className="min-w-0 flex-1 space-y-2">
           <div className="h-3 w-24 rounded bg-slate-warm-200" />
           <div className="h-6 w-48 rounded bg-slate-warm-200" />
-          <div className="h-3 w-32 rounded bg-slate-warm-200" />
         </div>
-      </div>
-      <div className="mt-8 grid grid-cols-2 gap-6">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="space-y-2">
-            <div className="h-2.5 w-16 rounded bg-slate-warm-200" />
-            <div className="h-4 w-24 rounded bg-slate-warm-200" />
-          </div>
-        ))}
       </div>
       <div className="mt-8 h-40 rounded-2xl bg-slate-warm-200" />
     </div>
   );
 }
 
-function BladeError({ bioguide }: { bioguide: string }) {
+function MemberPanelBody({ entry }: { entry: MemberEntry }) {
+  const { showDonations, saveScroll } = useMemberBlade();
+  const [member, setMember] = useState<MemberDetail | null>(null);
+  const [errored, setErrored] = useState(false);
+  const [donationsVisited, setDonationsVisited] = useState(entry.view === "donations");
+  const [donationsReady, setDonationsReady] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const restoredEntry = useRef<string | null>(null);
+  const onDonationsReady = useCallback(() => setDonationsReady(true), []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetchMemberDetail(entry.member, controller.signal).then((value) => {
+      if (controller.signal.aborted) return;
+      if (value) setMember(value);
+      else setErrored(true);
+    });
+    return () => controller.abort();
+  }, [entry.member]);
+
+  useEffect(() => {
+    if (entry.view === "donations") setDonationsVisited(true);
+  }, [entry.view]);
+
+  useLayoutEffect(() => {
+    if (!member && !errored) return;
+    if (entry.view === "donations" && !donationsReady && !errored) return;
+    if (restoredEntry.current === entry.id) return;
+    scrollRef.current?.scrollTo({ top: entry.scrollTop, behavior: "instant" });
+    scrollRef.current?.focus({ preventScroll: true });
+    restoredEntry.current = entry.id;
+  }, [entry.id, entry.view, entry.scrollTop, member, errored, donationsReady]);
+
   return (
-    <div className="mt-10 text-center">
-      <p className="text-sm text-slate-warm-500">This member&rsquo;s profile couldn&rsquo;t be loaded.</p>
-      <Link
-        href={`/members/${bioguide}`}
-        className="mt-3 inline-block rounded-full border border-slate-warm-200 px-4 py-2 text-sm font-semibold text-slate-warm-700 transition-colors hover:border-govnavy hover:text-govnavy"
-      >
-        Open the full page instead ↗
-      </Link>
+    <div
+      ref={scrollRef}
+      role="region"
+      tabIndex={-1}
+      aria-label={entry.view === "donations" ? "Member contributions" : "Member profile"}
+      className="flex-1 overflow-y-auto overscroll-contain px-5 py-6 sm:px-6"
+      onScroll={(event) => {
+        if (restoredEntry.current === entry.id) saveScroll(event.currentTarget.scrollTop);
+      }}
+    >
+      {errored ? (
+        <div role="alert" className="py-10 text-center text-sm text-slate-warm-600">
+          <p>This member&rsquo;s profile couldn&rsquo;t be loaded.</p>
+          <Link href={`/members/${entry.member}`} className="mt-3 inline-block font-semibold text-govblue underline">
+            Open the standalone profile
+          </Link>
+        </div>
+      ) : member ? (
+        <>
+          <div hidden={entry.view !== "profile"}>
+            <MemberProfileBody
+              member={member}
+              variant={entry.expanded ? "page" : "blade"}
+              onViewDonations={showDonations}
+            />
+          </div>
+          {(donationsVisited || entry.view === "donations") && (
+            <div hidden={entry.view !== "donations"}>
+              <BladeDonations member={member} onReady={onDonationsReady} />
+            </div>
+          )}
+        </>
+      ) : <BladeSkeleton />}
     </div>
   );
 }
 
-/**
- * The site-wide member profile blade. Mounted once (under MemberBladeProvider);
- * slides in from the right whenever a member link is clicked. Portaled to
- * <body> so no ancestor's transform/backdrop-filter can clip a `fixed` panel,
- * and always mounted so the slide transition animates.
- */
 export function MemberBlade() {
-  const { openId, close } = useMemberBlade();
-  const [member, setMember] = useState<MemberDetail | null>(null);
-  const [errored, setErrored] = useState(false);
-  // Sub-view *inside* the blade: the profile, or the itemized-donations ledger.
-  // Rendering donations here (rather than at /members/[id]/donations) keeps the
-  // /congress map mounted underneath, so returning never snaps it back home.
-  const [view, setView] = useState<"profile" | "donations">("profile");
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const { entry, back, close, toggleExpanded, notice, dismissNotice } = useMemberBlade();
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const returnFocus = useRef<HTMLElement | null>(null);
+  const isOpen = entry !== null;
+  useScrollLock(isOpen);
 
-  // Fetch the full profile whenever the open member changes.
-  useEffect(() => {
-    if (!openId) return;
-    let alive = true;
-    setMember(null);
-    setErrored(false);
-    fetchMemberDetail(openId).then((m) => {
-      if (!alive) return;
-      if (m) setMember(m);
-      else setErrored(true);
-    });
-    return () => {
-      alive = false;
-    };
-  }, [openId]);
-
-  // Always land on the profile when a (different) member opens.
-  useEffect(() => {
-    setView("profile");
-  }, [openId]);
-
-  // Reset the blade's scroll position when switching sub-views.
-  useEffect(() => {
-    scrollRef.current?.scrollTo({ top: 0 });
-  }, [view]);
-
-  // Lock body scroll + wire Escape while open.
-  useEffect(() => {
-    if (!openId) return;
-    document.body.style.overflow = "hidden";
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && close();
-    window.addEventListener("keydown", onKey);
-    return () => {
-      document.body.style.overflow = "";
-      window.removeEventListener("keydown", onKey);
-    };
-  }, [openId, close]);
+  useLayoutEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    if (isOpen && !dialog.open) {
+      returnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      dialog.showModal();
+    } else if (!isOpen && dialog.open) {
+      dialog.close();
+      if (returnFocus.current?.isConnected && !returnFocus.current.closest("[inert], [hidden]")) {
+        returnFocus.current.focus({ preventScroll: true });
+      } else {
+        document.querySelector<HTMLElement>("[data-workspace-focus]")?.focus({ preventScroll: true });
+      }
+    }
+  }, [isOpen]);
 
   if (typeof document === "undefined") return null;
 
-  const isOpen = openId !== null;
-
   return createPortal(
-    <>
-      {/* Backdrop — always mounted so it fades; pointer-events off when closed. */}
-      <div
-        className={`fixed inset-0 z-[65] bg-govnavy/50 backdrop-blur-sm transition-opacity duration-300 ${
-          isOpen ? "opacity-100" : "pointer-events-none opacity-0"
-        }`}
-        onClick={close}
-        aria-hidden="true"
-      />
-      {/* Right-side blade. */}
-      <aside
-        role="dialog"
-        aria-modal="true"
-        aria-label="Member profile"
-        aria-hidden={!isOpen}
-        className={`fixed inset-y-0 right-0 z-[70] flex w-full max-w-[520px] transform flex-col border-l border-slate-warm-200 bg-slate-warm-50 shadow-2xl transition-transform duration-300 ease-out ${
-          isOpen ? "translate-x-0" : "translate-x-full"
-        }`}
-      >
-        <div className="flex items-center justify-between border-b border-slate-warm-200 bg-white/70 px-5 py-3 backdrop-blur">
-          <button
-            type="button"
-            onClick={close}
-            className="flex items-center gap-1.5 text-sm font-semibold text-slate-warm-600 transition-colors hover:text-govnavy"
-          >
-            <span aria-hidden="true">←</span> Close
+    <dialog
+      ref={dialogRef}
+      aria-label="Member details"
+      onCancel={(event) => {
+        event.preventDefault();
+        close();
+      }}
+      onClick={(event) => {
+        if (event.target !== event.currentTarget) return;
+        const bounds = event.currentTarget.getBoundingClientRect();
+        if (event.clientX < bounds.left || event.clientX > bounds.right ||
+          event.clientY < bounds.top || event.clientY > bounds.bottom) close();
+      }}
+      className={`member-dialog fixed inset-y-0 left-auto right-0 m-0 h-dvh max-h-none w-full overflow-hidden border-l border-slate-warm-200 bg-slate-warm-50 p-0 text-slate-800 shadow-2xl backdrop:bg-govnavy/50 backdrop:backdrop-blur-sm ${
+        entry?.expanded ? "max-w-6xl" : "max-w-[520px]"
+      }`}
+    >
+      <div className="flex h-full flex-col">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-warm-200 bg-white px-5 py-3">
+          <button type="button" onClick={back} className="text-sm font-semibold text-slate-warm-600 hover:text-govnavy">
+            <span aria-hidden="true">&larr;</span> Back
           </button>
-          {openId && (
-            // Desktop-only: on mobile the blade is the whole experience, so the
-            // full-page escape hatch is hidden (the blade has everything).
-            <Link
-              href={view === "donations" ? `/members/${openId}/donations` : `/members/${openId}`}
-              className="hidden text-sm font-medium text-govblue transition-colors hover:text-govnavy md:inline"
-            >
-              Open full page ↗
-            </Link>
-          )}
+          <span className="text-xs text-slate-warm-500">
+            Member{entry?.view === "donations" ? " / Contributions" : " / Profile"}
+          </span>
+          <div className="flex items-center gap-4">
+            <button type="button" onClick={toggleExpanded} className="hidden text-sm font-semibold text-govblue hover:text-govnavy md:block">
+              {entry?.expanded ? "Compact view" : "Expand"}
+            </button>
+            <button type="button" onClick={close} className="text-sm font-semibold text-slate-warm-600 hover:text-govnavy">
+              Close
+            </button>
+          </div>
         </div>
-
-        <div ref={scrollRef} className="flex-1 overflow-y-auto px-5 py-6 sm:px-6">
-          {errored && openId ? (
-            <BladeError bioguide={openId} />
-          ) : member ? (
-            view === "donations" ? (
-              <BladeDonations member={member} onBack={() => setView("profile")} />
-            ) : (
-              <MemberProfileBody
-                member={member}
-                variant="blade"
-                onViewDonations={() => setView("donations")}
-              />
-            )
-          ) : (
-            <BladeSkeleton />
-          )}
-        </div>
-      </aside>
-    </>,
+        {notice && (
+          <p role="alert" className="border-b border-amber-300 bg-amber-50 px-5 py-3 text-sm text-amber-950">
+            {notice}{" "}
+            <button type="button" className="font-semibold underline" onClick={dismissNotice}>Dismiss</button>
+          </p>
+        )}
+        {entry && <MemberPanelBody key={entry.member} entry={entry} />}
+      </div>
+    </dialog>,
     document.body,
   );
 }

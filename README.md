@@ -93,6 +93,12 @@ Navigation uses relative paths defined in `frontend/lib/site-config.ts`. Separat
 
 The visual signature — the Capitol photo under a navy scrim with white text — lives in `frontend/components/PageBanner.tsx` and is shared by the footer and page banners.
 
+The map remembers its chamber, position and selected seat in this browser.
+**Reset** returns to the national House view without clearing the saved home ZIP.
+Member details expand in place; **Back** retraces a detail step and **Close**
+returns to the originating view. Direct member-page links still work independently.
+See the [Privacy page](https://govmap.us/privacy) for local-storage behavior.
+
 Brand assets live in `frontend/public/` (`logo-dark.png`, `logo-light.png` — full lockups with an opaque background baked in, meant for full-bleed placement, not floating over an arbitrary background color). The favicon (`frontend/app/icon.png`) is a square crop of just the Capitol mark from the dark logo, generated because no standalone icon-only asset existed yet — a proper source mark would give a cleaner result and is a fine thing to swap in later.
 
 **Links:** `siteConfig.socialLinks` and `contactEmail` hold the official `@govmapus` accounts and `support@govmap.us`; `supportLinks` holds the three donation platforms (Ko-fi, Buy Me a Coffee, Liberapay) shown on `/support`. Only real, owned accounts are listed.

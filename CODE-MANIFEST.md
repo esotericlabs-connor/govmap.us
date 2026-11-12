@@ -4,6 +4,36 @@ What's been built, in what order, and what's next. This is a living log — add 
 
 ## Build log
 
+**2026-11-12 — Workspace navigation first slice (awaiting CI/dev validation)**
+Start the approved dashboard overhaul with the map-return defect, not visual
+decoration or new data sources. This is a staged foundation, not completion of
+the wider three-branch/dashboard plan.
+
+- Map chamber, viewport and selected seat now live in a root-level provider.
+  Versioned localStorage saves the last view across restarts; per-history-entry
+  snapshots preserve distinct Back/Forward positions. Invalid/incompatible
+  snapshots and unavailable storage produce visible notices. Reset restores the
+  national House view without clearing the separately stored home ZIP.
+- Restoring a map suppresses the initial home-ZIP fly-to; deliberately choosing a
+  ZIP still moves the map. JavaScript fly-to animation respects reduced motion.
+- Member profile, contributions and expanded presentation have separate
+  query-addressed history steps. Expansion stays in the panel instead of leaving
+  the map; Back takes one step and Close exits the owned panel journey. Direct
+  links do not blindly call browser Back. Native Next history metadata is retained.
+- A native dialog provides focus containment and background inertness. Header and
+  detail share a reference-counted body-scroll lock; closed menu controls are inert.
+  Member-detail requests are aborted when superseded/unmounted.
+- Profile/contribution scroll positions are attached to history entries. The
+  contributions ledger stays mounted while switching views within the same
+  member panel, retaining its filters. Standalone member routes remain available.
+- Added pure state/URL/history regression cases to frontend CI; no tests/builds
+  were run in this static checkout. CI/type-check and deployed browser validation
+  are still required, especially map -> member -> contributions -> expand ->
+  Back/Forward/Close, refresh/restart, blocked storage and mobile/reduced motion.
+- Follow-on slices still include the persistent route-group shell, contextual
+  bill/vote/committee panels, broader filter/scroll restoration, centered section
+  search, themes, dashboard data and the Executive/Judicial integrations.
+
 **2026-11-12 — UX pass 1: app at the root, About/Support/Security pages**
 First UX increment after the foundation closeout. Frontend only; no schema,
 API or data change.

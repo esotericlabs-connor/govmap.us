@@ -123,7 +123,7 @@ export function DonationsLedger({
       if (offset > 0) share.set("offset", String(offset));
       if (sort && sort !== "amount") share.set("sort", sort);
       if (q) share.set("q", q);
-      window.history.replaceState(null, "", `?${share.toString()}`);
+      window.history.replaceState(window.history.state, "", `?${share.toString()}`);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cycle, q, sort, offset]);

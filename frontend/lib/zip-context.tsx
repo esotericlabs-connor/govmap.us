@@ -27,6 +27,7 @@ type ZipContextValue = {
   zip: string | null;
   result: LookupResult | null;
   loading: boolean;
+  selectionVersion: number;
   setHomeZip: (zip: string) => Promise<boolean>;
   clearHomeZip: () => void;
 };
@@ -49,6 +50,7 @@ export function ZipProvider({ children }: { children: ReactNode }) {
   const [zip, setZip] = useState<string | null>(null);
   const [result, setResult] = useState<LookupResult | null>(null);
   const [loading, setLoading] = useState(false);
+  const [selectionVersion, setSelectionVersion] = useState(0);
 
   // Hydrate the saved ZIP after mount, then resolve its reps.
   useEffect(() => {
@@ -75,6 +77,7 @@ export function ZipProvider({ children }: { children: ReactNode }) {
     if (!r) return false;
     setZip(next);
     setResult(r);
+    setSelectionVersion((value) => value + 1);
     if (typeof window !== "undefined") window.localStorage.setItem(STORAGE_KEY, next);
     return true;
   }, []);
@@ -82,12 +85,13 @@ export function ZipProvider({ children }: { children: ReactNode }) {
   const clearHomeZip = useCallback(() => {
     setZip(null);
     setResult(null);
+    setSelectionVersion((value) => value + 1);
     if (typeof window !== "undefined") window.localStorage.removeItem(STORAGE_KEY);
   }, []);
 
   const value = useMemo(
-    () => ({ zip, result, loading, setHomeZip, clearHomeZip }),
-    [zip, result, loading, setHomeZip, clearHomeZip],
+    () => ({ zip, result, loading, selectionVersion, setHomeZip, clearHomeZip }),
+    [zip, result, loading, selectionVersion, setHomeZip, clearHomeZip],
   );
 
   return <ZipContext.Provider value={value}>{children}</ZipContext.Provider>;

@@ -212,7 +212,7 @@ jobs:
         run: if [ -f package-lock.json ]; then npm ci; else npm install; fi
       - run: npm run lint
       - name: Frontend unit regression tests
-        run: node --test tests/health.test.mjs tests/safe-url.test.mjs
+        run: node --test tests/health.test.mjs tests/safe-url.test.mjs tests/workspace-state.test.mjs
       - run: npx next typegen
       - run: npx tsc --noEmit
       # The same production build the deploy runs inside Docker, so a broken

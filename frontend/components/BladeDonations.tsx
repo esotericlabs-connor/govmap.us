@@ -13,19 +13,15 @@ import {
 const PAGE_SIZE = 50;
 
 /**
- * Itemized-donations ledger rendered *inside* the member blade — a sub-view, not
- * a route change, so the map underneath is never remounted (and never snaps back
- * to the user's home reps). Fetches the first page and the member's available
- * FEC cycles client-side in parallel, then hands off to the shared
- * `DonationsLedger` with `urlSync={false}` — the blade owns the `?member=` URL,
- * so the ledger must not fight it with its own `?cycle=`/`?sort=` history writes.
+ * The member panel owns navigation history. Keep this ledger mounted while
+ * returning to the same member's profile, so filters and pagination survive.
  */
 export function BladeDonations({
   member,
-  onBack,
+  onReady,
 }: {
   member: MemberDetail;
-  onBack: () => void;
+  onReady: () => void;
 }) {
   const bioguide = member.bioguide_id;
   const [state, setState] = useState<{ data: DonationsResponse; cycles: number[] } | null>(null);
@@ -33,17 +29,19 @@ export function BladeDonations({
 
   useEffect(() => {
     let alive = true;
+    const controller = new AbortController();
     setState(null);
     setErrored(false);
     Promise.all([
       fetch(
         `${publicApiBase}/api/members/${encodeURIComponent(bioguide)}/donations?limit=${PAGE_SIZE}&sort=amount`,
+        { signal: controller.signal },
       ).then((r) =>
         r.ok
           ? (r.json() as Promise<DonationsResponse>)
           : Promise.reject(new Error(String(r.status))),
       ),
-      fetchDonationCycles(bioguide),
+      fetchDonationCycles(bioguide, controller.signal),
     ])
       .then(([data, cycles]) => {
         if (alive) setState({ data, cycles });
@@ -53,19 +51,16 @@ export function BladeDonations({
       });
     return () => {
       alive = false;
+      controller.abort();
     };
   }, [bioguide]);
 
+  useEffect(() => {
+    if (state || errored) onReady();
+  }, [state, errored, onReady]);
+
   return (
     <div>
-      <button
-        type="button"
-        onClick={onBack}
-        className="mb-6 inline-flex items-center gap-1.5 text-sm font-semibold text-slate-warm-600 transition-colors hover:text-govnavy"
-      >
-        <span aria-hidden="true">←</span> {member.official_full_name}
-      </button>
-
       {errored ? (
         <p className="mt-10 text-center text-sm text-slate-warm-500">
           These contributions couldn&rsquo;t be loaded.{" "}
