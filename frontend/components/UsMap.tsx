@@ -142,7 +142,7 @@ function UsShapeIcon() {
 
 export function UsMap({ map, result = null }: { map: CongressMap; result?: LookupResult | null }) {
   const { result: homeResult, selectionVersion } = useHomeZip();
-  const { view, setView, ready, restored, revision, homeSelection: lastHomeSelection, reset } = useMapWorkspace();
+  const { view, setView, ready, restored, revision, claimHomeSelection, reset } = useMapWorkspace();
   const svgRef = useRef<SVGSVGElement>(null);
   const { chamber, zoom } = view;
   const setZoom = useCallback((next: typeof zoom | ((previous: typeof zoom) => typeof zoom)) => {
@@ -410,16 +410,15 @@ export function UsMap({ map, result = null }: { map: CongressMap; result?: Looku
     cancelAnim();
     reset();
     flownHome.current = homeResult; // don't immediately re-fly home after a manual reset
-    lastHomeSelection.current = selectionVersion;
-  }, [homeResult, selectionVersion, cancelAnim, reset, lastHomeSelection]);
+    claimHomeSelection(selectionVersion);
+  }, [homeResult, selectionVersion, cancelAnim, reset, claimHomeSelection]);
 
   // When a home area is set (or hydrated from storage), fly to that district/
   // state once and open its info card. The ref keys off the result value so
   // toggling chambers or re-panning doesn't yank the view back.
   useEffect(() => {
     if (!ready || !homeResult || shapes.length === 0) return;
-    const explicitlyChanged = lastHomeSelection.current !== selectionVersion;
-    lastHomeSelection.current = selectionVersion;
+    const explicitlyChanged = claimHomeSelection(selectionVersion);
     if (restored && !explicitlyChanged) {
       flownHome.current = homeResult;
       return;
@@ -433,7 +432,7 @@ export function UsMap({ map, result = null }: { map: CongressMap; result?: Looku
     flownHome.current = homeResult;
     setPopover(shape); // surface your rep's card as soon as we land on it
     fitTo(shape);
-  }, [ready, restored, homeResult, shapes, chamber, fitTo, selectionVersion, setPopover, lastHomeSelection]);
+  }, [ready, restored, homeResult, shapes, chamber, fitTo, selectionVersion, setPopover, claimHomeSelection]);
 
   function onPointerDown(e: ReactPointerEvent<SVGSVGElement>) {
     drag.current = { x: e.clientX, y: e.clientY, moved: false };

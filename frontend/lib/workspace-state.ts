@@ -142,7 +142,7 @@ export function memberEntry(state: unknown, href: string): MemberEntry | null {
 }
 
 export function withMemberEntry(state: unknown, entry: MemberEntry | null): Record<string, unknown> {
-  const next = { ...(isRecord(state) ? state : {}) };
+  const next: Record<string, unknown> = { ...(isRecord(state) ? state : {}) };
   if (entry) next[MEMBER_HISTORY_KEY] = entry;
   else delete next[MEMBER_HISTORY_KEY];
   return next;

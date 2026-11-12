@@ -12,7 +12,6 @@ import {
   useState,
   type Dispatch,
   type ReactNode,
-  type RefObject,
   type SetStateAction,
 } from "react";
 
@@ -31,7 +30,8 @@ type MapWorkspaceValue = {
   ready: boolean;
   restored: boolean;
   revision: number;
-  homeSelection: RefObject<number>;
+  /** Records the latest handled home-ZIP selection; true when it differs from the last one. */
+  claimHomeSelection: (version: number) => boolean;
   reset: () => void;
 };
 
@@ -47,8 +47,15 @@ export function MapWorkspaceProvider({ children }: { children: ReactNode }) {
   const canSave = useRef(false);
   const storageFailed = useRef(false);
   const visitedMap = useRef(false);
-  const homeSelection = useRef(0);
+  const homeSelectionRef = useRef(0);
   const pathname = usePathname();
+
+  // Lives here, not in the map, so remounting the map can't replay an old ZIP fly-to.
+  const claimHomeSelection = useCallback((version: number) => {
+    const changed = homeSelectionRef.current !== version;
+    homeSelectionRef.current = version;
+    return changed;
+  }, []);
 
   useEffect(() => {
     if (pathname === "/") visitedMap.current = true;
@@ -150,8 +157,8 @@ export function MapWorkspaceProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ view, setView, ready, restored, revision, homeSelection, reset }),
-    [view, ready, restored, revision, reset],
+    () => ({ view, setView, ready, restored, revision, claimHomeSelection, reset }),
+    [view, ready, restored, revision, claimHomeSelection, reset],
   );
 
   return (

@@ -40,6 +40,12 @@ function currentHref(): string {
   return `${window.location.pathname}${window.location.search}${window.location.hash}`;
 }
 
+// randomUUID is unavailable outside secure contexts; entry ids only need to be unique per tab.
+function newEntryId(): string {
+  if (typeof window.crypto?.randomUUID === "function") return window.crypto.randomUUID();
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
 export function MemberBladeProvider({ children }: { children: ReactNode }) {
   const [entry, setEntry] = useState<MemberEntry | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -69,7 +75,7 @@ export function MemberBladeProvider({ children }: { children: ReactNode }) {
       } : {
         ...location,
         version: 1,
-        id: window.crypto.randomUUID(),
+        id: newEntryId(),
         href,
         origin: memberHref(href, null),
         depth: 0,
@@ -130,7 +136,7 @@ export function MemberBladeProvider({ children }: { children: ReactNode }) {
       const next: MemberEntry = {
         ...location,
         version: 1,
-        id: window.crypto.randomUUID(),
+        id: newEntryId(),
         href,
         origin: previous?.origin ?? memberHref(current, null),
         depth: (previous?.depth ?? 0) + 1,
@@ -210,4 +216,10 @@ export function MemberBladeProvider({ children }: { children: ReactNode }) {
       )}
     </MemberBladeContext.Provider>
   );
+}
+
+export function useMemberBlade(): MemberBladeValue {
+  const ctx = useContext(MemberBladeContext);
+  if (!ctx) throw new Error("useMemberBlade must be used within a MemberBladeProvider");
+  return ctx;
 }
