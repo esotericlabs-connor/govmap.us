@@ -3,7 +3,6 @@ import { Suspense } from "react";
 
 import { chamberLabel, CodePill, EmptyState, formatDate } from "@/components/DetailKit";
 import { Reveal } from "@/components/Reveal";
-import { SiteHeader } from "@/components/SiteHeader";
 import { apiGet } from "@/lib/api";
 
 // Rendered on demand — the backend isn't reachable during the image build.
@@ -100,7 +99,6 @@ function VoteListSkeleton() {
 export default function VotesPage() {
   return (
     <>
-      <SiteHeader />
       <main className="bg-slate-warm-50 pb-20 pt-28">
         <div className="mx-auto max-w-5xl px-6">
           <Reveal>

@@ -4,7 +4,53 @@ What's been built, in what order, and what's next. This is a living log — add 
 
 ## Build log
 
-**2026-11-12 — Workspace navigation first slice (awaiting CI/dev validation)**
+**2026-11-12 — Persistent header, centered command search, enacted-laws view (awaiting CI/dev validation)**
+Second navigation slice: make every live part of the app reachable from one
+centered search box, and give "what recently became law" a truthful view.
+Nothing planned is presented as available.
+
+- One section registry (`frontend/lib/sections.ts`) drives both the menu and the
+  search box's section shortcuts, so a destination can't be live in one and
+  missing in the other. Live: map, members, bills, recently enacted laws, votes,
+  and the About/Security/Privacy/Support pages. Elections, Campaign money,
+  Accountability, Executive and Judicial are badged **Planned** and link to the
+  About coverage list. Shortcut ranking always puts live destinations first.
+- `SiteHeader` is mounted once by the root layout instead of by 13 pages and
+  components, so it persists across navigation (the error screen now has it
+  too). On desktop it is a three-column grid with equal side tracks, keeping the
+  search on the viewport's true center whatever the logo, ZIP chip or menu
+  button widths. The menu lists live sections, an "In development" group and the
+  project pages, and highlights the most specific active section
+  (`/bills?status=became-law` highlights the laws view, not Bills).
+- `UniversalSearch` is now an ARIA combobox command bar. A 5-digit ZIP sets your
+  area; otherwise section shortcuts come before member/bill/vote/committee
+  results. ↑/↓ move through every suggestion, Enter (or the mobile Go key, via
+  form submit) opens the highlighted one, Escape closes the suggestions without
+  also closing the menu, and `/` or Ctrl/⌘+K focuses the desktop bar. Record
+  search is debounced and aborted when superseded; while a newer query loads,
+  the previous results stay visible but inert, so Enter can't open a result for
+  a query you've already changed. Real failures say search is unavailable
+  instead of "no results".
+- `GET /api/bills` accepts `status=became_law` (any other value is a 422): bills
+  whose Congress.gov record lists an enacted law, newest latest action first,
+  undated last. `/bills` gains "Recently active" / "Became law" tabs
+  (`/bills?status=became-law`); the laws view shows latest-action dates and a
+  coverage note. **Coverage caveat:** `status` is only set when a bill is loaded
+  in full (`to_bill_row`, from `bill.laws`); sponsored-legislation index stubs
+  carry no status until enriched, so this is not yet every enacted law. No schema
+  change: `status` is unindexed, and a scan of the ~19k-row table is cheap.
+- About's coverage section is the `#coverage` anchor target and adds a "Deeper
+  into Congress" group (Elections, Campaign money, Accountability; all Planned).
+- Tests: `frontend/tests/sections.test.mjs` (registry consistency, ranking,
+  live-before-planned) joins frontend CI. It imports `lib/sections.ts` directly
+  through Node 24 type stripping, which is why that file stays import-free,
+  erasable-only TypeScript. Backend: `test_asgi_stack.py` 422 cases plus the
+  filter's SQL, and Postgres-backed `test_bill_list_filters.py` for filtering,
+  ordering and paging. Nothing was run in this static checkout. Still to confirm
+  on dev: search centered within a pixel with and without the ZIP chip,
+  keyboard/shortcut behavior, the mobile menu search, and the laws tab.
+
+**2026-11-12 — Workspace navigation first slice (deployed to dev; map → member → Back confirmed)**
 Start the approved dashboard overhaul with the map-return defect, not visual
 decoration or new data sources. This is a staged foundation, not completion of
 the wider three-branch/dashboard plan.

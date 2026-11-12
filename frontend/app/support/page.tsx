@@ -3,7 +3,6 @@ import Link from "next/link";
 import { BrandIcon } from "@/components/BrandIcon";
 import { BannerCard, PageBanner } from "@/components/PageBanner";
 import { SiteFooter } from "@/components/SiteFooter";
-import { SiteHeader } from "@/components/SiteHeader";
 import { siteConfig } from "@/lib/site-config";
 
 export const metadata = {
@@ -20,7 +19,6 @@ const WHERE_IT_GOES = [
 export default function SupportPage() {
   return (
     <>
-      <SiteHeader />
       <main className="bg-white">
         <PageBanner eyebrow="Support GovMap" title="Keep it free. Keep it independent.">
           <p>

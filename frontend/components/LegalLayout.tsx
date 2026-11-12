@@ -2,7 +2,6 @@ import type { ReactNode } from "react";
 
 import { PageBanner } from "@/components/PageBanner";
 import { SiteFooter } from "@/components/SiteFooter";
-import { SiteHeader } from "@/components/SiteHeader";
 
 export function LegalLayout({
   title,
@@ -17,7 +16,6 @@ export function LegalLayout({
 }) {
   return (
     <>
-      <SiteHeader />
       <main className="min-h-screen bg-white">
         <PageBanner eyebrow={`Last updated ${updated}`} title={title}>
           {lede}

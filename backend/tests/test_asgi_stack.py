@@ -373,6 +373,8 @@ def test_source_runs_rejects_invalid_filters_before_querying(
         ("/api/bills", "limit=-1"),
         ("/api/bills", "congress=-1"),
         ("/api/bills", "congress=2147483648"),
+        ("/api/bills", "status=passed_house"),
+        ("/api/bills", "status=Became%20Law"),
         ("/api/votes", "offset=-1"),
         ("/api/votes", "limit=0"),
         ("/api/votes", "session=2147483648"),
@@ -399,6 +401,16 @@ def test_public_list_accepts_paging_bounds(run_store: _FakeRunStore) -> None:
     assert status == 200
     assert json.loads(payload) == []
     assert len(run_store.statements) == 1
+
+
+def test_bill_list_applies_the_became_law_filter(run_store: _FakeRunStore) -> None:
+    status, _, payload = asyncio.run(
+        _call(main.app, "GET", "/api/bills", query="status=became_law")
+    )
+    assert status == 200
+    assert json.loads(payload) == []
+    (statement,) = run_store.statements
+    assert "bills.status = " in str(statement)
 
 
 def test_source_runs_returns_filtered_history_newest_first(run_store: _FakeRunStore) -> None:

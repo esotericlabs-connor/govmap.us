@@ -3,7 +3,6 @@ import type { ReactNode } from "react";
 
 import { BannerCard, PageBanner } from "@/components/PageBanner";
 import { SiteFooter } from "@/components/SiteFooter";
-import { SiteHeader } from "@/components/SiteHeader";
 import { siteConfig } from "@/lib/site-config";
 
 export const metadata = {
@@ -37,6 +36,29 @@ const FEDERAL: Coverage[] = [
     status: "planned",
     what:
       "Supreme Court justices and federal judges, the opinions they publish, and court challenges to the laws Congress passes.",
+  },
+];
+
+// Planned dashboards that deepen the live Congress layer; the app's
+// "Planned" menu and search entries point at this list.
+const CONGRESS_NEXT: Coverage[] = [
+  {
+    name: "Elections",
+    status: "planned",
+    what:
+      "Official results as states certify them, the members-elect, and who takes each seat when the next Congress is sworn in.",
+  },
+  {
+    name: "Campaign money",
+    status: "planned",
+    what:
+      "Who gives the most in each state and district and how money reaches each candidate, charted from Federal Election Commission filings.",
+  },
+  {
+    name: "Accountability",
+    status: "planned",
+    what:
+      "Sourced records of alleged misconduct by members of Congress and how each case was resolved, matched to the member it concerns.",
   },
 ];
 
@@ -143,7 +165,6 @@ function SectionHeading({
 export default function AboutPage() {
   return (
     <>
-      <SiteHeader />
       <main className="bg-white">
         <PageBanner eyebrow="About GovMap" title={siteConfig.tagline}>
           <p>
@@ -188,8 +209,8 @@ export default function AboutPage() {
           </div>
         </section>
 
-        {/* Coverage */}
-        <section className="bg-slate-warm-50">
+        {/* Coverage — the "Planned" menu and search entries link here. */}
+        <section id="coverage" className="scroll-mt-20 bg-slate-warm-50">
           <div className="mx-auto max-w-6xl px-6 py-20 sm:py-24">
             <SectionHeading
               eyebrow="How GovMap covers government"
@@ -207,6 +228,15 @@ export default function AboutPage() {
             </h3>
             <div className="mt-4 grid gap-6 md:grid-cols-3">
               {FEDERAL.map((item) => (
+                <CoverageCard key={item.name} item={item} />
+              ))}
+            </div>
+
+            <h3 className="mt-12 text-sm font-semibold uppercase tracking-wider text-slate-warm-500">
+              Deeper into Congress
+            </h3>
+            <div className="mt-4 grid gap-6 md:grid-cols-3">
+              {CONGRESS_NEXT.map((item) => (
                 <CoverageCard key={item.name} item={item} />
               ))}
             </div>

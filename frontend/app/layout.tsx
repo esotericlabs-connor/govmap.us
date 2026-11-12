@@ -3,6 +3,7 @@ import { Inter, Space_Grotesk } from "next/font/google";
 import "./globals.css";
 
 import { MemberBlade } from "@/components/MemberBlade";
+import { SiteHeader } from "@/components/SiteHeader";
 import { MapWorkspaceProvider } from "@/lib/map-workspace";
 import { MemberBladeProvider } from "@/lib/member-blade";
 import { ZipProvider } from "@/lib/zip-context";
@@ -63,7 +64,12 @@ export default function RootLayout({
       <body>
         <MapWorkspaceProvider>
           <MemberBladeProvider>
-            <ZipProvider>{children}</ZipProvider>
+            <ZipProvider>
+              {/* Mounted once here so the header, its search and menu survive
+                  navigation instead of remounting with every page. */}
+              <SiteHeader />
+              {children}
+            </ZipProvider>
             <MemberBlade />
           </MemberBladeProvider>
         </MapWorkspaceProvider>

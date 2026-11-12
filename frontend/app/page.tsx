@@ -1,5 +1,4 @@
 import { CongressExplorer } from "@/components/CongressExplorer";
-import { SiteHeader } from "@/components/SiteHeader";
 import { serverApiBase, type ChamberSummary, type CongressMap } from "@/lib/api";
 
 // Rendered on demand — the backend isn't reachable during the image build, so
@@ -45,21 +44,15 @@ export default async function HomePage() {
 
   if (!map) {
     return (
-      <>
-        <SiteHeader />
-        <main>
-          <LoadingSkeleton />
-        </main>
-      </>
+      <main>
+        <LoadingSkeleton />
+      </main>
     );
   }
 
   return (
-    <>
-      <SiteHeader />
-      <main>
-        <CongressExplorer map={map} summary={summary} />
-      </main>
-    </>
+    <main>
+      <CongressExplorer map={map} summary={summary} />
+    </main>
   );
 }

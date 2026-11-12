@@ -15,7 +15,7 @@ export default function Error({
   reset: () => void;
 }) {
   return (
-    <main className="flex min-h-[70vh] flex-col items-center justify-center bg-slate-warm-50 px-6 text-center">
+    <main className="flex min-h-[70vh] flex-col items-center justify-center bg-slate-warm-50 px-6 pb-12 pt-28 text-center">
       <p className="font-mono text-sm font-semibold uppercase tracking-wider text-govred">Error</p>
       <h1 className="mt-3 font-display text-3xl font-bold tracking-tight text-govnavy sm:text-4xl">
         Something went wrong

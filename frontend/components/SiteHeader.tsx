@@ -2,33 +2,47 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { usePathname, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { BugReport } from "@/components/BugReport";
 import { HomeZipChip } from "@/components/HomeZipChip";
 import { UniversalSearch } from "@/components/UniversalSearch";
+import { SECTIONS, type Section } from "@/lib/sections";
 import { siteConfig } from "@/lib/site-config";
 import { useScrollLock } from "@/lib/use-scroll-lock";
 
-type NavItem = { label: string; href: string };
+const APP_NAV = SECTIONS.filter((s) => s.group === "workspace" && s.availability === "live");
+const PLANNED_NAV = SECTIONS.filter((s) => s.group === "workspace" && s.availability === "planned");
+const PROJECT_NAV = SECTIONS.filter((s) => s.group === "project");
 
-const APP_NAV: NavItem[] = [
-  { label: "Map", href: "/" },
-  { label: "Members", href: "/members" },
-  { label: "Bills", href: "/bills" },
-  { label: "Votes", href: "/votes" },
-];
-
-const PROJECT_NAV: NavItem[] = [
-  { label: "About GovMap", href: "/about" },
-  { label: "Support the project", href: "/support" },
-];
-
-// "/" would prefix-match every route, so the map is active only on itself.
-function isActive(pathname: string, href: string): boolean {
-  return href === "/" ? pathname === "/" : pathname.startsWith(href);
+/** The live section the URL belongs to. The most specific match wins, so
+ *  "/bills?status=became-law" highlights "Recently enacted laws", not "Bills". */
+function activeSectionId(
+  pathname: string,
+  search: { get(name: string): string | null },
+): string | null {
+  let best: { id: string; score: number } | null = null;
+  for (const s of SECTIONS) {
+    if (s.availability !== "live") continue;
+    const [path, query] = s.href.split("?");
+    let score: number;
+    if (query !== undefined) {
+      let matches = pathname === path;
+      new URLSearchParams(query).forEach((value, key) => {
+        if (search.get(key) !== value) matches = false;
+      });
+      if (!matches) continue;
+      score = path.length + 1000;
+    } else if (path === "/" ? pathname === "/" : pathname === path || pathname.startsWith(`${path}/`)) {
+      score = path.length;
+    } else {
+      continue;
+    }
+    if (!best || score > best.score) best = { id: s.id, score };
+  }
+  return best?.id ?? null;
 }
 
 function MenuIcon() {
@@ -57,9 +71,9 @@ function NavLink({
   active,
   onClick,
 }: {
-  item: NavItem;
+  item: Section;
   active: boolean;
-  onClick?: () => void;
+  onClick: () => void;
 }) {
   return (
     <Link
@@ -75,26 +89,79 @@ function NavLink({
   );
 }
 
+function SectionLinks({
+  sections,
+  activeId,
+  onNavigate,
+}: {
+  sections: readonly Section[];
+  activeId: string | null;
+  onNavigate: () => void;
+}) {
+  return (
+    <>
+      {sections.map((item) => (
+        <NavLink key={item.id} item={item} active={item.id === activeId} onClick={onNavigate} />
+      ))}
+    </>
+  );
+}
+
+// Reads the query string, so it sits behind a Suspense boundary.
+function ActiveSectionLinks({
+  sections,
+  onNavigate,
+}: {
+  sections: readonly Section[];
+  onNavigate: () => void;
+}) {
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  return (
+    <SectionLinks
+      sections={sections}
+      activeId={activeSectionId(pathname, searchParams)}
+      onNavigate={onNavigate}
+    />
+  );
+}
+
+function MenuSections({ sections, onNavigate }: { sections: readonly Section[]; onNavigate: () => void }) {
+  return (
+    <Suspense fallback={<SectionLinks sections={sections} activeId={null} onNavigate={onNavigate} />}>
+      <ActiveSectionLinks sections={sections} onNavigate={onNavigate} />
+    </Suspense>
+  );
+}
+
+/**
+ * The persistent app header, mounted once by the root layout so it survives
+ * navigation. Equal side tracks keep the search on the viewport's true center
+ * whatever the logo, ZIP chip or menu button widths are.
+ */
 export function SiteHeader() {
   const pathname = usePathname();
-  const [menuOpen, setMenuOpen] = useState(false);
-  const close = () => setMenuOpen(false);
+  // The menu belongs to the page it was opened on, so Back/Forward closes it.
+  const [openOn, setOpenOn] = useState<string | null>(null);
+  const menuOpen = openOn === pathname;
+  const close = () => setOpenOn(null);
   useScrollLock(menuOpen);
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setMenuOpen(false);
-    window.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("keydown", onKey);
+    if (!menuOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpenOn(null);
     };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, [menuOpen]);
 
   return (
     <header className="fixed inset-x-0 top-0 z-50 border-b border-white/10 bg-govnavy/80 backdrop-blur-lg">
-      <div className="relative flex w-full items-center justify-between gap-4 px-6 py-3.5">
+      <div className="flex w-full items-center justify-between gap-4 px-6 py-3.5 md:grid md:grid-cols-[minmax(12rem,1fr)_minmax(0,36rem)_minmax(12rem,1fr)]">
         <Link
           href={siteConfig.appUrl}
-          className="shrink-0"
+          className="shrink-0 justify-self-start"
           aria-label="GovMap.us home"
           onClick={close}
         >
@@ -108,24 +175,24 @@ export function SiteHeader() {
           />
         </Link>
 
-        {/* Universal search — prominent and centered on desktop. */}
-        <div className="hidden flex-1 justify-center px-4 md:flex">
-          <UniversalSearch className="w-full max-w-xl" />
+        <div className="hidden md:block">
+          <UniversalSearch className="w-full" shortcut />
         </div>
 
-        <div className="hidden shrink-0 sm:block">
-          <HomeZipChip />
+        <div className="flex shrink-0 items-center justify-end gap-3 justify-self-end">
+          <div className="hidden sm:block">
+            <HomeZipChip />
+          </div>
+          <button
+            type="button"
+            className="shrink-0 text-white"
+            aria-label={menuOpen ? "Close menu" : "Open menu"}
+            aria-expanded={menuOpen}
+            onClick={() => setOpenOn(menuOpen ? null : pathname)}
+          >
+            {menuOpen ? <CloseIcon /> : <MenuIcon />}
+          </button>
         </div>
-
-        <button
-          type="button"
-          className="shrink-0 text-white"
-          aria-label={menuOpen ? "Close menu" : "Open menu"}
-          aria-expanded={menuOpen}
-          onClick={() => setMenuOpen((v) => !v)}
-        >
-          {menuOpen ? <CloseIcon /> : <MenuIcon />}
-        </button>
       </div>
 
       {typeof document !== "undefined" &&
@@ -171,14 +238,27 @@ export function SiteHeader() {
                 <div className="mb-3 md:hidden">
                   <UniversalSearch onNavigate={close} />
                 </div>
-                {APP_NAV.map((item) => (
-                  <NavLink
-                    key={item.href}
-                    item={item}
-                    active={isActive(pathname, item.href)}
-                    onClick={close}
-                  />
-                ))}
+                <MenuSections sections={APP_NAV} onNavigate={close} />
+
+                <div className="mt-4 border-t border-white/10 pt-4">
+                  <p className="px-3 pb-1 text-xs font-semibold uppercase tracking-wider text-white/40">
+                    In development
+                  </p>
+                  {PLANNED_NAV.map((s) => (
+                    <Link
+                      key={s.id}
+                      href={s.href}
+                      onClick={close}
+                      className="flex items-center justify-between gap-3 rounded-md px-3 py-1.5 text-sm text-white/55 transition-colors hover:bg-white/5 hover:text-white/80"
+                    >
+                      <span>{s.label}</span>
+                      <span className="shrink-0 rounded-full border border-white/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white/45">
+                        Planned
+                      </span>
+                    </Link>
+                  ))}
+                </div>
+
                 <div className="mt-4 space-y-1 border-t border-white/10 pt-4">
                   <Link
                     href="/account"
@@ -200,14 +280,7 @@ export function SiteHeader() {
 
                 {/* Project links pinned to the bottom of the blade. */}
                 <div className="mt-auto flex flex-col gap-1 border-t border-white/10 pt-4">
-                  {PROJECT_NAV.map((item) => (
-                    <NavLink
-                      key={item.href}
-                      item={item}
-                      active={isActive(pathname, item.href)}
-                      onClick={close}
-                    />
-                  ))}
+                  <MenuSections sections={PROJECT_NAV} onNavigate={close} />
                   <p className="px-3 pt-3 text-xs text-white/40">{siteConfig.tagline}</p>
                 </div>
               </nav>

@@ -2,7 +2,6 @@ import { ChamberTabs } from "@/components/ChamberTabs";
 import { MemberAvatar } from "@/components/MemberAvatar";
 import { MemberLink } from "@/components/MemberLink";
 import { Reveal } from "@/components/Reveal";
-import { SiteHeader } from "@/components/SiteHeader";
 import { apiGet } from "@/lib/api";
 import { Suspense } from "react";
 
@@ -126,7 +125,6 @@ export default async function MembersPage({
 
   return (
     <>
-      <SiteHeader />
       <main className="bg-slate-warm-50 pb-20 pt-28">
         <div className="mx-auto max-w-7xl px-6">
           <Reveal>

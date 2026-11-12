@@ -6,7 +6,6 @@ import { BackLink, chamberLabel, EmptyState, formatDate, partyTextClass, Section
 import { MemberLink } from "@/components/MemberLink";
 import { PageSkeleton } from "@/components/PageSkeleton";
 import { Reveal } from "@/components/Reveal";
-import { SiteHeader } from "@/components/SiteHeader";
 import { apiGet, HttpError, type VoteDetail, type VotePosition } from "@/lib/api";
 import { externalHref } from "@/lib/safe-url.mjs";
 
@@ -190,7 +189,6 @@ export default async function VoteDetailPage({ params }: { params: Promise<{ vot
   const { voteId } = await params;
   return (
     <>
-      <SiteHeader />
       <main className="bg-slate-warm-50 pb-20 pt-28">
         <div className="mx-auto max-w-6xl px-6">
           <BackLink href="/votes">All Votes</BackLink>

@@ -1,18 +1,119 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 
 import { MemberLink } from "@/components/MemberLink";
 import { publicApiBase, type SearchResults } from "@/lib/api";
+import { useMemberBlade } from "@/lib/member-blade";
+import { matchSections } from "@/lib/sections";
 import { useHomeZip } from "@/lib/zip-context";
 
 /**
- * The platform's "search everything" box. Debounced, abortable typeahead over
- * /api/search; renders grouped results (members, bills, votes, committees) that
- * each navigate to a real detail page. Query is URL-encoded; results are React
- * text nodes (auto-escaped) — no innerHTML.
+ * The platform's command bar. One box sets your area (a ZIP), jumps to any
+ * section, and searches members, bills, votes and committees. It's an ARIA
+ * combobox: ↑/↓ move through every suggestion, Enter opens the highlighted one
+ * (the first, until you choose), Escape closes. Record search is debounced
+ * and abortable; the query is URL-encoded and results render as escaped text.
  */
+
+type OptionGroup = "zip" | "sections" | "members" | "bills" | "votes" | "committees";
+
+type Option =
+  | { kind: "zip"; group: "zip"; key: string; zip: string }
+  | { kind: "member"; group: "members"; key: string; bioguide: string; label: string; meta: string }
+  | {
+      kind: "link";
+      group: Exclude<OptionGroup, "zip" | "members">;
+      key: string;
+      href: string;
+      label: string;
+      meta?: string;
+      description?: string;
+      planned?: boolean;
+      mono?: boolean;
+    };
+
+type RecordState = { term: string; results: SearchResults | null; errored: boolean };
+
+const GROUP_LABELS: Record<OptionGroup, string> = {
+  zip: "Your area",
+  sections: "Sections",
+  members: "Members",
+  bills: "Bills",
+  votes: "Votes",
+  committees: "Committees",
+};
+
+const ZIP_PATTERN = /^\d{5}$/;
+
+function recordOptions(results: SearchResults): Option[] {
+  return [
+    ...results.members.map(
+      (m): Option => ({
+        kind: "member",
+        group: "members",
+        key: `member:${m.bioguide_id}`,
+        bioguide: m.bioguide_id,
+        label: m.official_full_name,
+        meta: `${m.in_office === false ? "Former · " : ""}${m.party?.slice(0, 1) ?? ""} · ${m.state}`,
+      }),
+    ),
+    ...results.bills.map((b): Option => {
+      const code = `${b.bill_type.toUpperCase()} ${b.number}`;
+      return {
+        kind: "link",
+        group: "bills",
+        key: `bill:${b.bill_id}`,
+        href: `/bills/${b.bill_id}`,
+        label: b.title ?? code,
+        meta: code,
+        mono: true,
+      };
+    }),
+    ...results.votes.map(
+      (v): Option => ({
+        kind: "link",
+        group: "votes",
+        key: `vote:${v.vote_id}`,
+        href: `/votes/${v.vote_id}`,
+        label: v.question ?? v.vote_id,
+        meta: v.result ?? undefined,
+      }),
+    ),
+    ...results.committees.map(
+      (c): Option => ({
+        kind: "link",
+        group: "committees",
+        key: `committee:${c.committee_id}`,
+        href: `/committees/${c.committee_id}`,
+        label: c.name,
+      }),
+    ),
+  ];
+}
+
+function groupOptions(options: readonly Option[], firstIndex = 0) {
+  const groups: { group: OptionGroup; items: { option: Option; index: number }[] }[] = [];
+  options.forEach((option, i) => {
+    const last = groups[groups.length - 1];
+    const item = { option, index: firstIndex + i };
+    if (last && last.group === option.group) last.items.push(item);
+    else groups.push({ group: option.group, items: [item] });
+  });
+  return groups;
+}
+
+function isEditable(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  return (
+    target.isContentEditable ||
+    target.tagName === "INPUT" ||
+    target.tagName === "TEXTAREA" ||
+    target.tagName === "SELECT"
+  );
+}
 
 function SearchIcon() {
   return (
@@ -28,274 +129,398 @@ function SearchIcon() {
 
 function Spinner() {
   return (
-    <svg
-      className="h-6 w-6 animate-spin text-slate-400"
-      xmlns="http://www.w3.org/2000/svg"
-      fill="none"
-      viewBox="0 0 24 24"
-    >
-      <circle
-        className="opacity-25"
-        cx="12"
-        cy="12"
-        r="10"
-        stroke="currentColor"
-        strokeWidth="4"
-      ></circle>
+    <svg className="h-4 w-4 animate-spin text-slate-400" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
       <path
         className="opacity-75"
         fill="currentColor"
         d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-      ></path>
+      />
     </svg>
   );
 }
 
-function isEmpty(r: SearchResults | null): boolean {
-  if (!r) return true;
-  // Only the result arrays — not the `query` string field.
+function OptionBody({ option }: { option: Option }) {
+  if (option.kind === "zip") {
+    return (
+      <>
+        <span aria-hidden="true">📍</span>
+        <span className="font-semibold text-white">Set {option.zip} as your area</span>
+        <span className="ml-auto shrink-0 text-xs text-slate-400">find your reps →</span>
+      </>
+    );
+  }
+  if (option.kind === "link" && option.group === "sections") {
+    return (
+      <>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate font-semibold text-white">{option.label}</span>
+          {option.description && (
+            <span className="block truncate text-xs text-slate-400">{option.description}</span>
+          )}
+        </span>
+        {option.planned ? (
+          <span className="shrink-0 rounded-full border border-white/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white/50">
+            Planned
+          </span>
+        ) : (
+          <span className="shrink-0 text-xs text-slate-500" aria-hidden="true">
+            →
+          </span>
+        )}
+      </>
+    );
+  }
   return (
-    r.members.length === 0 &&
-    r.bills.length === 0 &&
-    r.votes.length === 0 &&
-    r.committees.length === 0
+    <>
+      <span className={`truncate ${option.kind === "member" ? "font-semibold" : ""}`}>{option.label}</span>
+      {option.meta && (
+        <span
+          className={`ml-auto shrink-0 text-xs text-slate-400 ${
+            option.kind === "link" && option.mono ? "font-mono" : ""
+          }`}
+        >
+          {option.meta}
+        </span>
+      )}
+    </>
   );
 }
+
+const ROW_CLASS = "flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm transition-colors";
 
 export function UniversalSearch({
   className = "",
   onNavigate,
+  shortcut = false,
 }: {
   className?: string;
   onNavigate?: () => void;
+  /** Focus this box on "/" or Ctrl/⌘+K. Give it to one instance only. */
+  shortcut?: boolean;
 }) {
-  const [query, setQuery] = useState("");
-  const [results, setResults] = useState<SearchResults | null>(null);
-  const [open, setOpen] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [errored, setErrored] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const router = useRouter();
+  const pathname = usePathname();
+  const { open: openMember } = useMemberBlade();
   const { zip: homeZip, setHomeZip } = useHomeZip();
+  const baseId = useId();
+  const listId = `${baseId}-list`;
+  const optionId = (index: number) => `${baseId}-opt-${index}`;
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  // Debounced + abortable fetch.
+  const [query, setQuery] = useState("");
+  // The panel belongs to the page it was opened on, so Back/Forward closes it.
+  const [openOn, setOpenOn] = useState<string | null>(null);
+  const [activeKey, setActiveKey] = useState<string | null>(null);
+  const [records, setRecords] = useState<RecordState | null>(null);
+
+  const term = query.trim();
+  const searchable = term.length >= 2;
+  const open = openOn === pathname;
+  const zipQuery = ZIP_PATTERN.test(term) ? term : null;
+
+  // Debounced, abortable record search. State only changes once a response
+  // (or a real failure) lands; "loading" is derived from the term mismatch.
   useEffect(() => {
-    const term = query.trim();
-    if (term.length < 2) {
-      setResults(null);
-      setErrored(false);
-      setLoading(false);
-      return;
-    }
+    if (term.length < 2) return;
     const ctrl = new AbortController();
     const timer = setTimeout(async () => {
-      setLoading(true);
-      setErrored(false);
       try {
         const res = await fetch(`${publicApiBase}/api/search?q=${encodeURIComponent(term)}`, {
           signal: ctrl.signal,
         });
-        if (res.ok) setResults((await res.json()) as SearchResults);
-        else setErrored(true);
+        if (!res.ok) {
+          setRecords({ term, results: null, errored: true });
+          return;
+        }
+        setRecords({ term, results: (await res.json()) as SearchResults, errored: false });
       } catch (err) {
-        // Aborts (new keystroke / unmount) are expected — stay quiet; surface
-        // only real network failures so the panel doesn't read as "no results".
-        if ((err as Error)?.name !== "AbortError") setErrored(true);
-      } finally {
-        setLoading(false);
+        // Aborts (a newer keystroke, or unmount) are expected; only real
+        // network failures surface, so the panel never reads as "no results".
+        if ((err as Error)?.name !== "AbortError") setRecords({ term, results: null, errored: true });
       }
     }, 220);
     return () => {
       clearTimeout(timer);
       ctrl.abort();
     };
-  }, [query]);
+  }, [term]);
 
-  // Close on outside click.
+  const current = searchable && records?.term === term ? records : null;
+  const loading = searchable && current === null;
+  // While the next query loads, the previous results stay visible but inert,
+  // so Enter can never open a result for a query you've already changed.
+  const stale = loading && records?.results ? records.results : null;
+
+  const options: Option[] = [];
+  if (zipQuery) options.push({ kind: "zip", group: "zip", key: `zip:${zipQuery}`, zip: zipQuery });
+  if (!zipQuery) {
+    for (const s of matchSections(term, term ? 4 : 5)) {
+      options.push({
+        kind: "link",
+        group: "sections",
+        key: `section:${s.id}`,
+        href: s.href,
+        label: s.label,
+        description: s.description,
+        planned: s.availability === "planned",
+      });
+    }
+  }
+  if (current?.results) options.push(...recordOptions(current.results));
+
+  const chosen = activeKey === null ? -1 : options.findIndex((o) => o.key === activeKey);
+  const activeIndex = chosen >= 0 ? chosen : term && options.length > 0 ? 0 : -1;
+  const showPanel = open && (options.length > 0 || searchable);
+
+  const recordCount = current?.results
+    ? options.filter((o) => o.group !== "zip" && o.group !== "sections").length
+    : 0;
+  let status = "";
+  if (loading) status = "Searching…";
+  else if (current?.errored) status = "Search is unavailable right now — please try again.";
+  else if (current && recordCount === 0 && !zipQuery)
+    status = `No members, bills, votes or committees match “${term}”.`;
+
   useEffect(() => {
-    const onDown = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
+    if (!shortcut) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.isComposing) return;
+      const commandK = (e.key === "k" || e.key === "K") && (e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey;
+      const slash = e.key === "/" && !e.metaKey && !e.ctrlKey && !e.altKey && !isEditable(e.target);
+      if (!commandK && !slash) return;
+      const input = inputRef.current;
+      // Hidden (narrow layout) or behind a modal: leave the key alone.
+      if (!input || input.offsetParent === null) return;
+      input.focus();
+      if (document.activeElement !== input) return;
+      e.preventDefault();
+      input.select();
     };
-    document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
-  }, []);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [shortcut]);
 
-  const close = () => {
-    setOpen(false);
+  function finish() {
+    setQuery("");
+    setRecords(null);
+    setActiveKey(null);
+    setOpenOn(null);
+    inputRef.current?.blur();
     onNavigate?.();
-  };
-
-  const zipQuery = /^\d{5}$/.test(query.trim()) ? query.trim() : null;
-  const showPanel = open && query.trim().length >= 2;
+  }
 
   async function applyZip(zip: string) {
-    const ok = await setHomeZip(zip);
-    if (ok) {
-      setQuery("");
-      close();
+    if (await setHomeZip(zip)) finish();
+  }
+
+  function activate(option: Option) {
+    if (option.kind === "zip") {
+      void applyZip(option.zip);
+      return;
     }
+    if (option.kind === "member") openMember(option.bioguide);
+    else router.push(option.href);
+    finish();
+  }
+
+  function move(step: 1 | -1) {
+    // A closed panel reopens first, keeping its default highlight.
+    if (!showPanel) {
+      setOpenOn(pathname);
+      return;
+    }
+    if (options.length === 0) return;
+    const next =
+      activeIndex < 0
+        ? step === 1
+          ? 0
+          : options.length - 1
+        : (activeIndex + step + options.length) % options.length;
+    setActiveKey(options[next].key);
+    document.getElementById(optionId(next))?.scrollIntoView({ block: "nearest" });
+  }
+
+  function renderOption(option: Option, index: number) {
+    const active = index === activeIndex;
+    const shared = {
+      id: optionId(index),
+      role: "option" as const,
+      "aria-selected": active,
+      tabIndex: -1,
+      onMouseMove: () => setActiveKey(option.key),
+      className: `${ROW_CLASS} ${active ? "bg-white/10" : "hover:bg-white/5"}`,
+    };
+    if (option.kind === "zip") {
+      const { zip } = option;
+      return (
+        <div
+          key={option.key}
+          {...shared}
+          onClick={() => void applyZip(zip)}
+          className={`${shared.className} cursor-pointer`}
+        >
+          <OptionBody option={option} />
+        </div>
+      );
+    }
+    if (option.kind === "member") {
+      return (
+        <MemberLink key={option.key} bioguide={option.bioguide} onClick={finish} {...shared}>
+          <OptionBody option={option} />
+        </MemberLink>
+      );
+    }
+    return (
+      <Link key={option.key} href={option.href} onClick={finish} {...shared}>
+        <OptionBody option={option} />
+      </Link>
+    );
   }
 
   return (
-    <div ref={containerRef} className={`relative ${className}`}>
+    <div
+      className={`relative ${className}`}
+      onBlur={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOpenOn(null);
+      }}
+    >
       <form
+        role="search"
         className="group relative flex items-center"
         onSubmit={(e) => {
-          // A real form submit is the one reliable way the mobile keyboard's
-          // Go/Search key triggers an action — the desktop Enter-keydown path
-          // below doesn't dispatch consistently on soft keyboards, which is why
-          // entering a ZIP appeared to "do nothing" on mobile.
+          // A real submit is the one reliable path for the mobile keyboard's
+          // Go/Search key, so Enter is handled here rather than on keydown.
           e.preventDefault();
-          if (zipQuery) {
-            void applyZip(zipQuery);
-            inputRef.current?.blur();
-          }
+          const option = open && activeIndex >= 0 ? options[activeIndex] : null;
+          if (option) activate(option);
+          else if (zipQuery) void applyZip(zipQuery);
         }}
       >
-        <span className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-4">
+        <span className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-4 text-white/70">
           <SearchIcon />
         </span>
         <input
           ref={inputRef}
           type="search"
+          role="combobox"
           enterKeyHint="search"
+          autoComplete="off"
+          spellCheck={false}
           value={query}
+          aria-label="Search GovMap, jump to a section, or enter a ZIP code"
+          aria-expanded={showPanel}
+          aria-controls={listId}
+          aria-autocomplete="list"
+          aria-activedescendant={showPanel && activeIndex >= 0 ? optionId(activeIndex) : undefined}
           onChange={(e) => {
-            setQuery(e.target.value);
-            setOpen(true);
+            const next = e.target.value;
+            setQuery(next);
+            setActiveKey(null);
+            if (next.trim().length < 2) setRecords(null);
+            setOpenOn(pathname);
           }}
-          onFocus={() => setOpen(true)}
+          onFocus={() => setOpenOn(pathname)}
           onKeyDown={(e) => {
-            if (e.key === "Escape") {
-              setOpen(false);
-              (e.target as HTMLInputElement).blur();
-            } else if (e.key === "Enter" && zipQuery) {
+            if (e.key === "ArrowDown") {
               e.preventDefault();
-              void applyZip(zipQuery);
-              (e.target as HTMLInputElement).blur();
+              move(1);
+            } else if (e.key === "ArrowUp") {
+              e.preventDefault();
+              move(-1);
+            } else if (e.key === "Escape") {
+              // Also keeps the browser from clearing the field.
+              e.preventDefault();
+              if (showPanel) {
+                // Close just the suggestions, not the menu the box sits in.
+                e.stopPropagation();
+                setOpenOn(null);
+                setActiveKey(null);
+              } else {
+                e.currentTarget.blur();
+              }
             }
           }}
-          placeholder="Search — or enter your ZIP to set your area…"
-          aria-label="Search the platform, or enter a ZIP code"
-          className={`w-full rounded-full border border-white/20 bg-white/10 py-2.5 pl-11 pr-4 text-white/90 placeholder:text-white/60 transition-colors focus:border-white/50 focus:bg-white/20 focus:outline-none focus:ring-2 focus:ring-govblue/70 ${
-            homeZip ? "" : "ring-2 ring-govblue/50"
-          }`}
+          placeholder="Search or enter a ZIP…"
+          className={`w-full rounded-full border border-white/20 bg-white/10 py-2.5 pl-11 text-white/90 placeholder:text-white/60 transition-colors focus:border-white/50 focus:bg-white/20 focus:outline-none focus:ring-2 focus:ring-govblue/70 ${
+            shortcut ? "pr-4 md:pr-12" : "pr-4"
+          } ${homeZip ? "" : "ring-2 ring-govblue/50"}`}
         />
+        {shortcut && !query && (
+          <kbd
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-y-0 right-3 my-auto hidden h-6 items-center rounded-md border border-white/20 px-2 font-mono text-xs text-white/60 md:flex"
+          >
+            /
+          </kbd>
+        )}
       </form>
 
       {showPanel && (
-        <div className="absolute left-0 right-0 top-full z-50 mt-2 max-h-[70vh] overflow-y-auto rounded-xl border border-white/10 bg-govnavy-800/90 text-slate-200 shadow-2xl shadow-black/40 backdrop-blur-xl animate-slide-down-and-fade">
-          {zipQuery && (
-            <button
-              type="button"
-              onClick={() => void applyZip(zipQuery)}
-              className="flex w-full items-center gap-3 border-b border-white/10 px-4 py-3.5 text-left transition-colors hover:bg-white/5"
-            >
-              <span aria-hidden="true">📍</span>
-              <span className="text-sm font-semibold text-white">Set {zipQuery} as your area</span>
-              <span className="ml-auto text-xs text-slate-400">find your reps →</span>
-            </button>
-          )}
-          {isEmpty(results) ? (
-            zipQuery ? null : (
-              <div className="flex flex-col items-center gap-2 px-4 py-16 text-center text-sm text-slate-400">
-                {loading ? (
-                  <Spinner />
-                ) : errored ? (
-                  <p>Search is unavailable right now — please try again.</p>
-                ) : (
-                  <p>No results for “{query.trim()}”</p>
-                )}
-              </div>
-            )
-          ) : (
-            <div className="py-2">
-              {results!.members.length > 0 && (
-                <Group label="Members">
-                  {results!.members.map((m) => (
-                    <MemberLink
-                      key={m.bioguide_id}
-                      bioguide={m.bioguide_id}
-                      onClick={close}
-                      className="flex items-center justify-between gap-3 px-4 py-3 text-sm transition-colors hover:bg-white/5"
-                    >
-                      <span className="font-semibold">{m.official_full_name}</span>
-                      <span className="text-xs text-slate-400">
-                        {m.in_office === false && "Former · "}
-                        {m.party?.slice(0, 1)} · {m.state}
-                      </span>
-                    </MemberLink>
+        <div
+          // Keeps focus in the input while an option is pressed, so the panel
+          // can't close (on blur) before the click lands.
+          onMouseDown={(e) => e.preventDefault()}
+          className="absolute left-0 right-0 top-full z-50 mt-2 max-h-[70vh] overflow-y-auto rounded-xl border border-white/10 bg-govnavy-800/95 text-slate-200 shadow-2xl shadow-black/40 backdrop-blur-xl animate-slide-down-and-fade"
+        >
+          <div id={listId} role="listbox" aria-label="Search suggestions" className="py-1">
+            {groupOptions(options).map(({ group, items }) => (
+              <SuggestionGroup
+                key={group}
+                id={`${baseId}-group-${group}`}
+                label={group === "sections" && !term ? "Jump to" : GROUP_LABELS[group]}
+              >
+                {items.map(({ option, index }) => renderOption(option, index))}
+              </SuggestionGroup>
+            ))}
+          </div>
+
+          {stale && (
+            <div inert aria-hidden="true" className="opacity-40">
+              {groupOptions(recordOptions(stale)).map(({ group, items }) => (
+                <div key={group} className="border-t border-white/10 py-1">
+                  <p className="px-4 pb-1 pt-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
+                    {GROUP_LABELS[group]}
+                  </p>
+                  {items.map(({ option }) => (
+                    <div key={option.key} className={ROW_CLASS}>
+                      <OptionBody option={option} />
+                    </div>
                   ))}
-                </Group>
-              )}
-              {results!.bills.length > 0 && (
-                <Group label="Bills">
-                  {results!.bills.map((b) => (
-                    <Row key={b.bill_id} href={`/bills/${b.bill_id}`} onClick={close}>
-                      <span className="truncate">{b.title ?? `${b.bill_type.toUpperCase()} ${b.number}`}</span>
-                      <span className="shrink-0 font-mono text-xs text-slate-400">
-                        {b.bill_type.toUpperCase()} {b.number}
-                      </span>
-                    </Row>
-                  ))}
-                </Group>
-              )}
-              {results!.votes.length > 0 && (
-                <Group label="Votes">
-                  {results!.votes.map((v) => (
-                    <Row key={v.vote_id} href={`/votes/${v.vote_id}`} onClick={close}>
-                      <span className="truncate">{v.question ?? v.vote_id}</span>
-                      <span className="shrink-0 text-xs text-slate-400">{v.result ?? ""}</span>
-                    </Row>
-                  ))}
-                </Group>
-              )}
-              {results!.committees.length > 0 && (
-                <Group label="Committees">
-                  {results!.committees.map((c) => (
-                    <Row key={c.committee_id} href={`/committees/${c.committee_id}`} onClick={close}>
-                      <span className="truncate">{c.name}</span>
-                    </Row>
-                  ))}
-                </Group>
-              )}
+                </div>
+              ))}
             </div>
           )}
+
+          <p
+            role="status"
+            className={`flex items-center gap-2 px-4 text-sm text-slate-400 ${status ? "border-t border-white/10 py-3" : "sr-only"}`}
+          >
+            {loading && <Spinner />}
+            {status || (recordCount > 0 ? `${recordCount} matching records` : "")}
+          </p>
+
+          <p
+            aria-hidden="true"
+            className="hidden items-center gap-3 border-t border-white/10 px-4 py-2 text-[11px] text-slate-500 md:flex"
+          >
+            <span>↑↓ to move</span>
+            <span>↵ to open</span>
+            <span>esc to close</span>
+          </p>
         </div>
       )}
     </div>
   );
 }
 
-function Group({ label, children }: { label: string; children: ReactNode }) {
+function SuggestionGroup({ id, label, children }: { id: string; label: string; children: ReactNode }) {
   return (
-    <div className="border-b border-white/10 py-2 last:border-b-0">
-      <p className="px-4 pb-1 pt-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
+    <div role="group" aria-labelledby={id} className="border-b border-white/10 py-1 last:border-b-0">
+      <div id={id} role="presentation" className="px-4 pb-1 pt-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
         {label}
-      </p>
+      </div>
       {children}
     </div>
-  );
-}
-
-function Row({
-  href,
-  onClick,
-  children,
-}: {
-  href: string;
-  onClick: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <Link
-      href={href}
-      onClick={onClick}
-      className="flex items-center justify-between gap-3 px-4 py-3 text-sm transition-colors hover:bg-white/5"
-    >
-      {children}
-    </Link>
   );
 }
