@@ -321,6 +321,18 @@ same two folders.
   set a restart delay compatible with its start-rate limits. Verify behavior
   after a reboot; an enabled, active service does not prove that scheduled
   jobs or remote copies succeed.
+- **UI access**: the packaged service runs as root, and its UI can read and
+  restore any file and holds the destination credentials, so treat UI access
+  as root access. Keep the default loopback-only listener and open it through
+  an SSH tunnel (`ssh -N -L 8200:127.0.0.1:8200 <admin>@<host>`, then
+  `http://127.0.0.1:8200`). Do not use `--webservice-interface=any` or
+  `--webservice-allowed-hostnames=*`. Never leave `--webservice-password` in
+  `DAEMON_OPTS`: `ps` and `systemctl status` show the command line. To set or
+  change the password, add `DUPLICATI__WEBSERVICE_PASSWORD=<new>` to the
+  root-only (`600`) `/etc/default/duplicati`, restart once, then delete that
+  line and restart again; Duplicati keeps only a hash. Keeping
+  `--webservice-reset-jwt-config=true` in `DAEMON_OPTS` signs out existing
+  browser sessions at each start.
 - **Destination confidence**: Duplicati does not document how a failed
   copy to an additional destination affects the job result. A successful job
   and matching file timestamps alone do not prove that every destination has
