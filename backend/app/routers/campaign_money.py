@@ -1,5 +1,6 @@
 """Candidate-level FEC financial summaries, without donor-level assertions."""
 
+import logging
 from datetime import UTC, date, datetime
 from typing import Annotated, Literal
 
@@ -20,14 +21,21 @@ from app.schemas.campaign_money import (
     CandidateFinanceOut,
     CandidateMoneyDetailOut,
     CandidateMoneyListOut,
+    CandidateReceiptGeographyOut,
     CatalogMatchOut,
     CommitteeLinkOut,
     ReportingDateOut,
 )
+from app.services.campaign_identity import related_candidate_finances
 from app.services.candidate_identity import candidate_member_matches
+from app.services.fec_receipt_aggregates import (
+    FecAggregateUnavailableError,
+    candidate_receipt_geography,
+)
 from app.services.search import match_words
 from app.types import MAX_LIST_OFFSET
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/money", tags=["campaign money"])
 _MAX_REPORTING_DATES = 100
 
@@ -169,6 +177,38 @@ async def list_candidate_money(
     )
 
 
+@router.get(
+    "/candidates/{candidate_id}/receipt-geography",
+    response_model=CandidateReceiptGeographyOut,
+)
+async def candidate_receipt_geography_endpoint(
+    candidate_id: str = Path(pattern=r"^[HSP][A-Z0-9]{8}$"),
+    cycle: int = Query(default=settings.fec_cycle, ge=2000, le=2098, multiple_of=2),
+    db: AsyncSession = Depends(get_db),
+) -> CandidateReceiptGeographyOut:
+    if not settings.fec_api_key:
+        raise HTTPException(status_code=503, detail="FEC aggregate API key is not configured")
+    coverage = await _coverage(db, cycle)
+    if coverage is None:
+        raise HTTPException(status_code=404, detail="Candidate finance snapshot is not loaded")
+    candidate = (
+        await db.execute(
+            select(CandidateFinanceSummary.candidate_id).where(
+                CandidateFinanceSummary.finance_cycle == cycle,
+                CandidateFinanceSummary.candidate_id == candidate_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if candidate is None:
+        raise HTTPException(status_code=404, detail="Candidate finance record was not found")
+    await db.commit()
+    try:
+        return await candidate_receipt_geography(candidate_id, cycle)
+    except FecAggregateUnavailableError as exc:
+        logger.warning("FEC aggregate request failed for %s/%d", candidate_id, cycle)
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
 @router.get("/candidates/{candidate_id}", response_model=CandidateMoneyDetailOut)
 async def candidate_money_detail(
     candidate_id: str = Path(pattern=r"^[HSP][A-Z0-9]{8}$"),
@@ -241,6 +281,9 @@ async def candidate_money_detail(
         )
     ).scalars().all()
     member_matches = await candidate_member_matches(db, [candidate_id])
+    related_candidates = await related_candidate_finances(
+        db, candidate_id, member_matches[candidate_id]
+    )
     return CandidateMoneyDetailOut(
         generated_at=datetime.now(UTC),
         coverage=CampaignMoneyCoverageOut.model_validate(coverage),
@@ -248,6 +291,7 @@ async def candidate_money_detail(
             update={"member_match": member_matches[candidate_id]}
         ),
         catalog_match=CatalogMatchOut.model_validate(catalog) if catalog else None,
+        related_candidates=related_candidates,
         linkage_count=linkage_count,
         filtered_linkage_count=filtered_linkage_count,
         limit=limit,

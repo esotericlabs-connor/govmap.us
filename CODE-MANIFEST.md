@@ -4,6 +4,32 @@ What's been built, in what order, and what's next. This is a living log — add 
 
 ## Build log
 
+**Candidate receipt geography — on-demand FEC aggregate (awaiting CI/dev validation)**
+- Candidate finance detail can request FEC Schedule A aggregates grouped by
+  contributor-reported state. The view labels itemized-only coverage, excludes
+  unitemized amounts, reports source-record counts rather than unique people,
+  and does not claim state or district as verified residence.
+- This is a one-request, user-triggered adapter over the official FEC endpoint,
+  not a persisted dataset or scheduled national pipeline; amounts are parsed
+  directly as exact decimals and incomplete or conflicting pages fail visibly.
+  It does not retrieve donor identities. Local execution remains disabled;
+  CI and development checks are pending.
+
+**2026-11-13 — Candidate identities across finance cycles (awaiting CI/dev validation)**
+- Candidate-finance detail now enumerates the current FEC candidate ID and,
+  when the Bioguide match is unambiguous, other linked IDs. It links separately
+  loaded finance-cycle snapshots. The same snapshot read covers the crosswalk,
+  conflict checks and finance coverage. Missing summaries are not zero, and
+  crosswalk IDs are not proof of complete history, effective dates or ballot
+  status. Candidate totals are never added together.
+- Invalid or conflicting crosswalk IDs are withheld and counted; a missing or
+  ambiguous profile prevents related-ID matching but still shows loaded cycles
+  for the current candidate ID. This uses the existing
+  crosswalk and summary data, without a new source, schema migration or
+  expansion of individual-contributor data. API and PostgreSQL CI regressions
+  cover multiple IDs, loaded and unverified cycles, conflicts and invalid IDs.
+  Local execution remains disabled; CI and development checks are pending.
+
 **2026-11-13 — Compact list browsing (awaiting CI/dev validation)**
 - Replaced the large Elections and Campaign money filter forms with a compact
   local search/sort bar and collapsed additional filters. Search is debounced;

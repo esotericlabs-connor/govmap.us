@@ -26,6 +26,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -73,7 +74,7 @@ _CHAMBER_PREFIX = {"sen": "S", "rep": "H"}
 _session = requests.Session()
 
 
-def _fec_get(path: str, **params: Any) -> dict:
+def _fec_get(path: str, *, decimal_json: bool = False, **params: Any) -> dict:
     """GET one OpenFEC JSON page with backoff on 429/5xx. Errors carry the path
     only (no params) — and the key is a header — so nothing secret is logged.
     api.data.gov's default limit is ~1000 req/hr per key, so back off politely."""
@@ -119,7 +120,7 @@ def _fec_get(path: str, **params: Any) -> dict:
             # which parameter it rejected. No secret leaks: the key is a header,
             # and the body only echoes validation detail, not the key.
             raise RuntimeError(f"openfec {path} -> HTTP {status}: {text_excerpt(body, 300)}")
-        return json.loads(body)
+        return json.loads(body, parse_float=Decimal) if decimal_json else json.loads(body)
     raise RuntimeError(
         f"openfec {path} still failing after {_MAX_RETRIES} attempts (HTTP {last_status})"
     )

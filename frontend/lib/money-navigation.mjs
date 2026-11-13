@@ -50,15 +50,28 @@ export function moneyReturnHref(value, candidateId) {
 }
 
 /**
+ * @param {unknown} value
+ * @returns {string | null}
+ */
+export function safeMoneyDetailReturn(value) {
+  if (typeof value !== "string" || value.length > 2048 || /[\\\r\n#]/.test(value)
+    || !/^\/money\/[HSP][A-Z0-9]{8}(?:\?[^#]*)?$/.test(value)) return null;
+  return value;
+}
+
+/**
  * @param {string} candidateId
  * @param {number} cycle
  * @param {string} returnTo
+ * @param {string | null} [from]
  * @returns {string}
  */
-export function moneyCandidateHref(candidateId, cycle, returnTo) {
+export function moneyCandidateHref(candidateId, cycle, returnTo, from = null) {
   if (!supportsMoneyDetail(candidateId, cycle)) {
     throw new TypeError("Invalid candidate or finance cycle");
   }
   const query = new URLSearchParams({ cycle: String(cycle), returnTo: safeMoneyReturn(returnTo) });
+  const detailReturn = safeMoneyDetailReturn(from);
+  if (detailReturn) query.set("from", detailReturn);
   return `/money/${encodeURIComponent(candidateId)}?${query.toString()}`;
 }

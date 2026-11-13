@@ -15,6 +15,7 @@ import {
   moneyCandidateAnchor,
   moneyCandidateHref,
   moneyReturnHref,
+  safeMoneyDetailReturn,
   safeMoneyReturn,
   supportsMoneyDetail,
 } from "../lib/money-navigation.mjs";
@@ -92,6 +93,23 @@ test("candidate return links reject external or unrelated routes", () => {
     "/money?x=1\n",
   ]) {
     assert.equal(safeMoneyReturn(value), "/money");
+  }
+});
+
+test("related finance links retain a bounded, local previous candidate context", () => {
+  const from = "/money/H0CA00001?cycle=2026&related_candidates_q=2022&from=%2Fmoney%2FH0CA00003";
+  const target = new URL(
+    moneyCandidateHref("S0CA00001", 2022, "/money?state=CA", from),
+    "https://govmap.invalid",
+  );
+  assert.equal(target.searchParams.get("from"), from);
+  assert.equal(target.searchParams.get("returnTo"), "/money?state=CA");
+  for (const invalid of [
+    undefined, null, "//example.com/money/H0CA00001", "/money/H0CA00001#section",
+    "/money/H0CA00001/other", "/money/not-an-id", "/money/H0CA00001?x=1\n",
+    `/money/H0CA00001?x=${"x".repeat(2048)}`,
+  ]) {
+    assert.equal(safeMoneyDetailReturn(invalid), null);
   }
 });
 

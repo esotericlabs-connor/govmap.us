@@ -67,6 +67,10 @@ export type CampaignMoneyDetail = {
     state: string | null;
     district: string | null;
   } | null;
+  related_candidates?: {
+    candidates: { candidate_id: string; finance_cycles: number[] }[];
+    withheld_count: number;
+  } | null;
   linkage_count: number;
   filtered_linkage_count: number;
   limit: number;

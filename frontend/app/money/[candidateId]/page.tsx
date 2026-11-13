@@ -8,12 +8,15 @@ import { formatDate } from "@/components/DetailKit";
 import { PageBanner } from "@/components/PageBanner";
 import { ListToolbar } from "@/components/ListToolbar";
 import { ListPageLink } from "@/components/ListPageLink";
+import { LocalList } from "@/components/LocalList";
+import { RelatedCandidateLink } from "@/components/RelatedCandidateLink";
+import { ReceiptGeography } from "@/components/ReceiptGeography";
 import { apiGet, HttpError } from "@/lib/api";
 import type { CampaignMoneyCandidate, CampaignMoneyDetail } from "@/lib/campaign-money";
 import { classifyFreshness, parseFreshnessReferenceTime } from "@/lib/freshness.mjs";
 import { formatMeetingTime } from "@/lib/format";
 import { formatMoneyExact, maxPositiveMoney, moneyCents, moneyPercent } from "@/lib/money.mjs";
-import { moneyReturnHref, safeMoneyReturn } from "@/lib/money-navigation.mjs";
+import { moneyReturnHref, safeMoneyDetailReturn, safeMoneyReturn, supportsMoneyDetail } from "@/lib/money-navigation.mjs";
 import { readListQuery } from "@/lib/list-controls.mjs";
 
 export const dynamic = "force-dynamic";
@@ -164,6 +167,25 @@ async function loadDetail(
       || data.filtered_linkage_count < 0 || data.filtered_linkage_count > data.linkage_count) {
       throw new Error("Candidate finance returned an invalid filtered linkage count");
     }
+    if (data.related_candidates !== undefined) {
+      if (data.related_candidates === null
+        || !Number.isSafeInteger(data.related_candidates.withheld_count)
+        || data.related_candidates.withheld_count < 0
+        || !Array.isArray(data.related_candidates.candidates)
+        || data.related_candidates.candidates.some((related) =>
+          related === null || related === undefined || !Array.isArray(related.finance_cycles)
+          || !/^[HSP][A-Z0-9]{8}$/.test(related.candidate_id)
+          || new Set(related.finance_cycles).size !== related.finance_cycles.length
+          || related.finance_cycles.some((relatedCycle) =>
+            !supportsMoneyDetail(related.candidate_id, relatedCycle)))
+        || new Set(data.related_candidates.candidates.map((related) => related.candidate_id)).size
+          !== data.related_candidates.candidates.length
+        || !data.related_candidates.candidates.some((related) =>
+          related.candidate_id === data.candidate.candidate_id
+          && related.finance_cycles.includes(data.candidate.finance_cycle))) {
+        throw new Error("Candidate finance returned invalid related candidate records");
+      }
+    }
     const nowMs = parseFreshnessReferenceTime(data.generated_at);
     for (const key of ["receipts", "disbursements", "cash_on_hand", "debts"] as const) {
       moneyCents(data.candidate[key]);
@@ -195,6 +217,7 @@ export default async function CandidateMoneyPage({
     || (Boolean(rawCycle) && (cycle === undefined || cycle % 2 !== 0))
     || offset === undefined || browse.invalid;
   const returnTo = safeMoneyReturn(first(query.returnTo));
+  const detailReturn = safeMoneyDetailReturn(first(query.from));
   const response = invalid ? null : await loadDetail(candidateId, cycle, offset ?? 0, browse.q, browse.sort);
   const data = response && response !== "missing" ? response.data : null;
   const candidate = data?.candidate ?? null;
@@ -216,9 +239,14 @@ export default async function CandidateMoneyPage({
           )}
         </PageBanner>
         <div className="mx-auto max-w-6xl space-y-7 px-6 pt-8">
-          <Link className={`inline-block text-sm ${linkClass}`} href={moneyReturnHref(returnTo, candidateId)}>
-            ← Back to {returnTo.startsWith("/elections") ? "elections" : "campaign money"}
-          </Link>
+          <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm">
+            {detailReturn && (
+              <Link className={linkClass} href={detailReturn}>← Back to previous candidate</Link>
+            )}
+            <Link className={linkClass} href={moneyReturnHref(returnTo, candidateId)}>
+              ← Back to {returnTo.startsWith("/elections") ? "elections" : "campaign money"}
+            </Link>
+          </div>
           {invalid ? (
             <DataState kind="error" title="Invalid candidate or filters">
               Candidate IDs, finance cycles and page offsets must be valid.
@@ -268,6 +296,13 @@ export default async function CandidateMoneyPage({
                 <InflowChart candidate={candidate} />
               </Panel>
 
+              <Panel level={2} title="Itemized receipts by reported state" eyebrow="On-demand FEC aggregate">
+                <ReceiptGeography
+                  candidateId={candidate.candidate_id}
+                  financeCycle={candidate.finance_cycle}
+                />
+              </Panel>
+
               <Panel level={2} title="Reported financial details" eyebrow="Separate source fields">
                 <dl className="grid gap-x-8 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
                   {AMOUNTS.map((amount) => (
@@ -312,6 +347,79 @@ export default async function CandidateMoneyPage({
                     catalog. The independently resolved member-profile link above uses the
                     Bioguide crosswalk, not this catalog or a name match.
                   </p>
+                )}
+              </Panel>
+
+              <Panel level={2} title="Known candidate IDs and finance cycles" eyebrow="Bioguide crosswalk">
+                {data.related_candidates === undefined ? (
+                  <p className="text-sm text-ink-soft">Related candidate IDs are unavailable from this backend version.</p>
+                ) : data.related_candidates === null ? (
+                  <p role="alert" className="text-sm text-govred">Candidate ID coverage is invalid.</p>
+                ) : (
+                  <div className="space-y-4">
+                    <p className="text-sm leading-6 text-ink-soft">
+                      The current FEC ID is shown for every candidate. Additional IDs require
+                      an unambiguous match to the same Bioguide profile in the existing crosswalk.
+                      Different IDs can represent different offices or elections; the crosswalk
+                      may be incomplete. Available finance cycles are loaded snapshots, not proof
+                      of ballot access or complete history. Do not add candidate totals together.
+                    </p>
+                    {candidate.member_match?.status !== "matched" && (
+                      <p className="text-sm text-ink-soft">
+                        Other IDs are unavailable without an unambiguous linked GovMap member profile.
+                      </p>
+                    )}
+                    {data.related_candidates.withheld_count > 0 && (
+                      <p role="status" className="text-sm text-ink-soft">
+                        {data.related_candidates.withheld_count.toLocaleString()} invalid or
+                        conflicting crosswalk {data.related_candidates.withheld_count === 1 ? "ID was" : "IDs were"} withheld.
+                      </p>
+                    )}
+                    {data.related_candidates.candidates.length === 0 ? (
+                      <p className="text-sm text-ink-soft">No unambiguous candidate IDs are recorded in this crosswalk.</p>
+                    ) : (
+                      <LocalList
+                        id="related_candidates"
+                        label="Known candidate IDs"
+                        scope="Current ID and known crosswalk IDs only"
+                        items={data.related_candidates.candidates.map((related) => ({
+                          id: related.candidate_id,
+                          name: related.candidate_id,
+                          text: `${related.candidate_id} ${related.finance_cycles.join(" ")}`,
+                          content: (
+                            <div className="rounded-lg border border-line p-3 text-sm">
+                              <span className="font-mono font-semibold text-ink">{related.candidate_id}</span>
+                              {related.candidate_id === candidate.candidate_id && (
+                                <span className="ml-2 text-ink-soft">(current ID)</span>
+                              )}
+                              {related.finance_cycles.length > 0 ? (
+                                <span className="ml-3 text-ink-soft">
+                                  Loaded finance {related.finance_cycles.length === 1 ? "cycle" : "cycles"}:{" "}
+                                  {related.finance_cycles.map((relatedCycle, index) => (
+                                    <span key={relatedCycle}>
+                                      {index > 0 && ", "}
+                                      {related.candidate_id === candidate.candidate_id && relatedCycle === candidate.finance_cycle ? (
+                                        <span>{relatedCycle} (current)</span>
+                                      ) : (
+                                        <RelatedCandidateLink
+                                          className={linkClass}
+                                          candidateId={related.candidate_id}
+                                          cycle={relatedCycle}
+                                          returnTo={returnTo}
+                                        />
+                                      )}
+                                    </span>
+                                  ))}
+                                </span>
+                              ) : (
+                                <span className="ml-3 text-ink-soft">No finance summary currently loaded; this does not mean zero activity.</span>
+                              )}
+                            </div>
+                          ),
+                        }))}
+                      />
+                    )}
+                  </div>
                 )}
               </Panel>
 

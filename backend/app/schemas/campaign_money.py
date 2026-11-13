@@ -139,11 +139,65 @@ class CatalogMatchOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class RelatedCandidateOut(BaseModel):
+    candidate_id: str = Field(pattern=r"^[HSP][A-Z0-9]{8}$")
+    finance_cycles: list[Annotated[int, Field(ge=2000, le=2098, multiple_of=2)]]
+
+
+class RelatedCandidatesOut(BaseModel):
+    candidates: list[RelatedCandidateOut]
+    withheld_count: int = Field(ge=0)
+
+
+class FecScheduleAStateRaw(BaseModel):
+    candidate_id: str = Field(pattern=r"^[HSP][A-Z0-9]{8}$")
+    count: int = Field(ge=0)
+    cycle: int = Field(ge=1976, le=2100, multiple_of=2)
+    state: str | None = Field(default=None, max_length=2)
+    state_full: str | None = Field(default=None, max_length=100)
+    total: Amount
+
+    model_config = ConfigDict(extra="ignore", allow_inf_nan=False)
+
+
+class FecAggregatePaginationRaw(BaseModel):
+    count: int = Field(ge=0)
+    is_count_exact: bool | None = None
+    page: int | None = Field(default=None, ge=1)
+    pages: int | None = Field(default=None, ge=0)
+
+    model_config = ConfigDict(extra="ignore")
+
+
+class FecScheduleAStatePageRaw(BaseModel):
+    results: list[FecScheduleAStateRaw]
+    pagination: FecAggregatePaginationRaw
+
+    model_config = ConfigDict(extra="ignore")
+
+
+class CandidateReceiptStateOut(BaseModel):
+    state: str | None
+    state_full: str | None
+    receipt_count: int = Field(ge=0)
+    amount: Amount
+
+
+class CandidateReceiptGeographyOut(BaseModel):
+    candidate_id: str
+    finance_cycle: int
+    fetched_at: AwareDatetime
+    state_group_count: int = Field(ge=0)
+    source_count_exact: bool | None
+    states: list[CandidateReceiptStateOut]
+
+
 class CandidateMoneyDetailOut(BaseModel):
     generated_at: datetime
     coverage: CampaignMoneyCoverageOut
     candidate: CandidateFinanceOut
     catalog_match: CatalogMatchOut | None
+    related_candidates: RelatedCandidatesOut
     linkage_count: int
     filtered_linkage_count: int
     limit: int

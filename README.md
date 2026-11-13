@@ -114,6 +114,15 @@ considered, including older IDs from a different office and former members;
 names are never used to guess an identity. Unknown or conflicting matches
 remain explicitly unlinked. Profile links open in place and preserve the
 workspace underneath; matching does not depend on the Elections catalog refresh.
+Candidate-finance details also show the crosswalk's unambiguous FEC IDs and
+which finance-cycle summaries are loaded for each. The crosswalk may be
+incomplete; missing summaries do not mean zero activity, and different IDs or
+cycles must not be added together without reconciliation.
+The candidate detail also offers an on-demand FEC Schedule A aggregate by
+reported contributor state. It covers itemized receipts only; record counts
+are not unique contributors, reported states do not establish residence or
+district, and unitemized amounts are excluded. This view makes one shared-budget
+FEC request when explicitly loaded and does not store or expose donor identities.
 
 The main search and candidate filters accept partial words in any order:
 `CROCKETT jas` and `jas crockett` both match `Jasmine Crockett`. Every entered

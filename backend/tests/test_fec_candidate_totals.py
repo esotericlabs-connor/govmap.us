@@ -5,7 +5,7 @@ import json
 import os
 import zipfile
 from contextlib import nullcontext
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
 from unittest.mock import Mock, call
@@ -451,6 +451,82 @@ def test_atomic_money_snapshot_and_period_qualified_api(
                 assert detail.linkages[0].fec_election_year == 2026
                 assert detail.candidate.transfers_from_authorized == Decimal("0.01")
                 assert detail.candidate.member_match == matched
+                assert detail.related_candidates is not None
+                assert detail.related_candidates.model_dump() == {
+                    "candidates": [
+                        {"candidate_id": "H0CA00001", "finance_cycles": [2026]},
+                        {"candidate_id": "S0CA00001", "finance_cycles": []},
+                    ],
+                    "withheld_count": 0,
+                }
+
+            async with factory() as session:
+                crosswalk = await session.get(IdCrosswalk, "A000001")
+                assert crosswalk is not None
+                crosswalk.fec_ids = [
+                    "H0CA00001", "S0CA00001", "H0CA00002", "H0CA00003", "bad-id"
+                ]
+                session.add(
+                    Member(
+                        bioguide_id="B000002",
+                        first_name="Other",
+                        last_name="Member",
+                        official_full_name="Other Member",
+                        chamber="house",
+                        state="CA",
+                        party="Independent",
+                        term_start=date(2025, 1, 3),
+                        fec_candidate_ids=["H0CA00003"],
+                        in_office=True,
+                    )
+                )
+                await session.flush()
+                session.add(IdCrosswalk(bioguide_id="B000002", fec_ids=["H0CA00003"]))
+                session.add_all(
+                    [
+                        CandidateFinanceSummary(
+                            finance_cycle=2024, candidate_id="H0CA00002", office="H"
+                        ),
+                        CandidateFinanceSummary(
+                            finance_cycle=2022, candidate_id="H0CA00002", office="H"
+                        ),
+                        CampaignMoneyCoverage(
+                            finance_cycle=2022,
+                            complete=True,
+                            candidate_count=1,
+                            linkage_count=1,
+                            summary_sha256="a" * 64,
+                            linkage_sha256="b" * 64,
+                            snapshot_revision="c" * 64,
+                            fetched_at=datetime.fromisoformat("2022-11-12T07:00:00+00:00"),
+                        ),
+                    ]
+                )
+                await session.commit()
+
+            async with factory() as session:
+                detail = await candidate_money_detail(
+                    candidate_id="H0CA00001", cycle=2026, limit=50, offset=0, db=session
+                )
+                assert detail.related_candidates is not None
+                assert detail.model_dump(mode="json")["related_candidates"] == {
+                    "candidates": [
+                        {"candidate_id": "H0CA00001", "finance_cycles": [2026]},
+                        {"candidate_id": "H0CA00002", "finance_cycles": [2026, 2022]},
+                        {"candidate_id": "S0CA00001", "finance_cycles": []},
+                    ],
+                    "withheld_count": 2,
+                }
+            async with factory() as session:
+                ambiguous = await candidate_money_detail(
+                    candidate_id="H0CA00003", cycle=2026, limit=50, offset=0, db=session
+                )
+                assert ambiguous.candidate.member_match is not None
+                assert ambiguous.candidate.member_match.status == "ambiguous"
+                assert ambiguous.related_candidates.model_dump() == {
+                    "candidates": [{"candidate_id": "H0CA00003", "finance_cycles": [2026]}],
+                    "withheld_count": 0,
+                }
 
             async with factory() as session:
                 filtered = await candidate_money_detail(
