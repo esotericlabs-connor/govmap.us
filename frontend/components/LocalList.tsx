@@ -62,12 +62,12 @@ export function LocalList({
       console.error("List controls could not save navigation state", error);
       setHistoryError(true);
     }
-  }, []);
+  }, [setHistoryError]);
 
   const update = useCallback((key: string, value: string) => {
     if (key === "q") setSearch((current) => ({ ...current, submitted: value }));
     replaceQuery(localListQuery(window.location.search, id, key, value));
-  }, [id, replaceQuery]);
+  }, [id, replaceQuery, setSearch]);
 
   useEffect(() => {
     if (search.draft === q) return;
