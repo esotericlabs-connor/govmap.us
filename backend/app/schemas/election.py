@@ -3,6 +3,8 @@ from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, StrictBool, model_validator
 
+from app.schemas.member import CandidateMemberMatchOut
+
 ElectionOffice = Literal["H", "S", "P"]
 
 
@@ -72,6 +74,7 @@ class ElectionCandidateOut(BaseModel):
     cycles: list[int]
     election_years: list[int]
     principal_committees: list[FecPrincipalCommitteeRaw]
+    member_match: CandidateMemberMatchOut | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { LocalList } from "@/components/LocalList";
 import { Suspense, type ReactNode } from "react";
 
 import { ChartFigure, type LegendItem } from "@/components/dashboard/ChartFigure";
@@ -292,10 +293,22 @@ function MeetingsPanel({ meetings, source }: { meetings: OverviewMeeting[]; sour
           <DataState kind="missing">Committee schedules haven’t loaded yet.</DataState>
         )
       ) : (
-        <ol className="divide-y divide-line">
-          {meetings.map((m) => {
+        <LocalList
+          id="overview-meetings"
+          label="Upcoming meetings"
+          scope="Searches the overview's loaded meeting subset"
+          groupLabel="chambers"
+          as="ol"
+          className="divide-y divide-line"
+          items={meetings.map((m) => {
             const flagged = m.status && m.status !== "Scheduled" ? m.status : null;
-            return (
+            return {
+              id: m.event_id,
+              name: m.title ?? m.committee_name,
+              date: m.starts_at,
+              group: m.chamber,
+              text: `${m.title ?? ""} ${m.committee_name} ${m.chamber ?? ""} ${m.meeting_type ?? ""} ${m.status ?? ""}`,
+              content: (
               <li
                 key={m.event_id}
                 className="flex flex-col gap-1 py-3 first:pt-0 last:pb-0 sm:flex-row sm:items-start sm:gap-5"
@@ -323,9 +336,10 @@ function MeetingsPanel({ meetings, source }: { meetings: OverviewMeeting[]; sour
                   )}
                 </div>
               </li>
-            );
+              ),
+            };
           })}
-        </ol>
+        />
       )}
       <p className="mt-4 text-xs text-ink-muted">
         Eastern time, status as published. Source: {source?.publisher ?? "Congress.gov"}.

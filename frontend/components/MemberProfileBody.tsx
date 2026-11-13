@@ -13,6 +13,7 @@ import {
 } from "@/components/DetailKit";
 import { FinanceCard } from "@/components/FinanceCard";
 import { MemberAvatar } from "@/components/MemberAvatar";
+import { LocalList } from "@/components/LocalList";
 import type { MemberDetail } from "@/lib/api";
 import { externalHref } from "@/lib/safe-url.mjs";
 
@@ -144,8 +145,16 @@ export function MemberProfileBody({
             {member.committees.length === 0 ? (
               <EmptyState>No committee assignments on record.</EmptyState>
             ) : (
-              <ul className="-my-3 divide-y divide-slate-warm-100">
-                {member.committees.map((c) => (
+              <LocalList
+                id={`committees-${member.bioguide_id}`}
+                label="Committee assignments"
+                as="ul"
+                className="divide-y divide-line"
+                items={member.committees.map((c) => ({
+                  id: c.committee_id,
+                  name: c.name,
+                  text: `${c.name} ${c.committee_id} ${c.role ?? ""}`,
+                  content: (
                   <li key={c.committee_id} className="flex items-center justify-between gap-4 py-3">
                     <Link
                       href={`/committees/${c.committee_id}`}
@@ -159,8 +168,9 @@ export function MemberProfileBody({
                       </span>
                     )}
                   </li>
-                ))}
-              </ul>
+                  ),
+                }))}
+              />
             )}
           </Section>
 
@@ -168,8 +178,18 @@ export function MemberProfileBody({
             {member.sponsored_bills.length === 0 ? (
               <EmptyState>No bills sponsored in the current Congress.</EmptyState>
             ) : (
-              <ul className="-my-3 divide-y divide-slate-warm-100">
-                {member.sponsored_bills.map((b) => (
+              <LocalList
+                id={`sponsored-${member.bioguide_id}`}
+                label="Sponsored bills"
+                scope={`Searches the ${member.sponsored_bills.length} loaded recent bills of ${member.sponsored_bills_total} total`}
+                as="ul"
+                className="divide-y divide-line"
+                items={member.sponsored_bills.map((b) => ({
+                  id: b.bill_id,
+                  name: b.title,
+                  date: b.introduced_date,
+                  text: `${b.title ?? ""} ${b.bill_id} ${b.bill_type} ${b.number} ${b.latest_action ?? ""}`,
+                  content: (
                   <li key={b.bill_id} className="py-3.5">
                     <Link href={`/bills/${b.bill_id}`} className="group block">
                       <p className="font-semibold text-slate-800 transition-colors group-hover:text-govblue">
@@ -185,8 +205,9 @@ export function MemberProfileBody({
                       </div>
                     </Link>
                   </li>
-                ))}
-              </ul>
+                  ),
+                }))}
+              />
             )}
           </Section>
         </div>
@@ -195,8 +216,20 @@ export function MemberProfileBody({
           {member.voting_record.length === 0 ? (
             <EmptyState>No votes loaded yet for this member.</EmptyState>
           ) : (
-            <ul className="-my-2 divide-y divide-slate-warm-100">
-              {member.voting_record.map((v) => (
+            <LocalList
+              id={`voting-${member.bioguide_id}`}
+              label="Recent votes"
+              scope="Searches the loaded recent voting record only"
+              groupLabel="positions"
+              as="ul"
+              className="divide-y divide-line"
+              items={member.voting_record.map((v) => ({
+                id: v.vote_id,
+                name: v.question ?? v.vote_id,
+                date: v.date,
+                group: v.position,
+                text: `${v.question ?? ""} ${v.vote_id} ${v.bill_id ?? ""} ${v.result ?? ""} ${v.position ?? ""}`,
+                content: (
                 <li key={v.vote_id} className="flex flex-wrap items-center justify-between gap-4 py-3">
                   <Link href={`/votes/${v.vote_id}`} className="group min-w-0">
                     <p className="font-semibold text-slate-800 transition-colors group-hover:text-govblue">
@@ -212,8 +245,9 @@ export function MemberProfileBody({
                     <PositionPill position={v.position} />
                   </div>
                 </li>
-              ))}
-            </ul>
+                ),
+              }))}
+            />
           )}
         </Section>
       </div>

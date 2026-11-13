@@ -59,14 +59,15 @@ export function ThemeToggle() {
 }
 
 /** Menu control: System, Light or Dark. System follows the device setting. */
-export function ThemeMenuChoice() {
+export function ThemeMenuChoice({ tone = "chrome" }: { tone?: "chrome" | "panel" }) {
   const state = useTheme();
+  const panel = tone === "panel";
   return (
-    <fieldset className="px-3">
-      <legend className="pb-2 text-xs font-semibold uppercase tracking-wider text-white/40">
+    <fieldset className={panel ? "" : "px-3"}>
+      <legend className={`pb-2 text-xs font-semibold uppercase tracking-wider ${panel ? "text-ink-muted" : "text-white/40"}`}>
         Theme
       </legend>
-      <div className="grid grid-cols-3 gap-1 rounded-lg border border-white/10 bg-white/5 p-1">
+      <div className={`grid grid-cols-3 gap-1 rounded-lg border p-1 ${panel ? "border-line bg-sunken" : "border-white/10 bg-white/5"}`}>
         {THEME_CHOICES.map((choice) => (
           <label key={choice} className="cursor-pointer">
             <input
@@ -78,7 +79,7 @@ export function ThemeMenuChoice() {
               onChange={() => setThemeChoice(choice)}
               className="peer sr-only"
             />
-            <span className="block rounded-md px-2 py-1.5 text-center text-sm font-medium text-white/65 transition-colors hover:text-white peer-checked:bg-white/15 peer-checked:text-white peer-focus-visible:ring-2 peer-focus-visible:ring-govblue">
+            <span className={`block rounded-md px-2 py-1.5 text-center text-sm font-medium transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-govblue ${panel ? "text-ink-soft hover:text-ink peer-checked:bg-panel peer-checked:text-ink peer-checked:shadow-sm" : "text-white/65 hover:text-white peer-checked:bg-white/15 peer-checked:text-white"}`}>
               {CHOICE_LABELS[choice]}
             </span>
           </label>

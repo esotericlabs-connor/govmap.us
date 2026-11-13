@@ -3,48 +3,17 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-import { BugReport } from "@/components/BugReport";
+import { AppSettings } from "@/components/AppSettings";
 import { HomeZipChip } from "@/components/HomeZipChip";
-import { ThemeMenuChoice, ThemeToggle } from "@/components/ThemeControls";
 import { UniversalSearch } from "@/components/UniversalSearch";
-import { SECTIONS, type Section } from "@/lib/sections";
+import { activeSectionId, NAVIGATION_GROUPS, SECTIONS, type Section } from "@/lib/sections";
 import { siteConfig } from "@/lib/site-config";
 import { useScrollLock } from "@/lib/use-scroll-lock";
 
-const APP_NAV = SECTIONS.filter((s) => s.group === "workspace" && s.availability === "live");
 const PLANNED_NAV = SECTIONS.filter((s) => s.group === "workspace" && s.availability === "planned");
-const PROJECT_NAV = SECTIONS.filter((s) => s.group === "project");
-
-/** The live section the URL belongs to. The most specific match wins, so
- *  "/bills?status=became-law" highlights "Recently enacted laws", not "Bills". */
-function activeSectionId(
-  pathname: string,
-  search: { get(name: string): string | null },
-): string | null {
-  let best: { id: string; score: number } | null = null;
-  for (const s of SECTIONS) {
-    if (s.availability !== "live") continue;
-    const [path, query] = s.href.split("?");
-    let score: number;
-    if (query !== undefined) {
-      let matches = pathname === path;
-      new URLSearchParams(query).forEach((value, key) => {
-        if (search.get(key) !== value) matches = false;
-      });
-      if (!matches) continue;
-      score = path.length + 1000;
-    } else if (path === "/" ? pathname === "/" : pathname === path || pathname.startsWith(`${path}/`)) {
-      score = path.length;
-    } else {
-      continue;
-    }
-    if (!best || score > best.score) best = { id: s.id, score };
-  }
-  return best?.id ?? null;
-}
 
 function MenuIcon() {
   return (
@@ -81,7 +50,7 @@ function NavLink({
       href={item.href}
       onClick={onClick}
       aria-current={active ? "page" : undefined}
-      className={`rounded-md px-3 py-2 text-base font-medium transition-colors ${
+      className={`block rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
         active ? "bg-white/10 text-white" : "text-white/70 hover:bg-white/5 hover:text-white"
       }`}
     >
@@ -143,19 +112,24 @@ function MenuSections({ sections, onNavigate }: { sections: readonly Section[]; 
 export function SiteHeader() {
   const pathname = usePathname();
   // The menu belongs to the page it was opened on, so Back/Forward closes it.
-  const [openOn, setOpenOn] = useState<string | null>(null);
-  const menuOpen = openOn === pathname;
-  const close = () => setOpenOn(null);
+  const [openOn, setOpenOn] = useState<{ pathname: string; panel: "navigation" | "settings" } | null>(null);
+  const menuOpen = openOn?.pathname === pathname && openOn.panel === "navigation";
+  const settingsOpen = openOn?.pathname === pathname && openOn.panel === "settings";
+  const close = useCallback(() => setOpenOn(null), []);
+  const dialogRef = useRef<HTMLDialogElement>(null);
   useScrollLock(menuOpen);
 
-  useEffect(() => {
-    if (!menuOpen) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpenOn(null);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+  useLayoutEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    if (menuOpen && !dialog.open) dialog.showModal();
+    else if (!menuOpen && dialog.open) dialog.close();
   }, [menuOpen]);
+
+  useEffect(() => {
+    window.addEventListener("popstate", close);
+    return () => window.removeEventListener("popstate", close);
+  }, [close]);
 
   return (
     <header className="fixed inset-x-0 top-0 z-50 border-b border-slate-warm-200 bg-white">
@@ -190,13 +164,19 @@ export function SiteHeader() {
           <div className="hidden sm:block">
             <HomeZipChip />
           </div>
-          <ThemeToggle />
+          <AppSettings
+            open={settingsOpen}
+            onToggle={() => setOpenOn(settingsOpen ? null : { pathname, panel: "settings" })}
+            onClose={close}
+          />
           <button
             type="button"
             className="shrink-0 text-govnavy"
             aria-label={menuOpen ? "Close menu" : "Open menu"}
             aria-expanded={menuOpen}
-            onClick={() => setOpenOn(menuOpen ? null : pathname)}
+            aria-controls="app-navigation"
+            aria-haspopup="dialog"
+            onClick={() => setOpenOn(menuOpen ? null : { pathname, panel: "navigation" })}
           >
             {menuOpen ? <CloseIcon /> : <MenuIcon />}
           </button>
@@ -205,30 +185,28 @@ export function SiteHeader() {
 
       {typeof document !== "undefined" &&
         createPortal(
-          <>
-            {/* Backdrop — always mounted so it fades; pointer-events off when
-                closed so it never blocks the page underneath. */}
-            <div
-              className={`chrome fixed inset-0 z-[55] bg-govnavy/70 backdrop-blur-sm transition-opacity duration-300 ${
-                menuOpen ? "opacity-100" : "pointer-events-none opacity-0"
-              }`}
-              onClick={close}
-              aria-hidden={true}
-            />
-            {/* Right-side blade. Portaled to <body> so no header styling (a
-                filter or transform makes a containing block for `fixed`) can
-                clip it; always mounted so the slide transition actually animates. */}
-            <div
-              className={`chrome fixed inset-y-0 right-0 z-[60] flex w-full max-w-[340px] transform flex-col border-l border-white/10 bg-govnavy/95 shadow-2xl transition-transform duration-300 ease-out ${
-                menuOpen ? "translate-x-0" : "translate-x-full"
-              }`}
-              aria-hidden={!menuOpen}
-              inert={!menuOpen}
+            <dialog
+              ref={dialogRef}
+              id="app-navigation"
+              aria-labelledby="app-navigation-title"
+              aria-modal="true"
+              onCancel={(event) => {
+                event.preventDefault();
+                close();
+              }}
+              onClick={(event) => {
+                if (event.target !== event.currentTarget) return;
+                const bounds = event.currentTarget.getBoundingClientRect();
+                if (event.clientX < bounds.left || event.clientX > bounds.right) close();
+              }}
+              className="navigation-dialog chrome fixed inset-y-0 left-auto right-0 m-0 h-dvh max-h-none w-full max-w-2xl overflow-hidden border-l border-white/10 bg-govnavy p-0 text-white shadow-2xl backdrop:bg-govnavy/70 backdrop:backdrop-blur-sm"
             >
-              <div className="flex items-center justify-between px-6 py-3.5">
-                <span className="text-sm font-semibold uppercase tracking-wider text-white/50">
-                  Menu
-                </span>
+            <div className="flex h-full flex-col">
+              <div className="flex items-center justify-between border-b border-white/10 px-6 py-5">
+                <div>
+                  <h2 id="app-navigation-title" className="font-display text-xl font-bold">Explore GovMap</h2>
+                  <p className="mt-1 text-xs text-white/50">Your government, organized.</p>
+                </div>
                 <button
                   type="button"
                   onClick={close}
@@ -239,19 +217,32 @@ export function SiteHeader() {
                 </button>
               </div>
               <nav
-                className="flex flex-1 flex-col gap-1 overflow-y-auto px-6 pb-6"
+                className="flex-1 overflow-y-auto overscroll-contain px-5 py-5"
                 aria-label="Primary"
               >
                 {/* Search here only where the centered bar is hidden (mobile). */}
                 <div className="mb-3 md:hidden">
                   <UniversalSearch tone="chrome" onNavigate={close} />
                 </div>
-                <MenuSections sections={APP_NAV} onNavigate={close} />
+                <div className="grid gap-6 sm:grid-cols-2">
+                  {NAVIGATION_GROUPS.map((group) => (
+                    <section key={group.id} aria-labelledby={`navigation-${group.id}`}>
+                      <h3 id={`navigation-${group.id}`} className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-wider text-govblue-400">
+                        {group.label}
+                      </h3>
+                      <MenuSections
+                        sections={SECTIONS.filter((section) => section.navigationGroup === group.id && section.availability === "live")}
+                        onNavigate={close}
+                      />
+                    </section>
+                  ))}
+                </div>
 
-                <div className="mt-4 border-t border-white/10 pt-4">
-                  <p className="px-3 pb-1 text-xs font-semibold uppercase tracking-wider text-white/40">
-                    In development
-                  </p>
+                <details className="mt-6 border-t border-white/10 pt-4">
+                  <summary className="cursor-pointer rounded-lg px-3 py-2 text-xs font-semibold uppercase tracking-wider text-white/50 hover:text-white">
+                    Coming next
+                  </summary>
+                  <div className="mt-2 grid gap-1 sm:grid-cols-2">
                   {PLANNED_NAV.map((s) => (
                     <Link
                       key={s.id}
@@ -265,38 +256,15 @@ export function SiteHeader() {
                       </span>
                     </Link>
                   ))}
-                </div>
-
-                <div className="mt-4 space-y-1 border-t border-white/10 pt-4">
-                  <Link
-                    href="/account"
-                    onClick={close}
-                    className="block rounded-md px-3 py-2 text-base font-medium text-white/80 transition-colors hover:bg-white/5"
-                  >
-                    Sign In
-                  </Link>
-                  <BugReport
-                    triggerClassName="block w-full rounded-md px-3 py-2 text-left text-base font-medium text-white/80 transition-colors hover:bg-white/5"
-                    triggerLabel="Report a problem"
-                  />
-                </div>
-                <div className="mt-4 border-t border-white/10 pt-4">
-                  <ThemeMenuChoice />
-                </div>
-                {/* Home-area chip lives in the bar on desktop; surface it here
-                    for mobile, where it's part of the app experience. */}
-                <div className="mt-4 border-t border-white/10 pt-4 sm:hidden">
-                  <HomeZipChip tone="chrome" />
-                </div>
-
-                {/* Project links pinned to the bottom of the blade. */}
-                <div className="mt-auto flex flex-col gap-1 border-t border-white/10 pt-4">
-                  <MenuSections sections={PROJECT_NAV} onNavigate={close} />
-                  <p className="px-3 pt-3 text-xs text-white/40">{siteConfig.tagline}</p>
-                </div>
+                  </div>
+                </details>
               </nav>
+              <div className="border-t border-white/10 px-8 py-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+                <p className="text-xs text-white/50">{siteConfig.tagline}</p>
+                <p className="mt-1 text-[11px] text-white/40">Theme, home area and feedback are in Settings in the header.</p>
+              </div>
             </div>
-          </>,
+            </dialog>,
           document.body,
         )}
     </header>

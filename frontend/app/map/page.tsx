@@ -1,5 +1,5 @@
 import { CongressExplorer } from "@/components/CongressExplorer";
-import { serverApiBase, type ChamberSummary, type CongressMap } from "@/lib/api";
+import { serverApiBase, type CongressMap } from "@/lib/api";
 
 // Rendered on demand — the backend isn't reachable during the image build, so
 // prerendering would fetch a dead host.
@@ -38,10 +38,7 @@ function LoadingSkeleton() {
 }
 
 export default async function MapPage() {
-  const [map, summary] = await Promise.all([
-    getJSON<CongressMap>("/api/map"),
-    getJSON<ChamberSummary>("/api/summary"),
-  ]);
+  const map = await getJSON<CongressMap>("/api/map");
 
   if (!map) {
     return (
@@ -53,7 +50,7 @@ export default async function MapPage() {
 
   return (
     <main>
-      <CongressExplorer map={map} summary={summary} />
+      <CongressExplorer map={map} />
     </main>
   );
 }

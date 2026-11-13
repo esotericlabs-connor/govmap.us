@@ -3,7 +3,10 @@ import { Suspense } from "react";
 
 import { chamberLabel, CodePill, EmptyState, formatDate } from "@/components/DetailKit";
 import { Reveal } from "@/components/Reveal";
+import { ListToolbar } from "@/components/ListToolbar";
+import { ListPageLink } from "@/components/ListPageLink";
 import { apiGet } from "@/lib/api";
+import { readListQuery } from "@/lib/list-controls.mjs";
 
 // Rendered on demand — the backend isn't reachable during the image build.
 export const dynamic = "force-dynamic";
@@ -31,11 +34,26 @@ function resultClass(result: string | null): string {
   return "text-slate-warm-600";
 }
 
-async function VoteList() {
+type BrowseQuery = ReturnType<typeof readListQuery>;
+
+function votePageHref(query: BrowseQuery, chamber: string, congress: string, offset: number): string {
+  const params = new URLSearchParams({ sort: query.sort });
+  if (query.q) params.set("q", query.q);
+  if (chamber) params.set("chamber", chamber);
+  if (congress) params.set("congress", congress);
+  if (offset) params.set("offset", String(offset));
+  return `/votes?${params}`;
+}
+
+async function VoteList({ query, chamber, congress }: { query: BrowseQuery; chamber: string; congress: string }) {
   let votes: VoteListItem[] = [];
   let loadError = false;
   try {
-    votes = await apiGet<VoteListItem[]>("/api/votes?limit=250");
+    const params = new URLSearchParams({ limit: "51", sort: query.sort, offset: String(query.offset) });
+    if (query.q) params.set("q", query.q);
+    if (chamber) params.set("chamber", chamber);
+    if (congress) params.set("congress", congress);
+    votes = await apiGet<VoteListItem[]>(`/api/votes?${params}`);
   } catch (err) {
     console.error(err);
     loadError = true;
@@ -53,14 +71,16 @@ async function VoteList() {
   if (votes.length === 0) {
     return (
       <div className="mt-10">
-        <EmptyState>No votes loaded yet.</EmptyState>
+        <EmptyState>No stored votes match on this page. Try another search, clear the filters or return to the first page.</EmptyState>
+        {query.offset > 0 && <ListPageLink className="text-sm font-semibold text-govblue-600" href={votePageHref(query, chamber, congress, 0)}>First page</ListPageLink>}
       </div>
     );
   }
 
   return (
     <div className="mt-10 space-y-4">
-      {votes.map((v, i) => (
+      <p role="status" className="text-sm text-ink-muted">Records {query.offset + 1}–{query.offset + Math.min(votes.length, 50)} · searches all stored votes</p>
+      {votes.slice(0, 50).map((v, i) => (
         <Reveal key={v.vote_id} delay={Math.min(i, 8) * 40}>
           <Link
             href={`/votes/${v.vote_id}`}
@@ -82,6 +102,10 @@ async function VoteList() {
           </Link>
         </Reveal>
       ))}
+      <nav aria-label="Vote pages" className="flex items-center gap-5 py-3 text-sm font-semibold text-govblue-600">
+        {query.offset > 0 && <ListPageLink href={votePageHref(query, chamber, congress, Math.max(0, query.offset - 50))}>Previous</ListPageLink>}
+        {votes.length > 50 && <ListPageLink href={votePageHref(query, chamber, congress, query.offset + 50)}>Next</ListPageLink>}
+      </nav>
     </div>
   );
 }
@@ -96,7 +120,13 @@ function VoteListSkeleton() {
   );
 }
 
-export default function VotesPage() {
+export default async function VotesPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  const params = await searchParams;
+  const query = readListQuery(params, ["recent", "oldest", "question"], "recent");
+  const chamber = typeof params.chamber === "string" ? params.chamber : "";
+  const congress = typeof params.congress === "string" ? params.congress : "";
+  const invalid = query.invalid || (!!chamber && chamber !== "house" && chamber !== "senate")
+    || (!!congress && (!/^\d+$/.test(congress) || Number(congress) < 1 || Number(congress) > 1000));
   return (
     <>
       <main className="bg-slate-warm-50 pb-20 pt-28">
@@ -109,9 +139,24 @@ export default function VotesPage() {
               The most recent recorded votes in the House and Senate.
             </p>
           </Reveal>
-          <Suspense fallback={<VoteListSkeleton />}>
-            <VoteList />
-          </Suspense>
+          <div className="mt-6">
+            <ListToolbar
+              label="Search votes"
+              searchPlaceholder="Question, bill ID, or result"
+              searchValue={query.q}
+              sortValue={query.sort}
+              sorts={[{ value: "recent", label: "Newest first" }, { value: "oldest", label: "Oldest first" }, { value: "question", label: "Question A-Z" }]}
+              fields={[
+                { name: "chamber", label: "Chamber", value: chamber, options: [{ value: "", label: "Both chambers" }, { value: "house", label: "House" }, { value: "senate", label: "Senate" }] },
+                { name: "congress", label: "Congress", type: "number", min: 1, max: 1000, value: congress },
+              ]}
+            />
+          </div>
+          {invalid ? <p role="alert" className="mt-6 text-govred">Invalid list filters. Clear filters or use a supported sort, chamber and Congress.</p> : (
+            <Suspense fallback={<VoteListSkeleton />}>
+              <VoteList query={query} chamber={chamber} congress={congress} />
+            </Suspense>
+          )}
         </div>
       </main>
     </>

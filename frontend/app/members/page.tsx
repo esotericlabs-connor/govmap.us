@@ -1,6 +1,7 @@
 import { ChamberTabs } from "@/components/ChamberTabs";
 import { MemberAvatar } from "@/components/MemberAvatar";
 import { MemberLink } from "@/components/MemberLink";
+import { LocalList } from "@/components/LocalList";
 import { Reveal } from "@/components/Reveal";
 import { apiGet } from "@/lib/api";
 import { Suspense } from "react";
@@ -61,8 +62,18 @@ async function MemberGrid({ chamber }: { chamber: Chamber | null }) {
   }
 
   return (
-    <div className="mt-10 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-      {members.map((member, i) => (
+    <div className="mt-6">
+      <LocalList
+        id="members"
+        label="Members"
+        groupLabel="parties"
+        className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
+        items={members.map((member, i) => ({
+          id: member.bioguide_id,
+          name: `${member.last_name}, ${member.first_name}`,
+          group: member.party,
+          text: `${member.official_full_name} ${member.first_name} ${member.last_name} ${member.bioguide_id} ${seatLabel(member)} ${member.party}`,
+          content: (
         <Reveal key={member.bioguide_id} delay={Math.min(i, 12) * 25}>
           <MemberLink
             bioguide={member.bioguide_id}
@@ -92,7 +103,9 @@ async function MemberGrid({ chamber }: { chamber: Chamber | null }) {
             </div>
           </MemberLink>
         </Reveal>
-      ))}
+          ),
+        }))}
+      />
     </div>
   );
 }

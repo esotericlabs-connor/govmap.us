@@ -1,10 +1,10 @@
 """Candidate-level FEC financial summaries, without donor-level assertions."""
 
 from datetime import UTC, date, datetime
-from typing import Literal
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -24,6 +24,8 @@ from app.schemas.campaign_money import (
     CommitteeLinkOut,
     ReportingDateOut,
 )
+from app.services.candidate_identity import candidate_member_matches
+from app.services.search import match_words
 from app.types import MAX_LIST_OFFSET
 
 router = APIRouter(prefix="/api/money", tags=["campaign money"])
@@ -52,6 +54,7 @@ async def list_candidate_money(
     through: date | None = None,
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0, le=MAX_LIST_OFFSET),
+    sort: Literal["receipts", "disbursements", "cash", "name", "name_desc"] = "receipts",
 ) -> CandidateMoneyListOut:
     if district is not None and (state is None or office != "H"):
         raise HTTPException(
@@ -84,13 +87,8 @@ async def list_candidate_money(
     if district is not None:
         filters.append(CandidateFinanceSummary.district == district)
     if q is not None and q.strip():
-        term = q.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-        pattern = f"%{term}%"
         filters.append(
-            or_(
-                CandidateFinanceSummary.name.ilike(pattern, escape="\\"),
-                CandidateFinanceSummary.candidate_id.ilike(pattern, escape="\\"),
-            )
+            match_words(q, CandidateFinanceSummary.name, CandidateFinanceSummary.candidate_id)
         )
 
     matching_count = (
@@ -134,14 +132,26 @@ async def list_candidate_money(
                 select(CandidateFinanceSummary)
                 .where(*selected_filters)
                 .order_by(
-                    CandidateFinanceSummary.receipts.desc().nulls_last(),
+                    {
+                        "receipts": CandidateFinanceSummary.receipts.desc().nulls_last(),
+                        "disbursements": CandidateFinanceSummary.disbursements.desc().nulls_last(),
+                        "cash": CandidateFinanceSummary.cash_on_hand.desc().nulls_last(),
+                        "name": CandidateFinanceSummary.name.asc().nulls_last(),
+                        "name_desc": CandidateFinanceSummary.name.desc().nulls_last(),
+                    }[sort],
                     CandidateFinanceSummary.candidate_id,
                 )
                 .offset(offset)
                 .limit(limit)
             )
         ).scalars().all()
-        candidates = [CandidateFinanceOut.model_validate(row) for row in rows]
+        member_matches = await candidate_member_matches(db, [row.candidate_id for row in rows])
+        candidates = [
+            CandidateFinanceOut.model_validate(row).model_copy(
+                update={"member_match": member_matches[row.candidate_id]}
+            )
+            for row in rows
+        ]
 
     return CandidateMoneyListOut(
         generated_at=generated_at,
@@ -166,6 +176,8 @@ async def candidate_money_detail(
     limit: int = Query(default=50, ge=1, le=100),
     offset: int = Query(default=0, ge=0, le=MAX_LIST_OFFSET),
     db: AsyncSession = Depends(get_db),
+    q: Annotated[str | None, Query(min_length=1, max_length=100)] = None,
+    sort: Literal["recent", "committee", "designation"] = "recent",
 ) -> CandidateMoneyDetailOut:
     coverage = await _coverage(db, cycle)
     if coverage is None:
@@ -197,12 +209,29 @@ async def candidate_money_detail(
             select(func.count()).select_from(CandidateCommitteeLink).where(*link_filter)
         )
     ).scalar_one()
+    filtered_links = list(link_filter)
+    if q is not None and q.strip():
+        filtered_links.append(
+            match_words(
+                q, CandidateCommitteeLink.committee_id,
+                CandidateCommitteeLink.designation, CandidateCommitteeLink.committee_type,
+            )
+        )
+    filtered_linkage_count = (
+        await db.execute(
+            select(func.count()).select_from(CandidateCommitteeLink).where(*filtered_links)
+        )
+    ).scalar_one()
     links = (
         await db.execute(
             select(CandidateCommitteeLink)
-            .where(*link_filter)
+            .where(*filtered_links)
             .order_by(
-                CandidateCommitteeLink.candidate_election_year.desc(),
+                {
+                    "recent": CandidateCommitteeLink.candidate_election_year.desc(),
+                    "committee": CandidateCommitteeLink.committee_id.asc().nulls_last(),
+                    "designation": CandidateCommitteeLink.designation.asc().nulls_last(),
+                }[sort],
                 CandidateCommitteeLink.designation,
                 CandidateCommitteeLink.committee_id,
                 CandidateCommitteeLink.linkage_id,
@@ -211,12 +240,16 @@ async def candidate_money_detail(
             .limit(limit)
         )
     ).scalars().all()
+    member_matches = await candidate_member_matches(db, [candidate_id])
     return CandidateMoneyDetailOut(
         generated_at=datetime.now(UTC),
         coverage=CampaignMoneyCoverageOut.model_validate(coverage),
-        candidate=CandidateFinanceOut.model_validate(candidate),
+        candidate=CandidateFinanceOut.model_validate(candidate).model_copy(
+            update={"member_match": member_matches[candidate_id]}
+        ),
         catalog_match=CatalogMatchOut.model_validate(catalog) if catalog else None,
         linkage_count=linkage_count,
+        filtered_linkage_count=filtered_linkage_count,
         limit=limit,
         offset=offset,
         linkages=[CommitteeLinkOut.model_validate(link) for link in links],

@@ -1,5 +1,5 @@
 import logging
-from typing import Literal
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import nullslast, select
@@ -11,6 +11,7 @@ from app.models.bill import Bill, BillAction, Cosponsor
 from app.models.member import Member
 from app.schemas.bill import BillOut
 from app.services.bill_enrich import BillTextChangedError, enrich_bill, get_bill_text
+from app.services.search import match_words
 from app.services.upstream import UpstreamCapacityError
 from app.types import MAX_LIST_OFFSET, BillId
 
@@ -36,6 +37,8 @@ async def list_bills(
     ),
     limit: int = Query(default=50, ge=1, le=250),
     offset: int = Query(default=0, ge=0, le=MAX_LIST_OFFSET),
+    q: Annotated[str | None, Query(min_length=1, max_length=100)] = None,
+    sort: Literal["recent", "oldest", "title", "number"] = "recent",
 ) -> list[Bill]:
     if status == "became_law":
         stmt = (
@@ -55,6 +58,15 @@ async def list_bills(
         stmt = stmt.where(Bill.sponsor_bioguide_id == sponsor)
     if policy_area:
         stmt = stmt.where(Bill.policy_area == policy_area)
+    if q is not None and q.strip():
+        stmt = stmt.where(match_words(q, Bill.title, Bill.bill_id, Bill.latest_action))
+    if sort != "recent":
+        ordering = {
+            "oldest": Bill.latest_action_date.asc().nulls_last(),
+            "title": Bill.title.asc().nulls_last(),
+            "number": Bill.number.asc(),
+        }
+        stmt = stmt.order_by(None).order_by(ordering[sort], Bill.bill_id)
     stmt = stmt.limit(limit).offset(offset)
 
     result = await db.execute(stmt)

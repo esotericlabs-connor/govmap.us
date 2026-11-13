@@ -2,6 +2,33 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { hemicycleSeats, seatRows } from "../lib/hemicycle.mjs";
+import { parseChamberSummary } from "../lib/chamber-summary.ts";
+
+test("the shared bar accepts populated or empty chamber summaries", () => {
+  for (const summary of [
+    { house: { D: 217, R: 221, I: 0, total: 438 }, senate: { D: 45, R: 53, I: 2, total: 100 } },
+    { house: { D: 0, R: 0, I: 0, total: 0 }, senate: { D: 0, R: 0, I: 0, total: 0 } },
+  ]) {
+    assert.deepEqual(parseChamberSummary(summary), summary);
+  }
+});
+
+test("invalid chamber responses fail explicitly rather than inventing zero counts", () => {
+  const house = { D: 217, R: 221, I: 0, total: 438 };
+  const senate = { D: 45, R: 53, I: 2, total: 100 };
+  for (const summary of [
+    null, [], {}, { house }, { house, senate: null },
+    { house: { ...house, D: "217" }, senate },
+    { house: { ...house, D: -1 }, senate },
+    { house: { ...house, D: 1.5 }, senate },
+    { house: { ...house, D: NaN }, senate },
+    { house: { ...house, total: Infinity }, senate },
+    { house: { ...house, total: 1001 }, senate },
+    { house, senate: { ...senate, total: 99 } },
+  ]) {
+    assert.throws(() => parseChamberSummary(summary), /invalid seat counts/);
+  }
+});
 
 test("row counts grow with the chamber and stay within bounds", () => {
   assert.equal(seatRows(0), 3);

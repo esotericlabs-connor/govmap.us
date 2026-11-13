@@ -1,3 +1,5 @@
+from typing import Annotated, Literal
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import nullslast, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -6,6 +8,7 @@ from app.db import get_db
 from app.models.member import Member
 from app.models.vote import Vote, VotePosition
 from app.schemas.vote import VoteOut
+from app.services.search import match_words
 from app.types import MAX_LIST_OFFSET, Chamber, VoteId
 
 router = APIRouter(prefix="/api/votes", tags=["votes"])
@@ -20,6 +23,8 @@ async def list_votes(
     bill_id: str | None = None,
     limit: int = Query(default=50, ge=1, le=250),
     offset: int = Query(default=0, ge=0, le=MAX_LIST_OFFSET),
+    q: Annotated[str | None, Query(min_length=1, max_length=100)] = None,
+    sort: Literal["recent", "oldest", "question"] = "recent",
 ) -> list[Vote]:
     # Most-recent first (newest date, then highest roll within a day).
     stmt = select(Vote).order_by(
@@ -33,6 +38,16 @@ async def list_votes(
         stmt = stmt.where(Vote.session == session)
     if bill_id:
         stmt = stmt.where(Vote.bill_id == bill_id)
+    if q is not None and q.strip():
+        stmt = stmt.where(match_words(q, Vote.question, Vote.vote_id, Vote.bill_id, Vote.result))
+    if sort == "oldest":
+        stmt = stmt.order_by(None).order_by(
+            Vote.date.asc().nulls_last(), Vote.chamber, Vote.roll_number, Vote.vote_id
+        )
+    elif sort == "question":
+        stmt = stmt.order_by(None).order_by(Vote.question.asc().nulls_last(), Vote.vote_id)
+    else:
+        stmt = stmt.order_by(Vote.vote_id)
     stmt = stmt.limit(limit).offset(offset)
 
     result = await db.execute(stmt)

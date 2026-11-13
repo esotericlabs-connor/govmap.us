@@ -21,7 +21,9 @@ from app.models.campaign_money import (
     CandidateCommitteeLink,
     CandidateFinanceSummary,
 )
+from app.models.crosswalk import IdCrosswalk
 from app.models.election import ElectionCandidate
+from app.models.member import Member
 from app.normalize import campaign_money as normalizer
 from app.pipelines import fec_candidate_totals as pipeline
 from app.routers.campaign_money import candidate_money_detail, list_candidate_money
@@ -284,6 +286,8 @@ _needs_postgres = pytest.mark.skipif(
     not os.environ.get("TEST_DATABASE_URL"), reason="isolated CI PostgreSQL only"
 )
 _TABLES = [
+    Member.__table__,
+    IdCrosswalk.__table__,
     CandidateFinanceSummary.__table__,
     CandidateCommitteeLink.__table__,
     CampaignMoneyCoverage.__table__,
@@ -324,6 +328,26 @@ def test_atomic_money_snapshot_and_period_qualified_api(
             assert await normalizer.load_campaign_money(staging) == 3
             async with factory() as session:
                 session.add(
+                    Member(
+                        bioguide_id="A000001",
+                        first_name="Different",
+                        last_name="Name",
+                        official_full_name="Different Profile Name",
+                        chamber="senate",
+                        state="CA",
+                        party="Independent",
+                        term_start=date(2025, 1, 3),
+                        fec_candidate_ids=["H0CA00001"],
+                        in_office=True,
+                    )
+                )
+                await session.flush()
+                session.add(
+                    IdCrosswalk(
+                        bioguide_id="A000001", fec_ids=["S0CA00001", "H0CA00001"]
+                    )
+                )
+                session.add(
                     ElectionCandidate(
                         finance_cycle=2026,
                         candidate_id="H0CA00001",
@@ -359,6 +383,12 @@ def test_atomic_money_snapshot_and_period_qualified_api(
                     "H0CA00001",
                 ]
                 assert result.model_dump(mode="json")["candidates"][0]["receipts"] == "100.02"
+                matched = result.candidates[1].member_match
+                assert matched is not None and matched.status == "matched"
+                assert matched.profile is not None
+                assert matched.profile.bioguide_id == "A000001"
+                unmatched = result.candidates[0].member_match
+                assert unmatched is not None and unmatched.status == "unmatched"
 
             async with factory() as session:
                 earlier = await list_candidate_money(
@@ -389,6 +419,26 @@ def test_atomic_money_snapshot_and_period_qualified_api(
                 )
                 assert literal.matching_count == 0
 
+            for query, expected in [
+                ("cand examp", 3),
+                ("EXAMP, cand", 3),
+                ("cand unknown", 0),
+                ("h0ca00001", 1),
+            ]:
+                async with factory() as session:
+                    found = await list_candidate_money(
+                        db=session,
+                        cycle=2026,
+                        office="H",
+                        state=None,
+                        district=None,
+                        q=query,
+                        through=None,
+                        limit=20,
+                        offset=0,
+                    )
+                    assert found.matching_count == expected
+
             async with factory() as session:
                 detail = await candidate_money_detail(
                     candidate_id="H0CA00001", cycle=2026, limit=50, offset=0, db=session
@@ -396,9 +446,28 @@ def test_atomic_money_snapshot_and_period_qualified_api(
                 assert detail.catalog_match is not None
                 assert detail.catalog_match.election_years == [2028]
                 assert detail.linkage_count == 1
+                assert detail.filtered_linkage_count == 1
                 assert detail.linkages[0].candidate_election_year == 2028
                 assert detail.linkages[0].fec_election_year == 2026
                 assert detail.candidate.transfers_from_authorized == Decimal("0.01")
+                assert detail.candidate.member_match == matched
+
+            async with factory() as session:
+                filtered = await candidate_money_detail(
+                    candidate_id="H0CA00001", cycle=2026, limit=1, offset=0,
+                    q="C99999999", sort="committee", db=session,
+                )
+                assert filtered.linkage_count == 1
+                assert filtered.filtered_linkage_count == 0
+                assert filtered.linkages == []
+
+            async with factory() as session:
+                named = await list_candidate_money(
+                    db=session, cycle=2026, office="H", state="CA", district="01",
+                    q=None, through=date(2026, 10, 14), sort="name", limit=1, offset=1,
+                )
+                assert named.filtered_count == 2
+                assert [row.candidate_id for row in named.candidates] == ["H0CA00002"]
 
             def fail_insert(_conn, _cursor, statement, _parameters, _context, _executemany) -> None:
                 if statement.startswith(f"INSERT INTO {fail_table}"):

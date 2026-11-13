@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { matchSections, normalizeQuery, SECTIONS } from "../lib/sections.ts";
+import {
+  activeSectionId, isWorkspacePath, matchSections, NAVIGATION_GROUPS, normalizeQuery, SECTIONS,
+} from "../lib/sections.ts";
 
 const ids = (sections) => sections.map((s) => s.id);
 const byId = (id) => SECTIONS.find((s) => s.id === id);
@@ -37,6 +39,8 @@ test("label matches outrank keyword matches", () => {
 
 test("every query word has to match", () => {
   assert.deepEqual(ids(matchSections("enacted laws")), ["laws"]);
+  assert.deepEqual(ids(matchSections("laws enacted")), ["laws"]);
+  assert.deepEqual(ids(matchSections("money campaign")), ids(matchSections("campaign money")));
   assert.deepEqual(matchSections("enacted zzzz"), []);
   assert.deepEqual(matchSections("qqqq"), []);
 });
@@ -94,4 +98,47 @@ test("the registry stays internally consistent", () => {
     assert.ok(s.label && s.description && s.keywords.length > 0, `${s.id} needs search text`);
     if (s.availability === "planned") assert.equal(s.href, "/about#coverage");
   }
+});
+
+test("the grouped menu includes each live destination once and separates planned work", () => {
+  const groups = NAVIGATION_GROUPS.map((group) => group.id);
+  assert.equal(new Set(groups).size, groups.length);
+  const live = SECTIONS.filter((section) => section.availability === "live");
+  const grouped = NAVIGATION_GROUPS.flatMap((group) =>
+    live.filter((section) => section.navigationGroup === group.id),
+  );
+  assert.deepEqual(ids(grouped).sort(), ids(live).sort());
+  for (const section of SECTIONS.filter((section) => section.availability === "planned")) {
+    assert.equal(section.navigationGroup, "planned");
+    assert.ok(!groups.includes(section.navigationGroup));
+  }
+});
+
+test("the shared bottom bar covers data workspaces and their nested records", () => {
+  for (const pathname of [
+    "/", "/map", "/members", "/members/C001124", "/members/C001124/donations",
+    "/bills", "/bills/hr1234-119", "/votes", "/votes/h119-2-1",
+    "/committees/HSAG", "/elections", "/money", "/money/H2TX30178", "/status",
+  ]) {
+    assert.equal(isWorkspacePath(pathname), true, pathname);
+  }
+  for (const pathname of [
+    "/about", "/support", "/security", "/privacy", "/account", "/not-found",
+    "/money-other", "/membership", "/status-other", "/api/summary",
+  ]) {
+    assert.equal(isWorkspacePath(pathname), false, pathname);
+  }
+});
+
+test("active navigation follows detail pages and query-specific destinations", () => {
+  const empty = new URLSearchParams();
+  assert.equal(activeSectionId("/", empty), "overview");
+  assert.equal(activeSectionId("/map", empty), "map");
+  assert.equal(activeSectionId("/members/C001124/donations", empty), "members");
+  assert.equal(activeSectionId("/money/H2TX30178", empty), "money");
+  assert.equal(activeSectionId("/status", empty), "status");
+  assert.equal(activeSectionId("/bills", new URLSearchParams("status=became-law")), "laws");
+  assert.equal(activeSectionId("/bills", new URLSearchParams("status=introduced")), "bills");
+  assert.equal(activeSectionId("/bills/hr1234-119", new URLSearchParams("status=became-law")), "bills");
+  assert.equal(activeSectionId("/money-other", empty), null);
 });

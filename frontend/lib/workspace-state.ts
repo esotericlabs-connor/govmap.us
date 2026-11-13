@@ -147,3 +147,22 @@ export function withMemberEntry(state: unknown, entry: MemberEntry | null): Reco
   else delete next[MEMBER_HISTORY_KEY];
   return next;
 }
+
+export function withListHistory(state: unknown, currentHref: string, nextHref: string): Record<string, unknown> {
+  const applicationState = { ...(isRecord(state) ? state : {}) };
+  // Next restores its markers itself. Passing them bypasses its native-history
+  // bridge, leaving useSearchParams (and the list controls) out of sync.
+  delete applicationState.__NA;
+  delete applicationState._N;
+  const entry = memberEntry(state, currentHref);
+  if (!entry) return applicationState;
+  const current = new URL(currentHref, "https://govmap.invalid");
+  const next = new URL(nextHref, "https://govmap.invalid");
+  const location = memberLocation(next.search);
+  if (current.origin !== next.origin || current.pathname !== next.pathname || !location
+    || location.member !== entry.member || location.view !== entry.view
+    || location.expanded !== entry.expanded) {
+    throw new Error("List controls cannot change the active member view.");
+  }
+  return withMemberEntry(applicationState, { ...entry, href: nextHref });
+}

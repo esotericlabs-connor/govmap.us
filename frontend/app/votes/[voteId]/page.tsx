@@ -4,6 +4,7 @@ import { Suspense } from "react";
 
 import { BackLink, chamberLabel, EmptyState, formatDate, partyTextClass, Section } from "@/components/DetailKit";
 import { MemberLink } from "@/components/MemberLink";
+import { LocalList } from "@/components/LocalList";
 import { PageSkeleton } from "@/components/PageSkeleton";
 import { Reveal } from "@/components/Reveal";
 import { apiGet, HttpError, type VoteDetail, type VotePosition } from "@/lib/api";
@@ -157,8 +158,18 @@ async function VoteDetailContent({ voteId }: { voteId: string }) {
               {positions.length === 0 ? (
                 <EmptyState>No members voted {groupKey}.</EmptyState>
               ) : (
-                <ul className="grid grid-cols-1 gap-x-8 gap-y-3 pt-2 md:grid-cols-2 xl:grid-cols-3">
-                  {positions.map((p) => (
+                <LocalList
+                  id={`positions-${groupKey.replaceAll(" ", "-")}`}
+                  label={`${TALLY_STYLES[groupKey]?.label ?? groupKey} members`}
+                  groupLabel="parties"
+                  as="ul"
+                  className="grid grid-cols-1 gap-x-8 gap-y-3 pt-2 md:grid-cols-2 xl:grid-cols-3"
+                  items={positions.map((p) => ({
+                    id: p.bioguide_id,
+                    name: p.official_full_name,
+                    group: p.party,
+                    text: `${p.official_full_name ?? ""} ${p.bioguide_id} ${p.party ?? ""} ${p.state ?? ""}`,
+                    content: (
                     <li key={p.bioguide_id}>
                       <MemberLink
                         bioguide={p.bioguide_id}
@@ -174,8 +185,9 @@ async function VoteDetailContent({ voteId }: { voteId: string }) {
                         </span>
                       </MemberLink>
                     </li>
-                  ))}
-                </ul>
+                    ),
+                  }))}
+                />
               )}
             </Section>
           </div>

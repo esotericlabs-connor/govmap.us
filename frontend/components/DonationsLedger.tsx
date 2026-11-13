@@ -147,7 +147,7 @@ export function DonationsLedger({
           onChange={(e) => setTerm(e.target.value)}
           placeholder="Search name, employer, or city…"
           aria-label="Search contributions"
-          className="w-full rounded-full border border-slate-warm-200 bg-white px-4 py-2.5 text-sm text-slate-800 outline-none focus:border-govblue focus:ring-2 focus:ring-govblue/30 sm:max-w-sm"
+          className="h-10 w-full rounded-lg border border-line bg-canvas px-3 text-sm text-ink outline-none focus:border-govblue-600 focus:ring-2 focus:ring-govblue-600/20 sm:max-w-sm"
         />
         <div className="flex flex-wrap items-center gap-3">
           {cycleOptions.length > 1 && (
@@ -160,7 +160,7 @@ export function DonationsLedger({
                   setCycle(Number(e.target.value));
                 }}
                 aria-label="Election cycle"
-                className="rounded-full border border-slate-warm-200 bg-white px-3 py-2 text-sm font-medium text-slate-800 outline-none focus:border-govblue"
+                className="h-10 rounded-lg border border-line bg-canvas px-3 text-sm font-medium text-ink outline-none focus:border-govblue-600"
               >
                 {cycleOptions.map((c) => (
                   <option key={c} value={c}>
@@ -178,7 +178,7 @@ export function DonationsLedger({
                 setOffset(0);
                 setSort(e.target.value);
               }}
-              className="rounded-full border border-slate-warm-200 bg-white px-3 py-2 text-sm font-medium text-slate-800 outline-none focus:border-govblue"
+              className="h-10 rounded-lg border border-line bg-canvas px-3 text-sm font-medium text-ink outline-none focus:border-govblue-600"
             >
               {SORTS.map((s) => (
                 <option key={s.value} value={s.value}>
@@ -187,6 +187,14 @@ export function DonationsLedger({
               ))}
             </select>
           </label>
+          {(term || sort !== "amount") && (
+            <button type="button" className="text-sm font-semibold text-govblue-600" onClick={() => {
+              setTerm("");
+              setQ("");
+              setSort("amount");
+              setOffset(0);
+            }}>Clear</button>
+          )}
         </div>
       </div>
 

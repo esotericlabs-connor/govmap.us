@@ -12,6 +12,7 @@ import {
 } from "@/components/DetailKit";
 import { MemberAvatar } from "@/components/MemberAvatar";
 import { MemberLink } from "@/components/MemberLink";
+import { LocalList } from "@/components/LocalList";
 import { PageSkeleton } from "@/components/PageSkeleton";
 import { Reveal } from "@/components/Reveal";
 import {
@@ -131,8 +132,17 @@ async function ReferredBills({ committeeId }: { committeeId: string }) {
   if (!data || data.bills.length === 0) return null;
   return (
     <Section title="Recent bills before this committee" count={data.bills.length} scroll>
-      <ul className="space-y-3">
-        {data.bills.map((b) => (
+      <LocalList
+        id="referred"
+        label="Referred bills"
+        scope="Searches the loaded recent referrals only"
+        as="ul"
+        className="space-y-3"
+        items={data.bills.map((b) => ({
+          id: b.bill_id,
+          name: b.title,
+          text: `${b.title ?? ""} ${b.bill_id} ${b.relationship ?? ""} ${b.latest_action ?? ""}`,
+          content: (
           <li key={b.bill_id}>
             <Link
               href={`/bills/${b.bill_id}`}
@@ -156,8 +166,9 @@ async function ReferredBills({ committeeId }: { committeeId: string }) {
               )}
             </Link>
           </li>
-        ))}
-      </ul>
+          ),
+        }))}
+      />
     </Section>
   );
 }
@@ -260,11 +271,7 @@ async function CommitteeDetailContent({ committeeId }: { committeeId: string }) 
       {committee.upcoming_meetings.length > 0 && (
         <div className="mt-12">
           <Section title="Upcoming meetings" count={committee.upcoming_meetings.length} scroll>
-            <div className="space-y-4">
-              {committee.upcoming_meetings.map((m) => (
-                <MeetingCard key={m.event_id} meeting={m} upcoming />
-              ))}
-            </div>
+            <MeetingList id="upcoming" meetings={committee.upcoming_meetings} upcoming />
           </Section>
         </div>
       )}
@@ -278,30 +285,18 @@ async function CommitteeDetailContent({ committeeId }: { committeeId: string }) 
           <div className="grid grid-cols-1 gap-10 lg:grid-cols-2 lg:gap-16">
             {majority.length > 0 && (
               <Section title="Majority" count={majority.length} scroll>
-                <div className="grid grid-cols-1 gap-x-6 gap-y-4 md:grid-cols-2">
-                  {majority.map((m) => (
-                    <MemberCard key={m.bioguide_id} member={m} />
-                  ))}
-                </div>
+                <CommitteeRoster id="majority" members={majority} />
               </Section>
             )}
             {minority.length > 0 && (
               <Section title="Minority" count={minority.length} scroll>
-                <div className="grid grid-cols-1 gap-x-6 gap-y-4 md:grid-cols-2">
-                  {minority.map((m) => (
-                    <MemberCard key={m.bioguide_id} member={m} />
-                  ))}
-                </div>
+                <CommitteeRoster id="minority" members={minority} />
               </Section>
             )}
             {other.length > 0 && (
               <div className="lg:col-span-2">
                 <Section title="Other Members" count={other.length} scroll>
-                  <div className="grid grid-cols-1 gap-x-6 gap-y-4 md:grid-cols-2">
-                    {other.map((m) => (
-                      <MemberCard key={m.bioguide_id} member={m} />
-                    ))}
-                  </div>
+                  <CommitteeRoster id="other" members={other} />
                 </Section>
               </div>
             )}
@@ -312,8 +307,15 @@ async function CommitteeDetailContent({ committeeId }: { committeeId: string }) 
       {committee.subcommittees.length > 0 && (
         <div className="mt-12">
           <Section title="Subcommittees" count={committee.subcommittees.length} scroll>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              {committee.subcommittees.map((s) => (
+            <LocalList
+              id="subcommittees"
+              label="Subcommittees"
+              className="grid grid-cols-1 gap-3 sm:grid-cols-2"
+              items={committee.subcommittees.map((s) => ({
+                id: s.committee_id,
+                name: s.name,
+                text: `${s.name} ${s.committee_id}`,
+                content: (
                 <Link
                   key={s.committee_id}
                   href={`/committees/${s.committee_id}`}
@@ -321,8 +323,9 @@ async function CommitteeDetailContent({ committeeId }: { committeeId: string }) 
                 >
                   {s.name}
                 </Link>
-              ))}
-            </div>
+                ),
+              }))}
+            />
           </Section>
         </div>
       )}
@@ -336,15 +339,48 @@ async function CommitteeDetailContent({ committeeId }: { committeeId: string }) 
       {committee.recent_meetings.length > 0 && (
         <div className="mt-12">
           <Section title="Recent meetings" count={committee.recent_meetings.length} scroll>
-            <div className="space-y-3">
-              {committee.recent_meetings.map((m) => (
-                <MeetingCard key={m.event_id} meeting={m} />
-              ))}
-            </div>
+            <MeetingList id="recent" meetings={committee.recent_meetings} />
           </Section>
         </div>
       )}
     </Reveal>
+  );
+}
+
+function CommitteeRoster({ id, members }: { id: string; members: CommitteeMember[] }) {
+  return (
+    <LocalList
+      id={`roster-${id}`}
+      label={`${id} members`}
+      groupLabel="parties"
+      className="grid grid-cols-1 gap-x-6 gap-y-4 md:grid-cols-2"
+      items={members.map((member) => ({
+        id: member.bioguide_id,
+        name: member.official_full_name,
+        group: member.party,
+        text: `${member.official_full_name} ${member.bioguide_id} ${member.party ?? ""} ${member.state ?? ""} ${member.role ?? ""}`,
+        content: <MemberCard member={member} />,
+      }))}
+    />
+  );
+}
+
+function MeetingList({ id, meetings, upcoming = false }: { id: string; meetings: CommitteeMeeting[]; upcoming?: boolean }) {
+  return (
+    <LocalList
+      id={`meetings-${id}`}
+      label={`${upcoming ? "Upcoming" : "Recent"} meetings`}
+      scope="Searches the loaded meeting subset only"
+      groupLabel="types"
+      items={meetings.map((meeting) => ({
+        id: meeting.event_id,
+        name: meeting.title,
+        date: meeting.datetime,
+        group: meeting.meeting_type,
+        text: `${meeting.title ?? ""} ${meeting.location ?? ""} ${meeting.status ?? ""} ${meeting.meeting_type ?? ""} ${meeting.bill_ids.join(" ")}`,
+        content: <MeetingCard meeting={meeting} upcoming={upcoming} />,
+      }))}
+    />
   );
 }
 

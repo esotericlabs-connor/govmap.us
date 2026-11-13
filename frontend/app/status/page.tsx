@@ -3,6 +3,7 @@ import Link from "next/link";
 import { DataState, FreshnessBadge } from "@/components/dashboard/DataState";
 import { Metric, Panel } from "@/components/dashboard/Panel";
 import { PageBanner } from "@/components/PageBanner";
+import { LocalList } from "@/components/LocalList";
 import { apiGet, type SourcesStatus, type SourceStatus } from "@/lib/api";
 import {
   cadenceHours,
@@ -147,11 +148,23 @@ async function StatusBody() {
             </p>
           )}
         </div>
-        <ul className="mt-4 grid gap-4 lg:grid-cols-2">
-          {rows.map((s) => (
-            <SourceCard key={s.name} source={s} nowMs={nowMs} />
-          ))}
-        </ul>
+        <div className="mt-4">
+          <LocalList
+            id="sources"
+            label="Sources"
+            groupLabel="statuses"
+            as="ul"
+            className="grid gap-4 lg:grid-cols-2"
+            items={rows.map((s) => ({
+              id: s.name,
+              name: s.title,
+              date: s.last_success,
+              group: s.state === "never" ? "Not yet loaded" : s.state === "fresh" ? "Current" : "Stale",
+              text: `${s.title} ${s.name} ${s.publisher} ${s.endpoints.map((endpoint) => endpoint.url).join(" ")}`,
+              content: <SourceCard source={s} nowMs={nowMs} />,
+            }))}
+          />
+        </div>
       </section>
 
       <Panel level={2} eyebrow="How to read this page" title="What “current” means">

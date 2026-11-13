@@ -16,8 +16,11 @@ from app.models.election import (
 from app.schemas.election import (
     ElectionCalendarEventOut,
     ElectionCalendarOut,
+    ElectionCandidateOut,
     ElectionCandidatesOut,
 )
+from app.services.candidate_identity import candidate_member_matches
+from app.services.search import match_words
 from app.types import MAX_LIST_OFFSET
 
 router = APIRouter(prefix="/api/elections", tags=["elections"])
@@ -89,6 +92,7 @@ async def list_election_candidates(
     q: str | None = Query(default=None, min_length=1, max_length=100),
     limit: int = Query(default=50, ge=1, le=100),
     offset: int = Query(default=0, ge=0, le=MAX_LIST_OFFSET),
+    sort: Literal["location", "name", "name_desc", "recent"] = "location",
 ) -> ElectionCandidatesOut:
     await begin_consistent_read(db)
     coverage = (
@@ -127,7 +131,7 @@ async def list_election_candidates(
     if party is not None:
         filters.append(ElectionCandidate.party == party.upper())
     if q is not None and q.strip():
-        filters.append(ElectionCandidate.name.ilike(f"%{q.strip()}%"))
+        filters.append(match_words(q, ElectionCandidate.name, ElectionCandidate.candidate_id))
 
     filtered_count = (
         await db.execute(
@@ -167,10 +171,20 @@ async def list_election_candidates(
             select(ElectionCandidate)
             .where(*filters)
             .order_by(
-                ElectionCandidate.office,
-                ElectionCandidate.state,
-                ElectionCandidate.district,
-                ElectionCandidate.name,
+                *(
+                    [ElectionCandidate.name.asc().nulls_last()]
+                    if sort == "name"
+                    else [ElectionCandidate.name.desc().nulls_last()]
+                    if sort == "name_desc"
+                    else [ElectionCandidate.last_file_date.desc().nulls_last()]
+                    if sort == "recent"
+                    else [
+                        ElectionCandidate.office,
+                        ElectionCandidate.state,
+                        ElectionCandidate.district,
+                        ElectionCandidate.name,
+                    ]
+                ),
                 ElectionCandidate.candidate_id,
             )
             .offset(offset)
@@ -178,6 +192,9 @@ async def list_election_candidates(
         )
     ).scalars().all()
 
+    member_matches = await candidate_member_matches(
+        db, [candidate.candidate_id for candidate in candidate_rows]
+    )
     return ElectionCandidatesOut(
         generated_at=datetime.now(UTC),
         finance_cycle=cycle,
@@ -199,5 +216,10 @@ async def list_election_candidates(
             }
             for row in grouping_rows
         ],
-        candidates=candidate_rows,
+        candidates=[
+            ElectionCandidateOut.model_validate(candidate).model_copy(
+                update={"member_match": member_matches[candidate.candidate_id]}
+            )
+            for candidate in candidate_rows
+        ],
     )

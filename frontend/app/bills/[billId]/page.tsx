@@ -14,6 +14,7 @@ import {
 } from "@/components/DetailKit";
 import { MemberAvatar } from "@/components/MemberAvatar";
 import { MemberLink } from "@/components/MemberLink";
+import { LocalList } from "@/components/LocalList";
 import { PageSkeleton } from "@/components/PageSkeleton";
 import { Reveal } from "@/components/Reveal";
 import { apiGet, HttpError, type BillDetail, type BillText } from "@/lib/api";
@@ -185,8 +186,19 @@ async function BillDetailContent({ billId }: { billId: string }) {
               {bill.actions.length === 0 ? (
                 <EmptyState>No actions found for this bill.</EmptyState>
               ) : (
-                <ol className="relative -ml-1 border-l-2 border-slate-warm-200">
-                  {bill.actions.map((a, i) => (
+                <LocalList
+                  id="actions"
+                  label="Actions"
+                  groupLabel="chambers"
+                  as="ol"
+                  className="relative -ml-1 border-l-2 border-slate-warm-200"
+                  items={bill.actions.map((a, i) => ({
+                    id: a.seq,
+                    name: a.text,
+                    date: a.action_date,
+                    group: a.chamber,
+                    text: `${a.text} ${a.action_date ?? ""} ${a.chamber ?? ""}`,
+                    content: (
                     <li key={a.seq} className="mb-6 ml-6">
                       <span
                         className={`absolute -left-[9px] flex h-4 w-4 items-center justify-center rounded-full ring-8 ring-white ${
@@ -201,8 +213,9 @@ async function BillDetailContent({ billId }: { billId: string }) {
                         <p className="mt-1 text-slate-800">{a.text}</p>
                       </div>
                     </li>
-                  ))}
-                </ol>
+                    ),
+                  }))}
+                />
               )}
             </Section>
 
@@ -249,8 +262,19 @@ async function BillDetailContent({ billId }: { billId: string }) {
             {bill.cosponsors.length === 0 ? (
               <EmptyState>No cosponsors on this bill.</EmptyState>
             ) : (
-              <ul className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2 lg:grid-cols-1">
-                {bill.cosponsors.map((c) => (
+              <LocalList
+                id="cosponsors"
+                label="Cosponsors"
+                groupLabel="parties"
+                as="ul"
+                className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2 lg:grid-cols-1"
+                items={bill.cosponsors.map((c) => ({
+                  id: c.bioguide_id,
+                  name: c.official_full_name,
+                  date: c.sponsorship_date,
+                  group: c.party,
+                  text: `${c.official_full_name ?? ""} ${c.bioguide_id} ${c.party ?? ""} ${c.state ?? ""}`,
+                  content: (
                   <li key={c.bioguide_id}>
                     <MemberLink
                       bioguide={c.bioguide_id}
@@ -266,8 +290,9 @@ async function BillDetailContent({ billId }: { billId: string }) {
                       </span>
                     </MemberLink>
                   </li>
-                ))}
-              </ul>
+                  ),
+                }))}
+              />
             )}
           </Section>
         </aside>

@@ -23,7 +23,10 @@ const TONES = {
  * Renders nothing until a ZIP is set — and nothing during SSR, since the context
  * hydrates client-side (no mismatch). "chrome" is for the always-navy menu blade.
  */
-export function HomeZipChip({ tone = "bar" }: { tone?: keyof typeof TONES }) {
+export function HomeZipChip({ tone = "bar", onNavigate }: {
+  tone?: keyof typeof TONES;
+  onNavigate?: () => void;
+}) {
   const { zip, result, clearHomeZip } = useHomeZip();
   if (!zip) return null;
 
@@ -39,6 +42,7 @@ export function HomeZipChip({ tone = "bar" }: { tone?: keyof typeof TONES }) {
     <div className={`flex items-center gap-1 rounded-full border py-1 pl-3 pr-1 text-sm ${t.chip}`}>
       <Link
         href="/map"
+        onClick={onNavigate}
         className={`flex items-center gap-1.5 font-semibold transition-colors ${t.link}`}
         title={`Your area · ZIP ${zip}`}
       >

@@ -1,7 +1,11 @@
 import Link from "next/link";
 
+import { CandidateMemberLink } from "@/components/CandidateMemberLink";
+import { ListToolbar } from "@/components/ListToolbar";
+import { ListPageLink } from "@/components/ListPageLink";
+import { LocalList } from "@/components/LocalList";
 import { formatDate } from "@/components/DetailKit";
-import { apiGet } from "@/lib/api";
+import { apiGet, type CandidateMemberMatch } from "@/lib/api";
 import { hasNormalizedCalendarRange } from "@/lib/election-calendar.mjs";
 import { classifyFreshness, parseFreshnessReferenceTime } from "@/lib/freshness.mjs";
 import {
@@ -37,6 +41,7 @@ type Candidate = {
   cycles: number[];
   election_years: number[];
   principal_committees: Record<string, unknown>[];
+  member_match?: CandidateMemberMatch | null;
 };
 
 type CandidateGrouping = {
@@ -96,6 +101,7 @@ type Filters = {
   party?: string;
   q?: string;
   offset?: number;
+  sort?: "location" | "name" | "name_desc" | "recent";
 };
 
 function first(value: string | string[] | undefined): string | undefined {
@@ -121,9 +127,14 @@ function readFilters(params: Record<string, string | string[] | undefined>): {
     party: first(params.party),
     q: first(params.q),
     offset: first(params.offset),
+    sort: first(params.sort),
   };
   const filters: Filters = {};
   let invalid = false;
+  if (raw.sort) {
+    if (raw.sort === "location" || raw.sort === "name" || raw.sort === "name_desc" || raw.sort === "recent") filters.sort = raw.sort;
+    else invalid = true;
+  }
 
   if (raw.cycle !== undefined && raw.cycle !== "") {
     const value = boundedInt(raw.cycle, 1979, 2100);
@@ -176,6 +187,7 @@ function apiPath(filters: Filters): string {
   if (filters.district) query.set("district", filters.district);
   if (filters.party) query.set("party", filters.party);
   if (filters.q) query.set("q", filters.q);
+  if (filters.sort) query.set("sort", filters.sort);
   if (filters.offset) query.set("offset", String(filters.offset));
   query.set("limit", "50");
   return `/api/elections/candidates?${query.toString()}`;
@@ -192,6 +204,7 @@ function hrefFor(offset: number, cycle: number, filters: Filters): string {
   if (filters.district) next.set("district", filters.district);
   if (filters.party) next.set("party", filters.party);
   if (filters.q) next.set("q", filters.q);
+  if (filters.sort) next.set("sort", filters.sort);
   if (offset > 0) next.set("offset", String(offset));
   return `/elections?${next.toString()}`;
 }
@@ -360,8 +373,18 @@ export default async function ElectionsPage({ searchParams }: { searchParams: Se
                   a successful refresh and confirms how their date ranges should be interpreted.
                 </p>
               )}
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {calendar.events.map((event) => (
+              <LocalList
+                id="calendar"
+                label="Calendar events"
+                groupLabel="categories"
+                className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"
+                items={calendar.events.map((event) => ({
+                  id: `${event.calendar_year}-${event.event_id}`,
+                  name: event.summary,
+                  date: event.start_date,
+                  group: event.category,
+                  text: `${event.summary} ${event.description ?? ""} ${event.location ?? ""} ${event.state.join(" ")} ${event.start_date}`,
+                  content: (
                   <article
                     key={`${event.calendar_year}-${event.event_id}`}
                     className="rounded-2xl border border-slate-warm-200 bg-white p-5 shadow-sm"
@@ -388,104 +411,29 @@ export default async function ElectionsPage({ searchParams }: { searchParams: Se
                       </a>
                     )}
                   </article>
-                ))}
-              </div>
+                  ),
+                }))}
+              />
             </>
           )}
         </section>
 
         <section className="mt-8 rounded-2xl border border-slate-warm-200 bg-white p-5 shadow-sm">
-          <form action="/elections" method="get" className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <label className="text-sm font-semibold text-slate-warm-700">
-              FEC finance cycle
-              <input
-                type="number"
-                name="cycle"
-                min={1979}
-                max={2100}
-                defaultValue={filters.cycle ?? cycle}
-                className="mt-1.5 w-full rounded-lg border border-slate-warm-300 px-3 py-2 font-normal"
-              />
-            </label>
-            <label className="text-sm font-semibold text-slate-warm-700">
-              Election year
-              <input
-                type="number"
-                name="election_year"
-                min={1979}
-                max={2100}
-                defaultValue={filters.electionYear}
-                className="mt-1.5 w-full rounded-lg border border-slate-warm-300 px-3 py-2 font-normal"
-              />
-            </label>
-            <label className="text-sm font-semibold text-slate-warm-700">
-              Federal office
-              <select
-                name="office"
-                defaultValue={filters.office ?? ""}
-                className="mt-1.5 w-full rounded-lg border border-slate-warm-300 bg-white px-3 py-2 font-normal"
-              >
-                <option value="">All offices</option>
-                <option value="H">House</option>
-                <option value="S">Senate</option>
-                <option value="P">President</option>
-              </select>
-            </label>
-            <label className="text-sm font-semibold text-slate-warm-700">
-              State or territory
-              <input
-                type="text"
-                name="state"
-                maxLength={2}
-                defaultValue={filters.state}
-                placeholder="e.g. CA"
-                className="mt-1.5 w-full rounded-lg border border-slate-warm-300 px-3 py-2 font-normal uppercase"
-              />
-            </label>
-            <label className="text-sm font-semibold text-slate-warm-700">
-              House district
-              <input
-                type="text"
-                name="district"
-                maxLength={2}
-                defaultValue={filters.district}
-                placeholder="e.g. 01"
-                className="mt-1.5 w-full rounded-lg border border-slate-warm-300 px-3 py-2 font-normal"
-              />
-            </label>
-            <label className="text-sm font-semibold text-slate-warm-700">
-              Party code
-              <input
-                type="text"
-                name="party"
-                maxLength={3}
-                defaultValue={filters.party}
-                placeholder="e.g. DEM"
-                className="mt-1.5 w-full rounded-lg border border-slate-warm-300 px-3 py-2 font-normal uppercase"
-              />
-            </label>
-            <label className="text-sm font-semibold text-slate-warm-700 sm:col-span-2">
-              Candidate name
-              <input
-                type="search"
-                name="q"
-                maxLength={100}
-                defaultValue={filters.q}
-                className="mt-1.5 w-full rounded-lg border border-slate-warm-300 px-3 py-2 font-normal"
-              />
-            </label>
-            <div className="flex items-end gap-3">
-              <button
-                type="submit"
-                className="rounded-lg bg-govblue-600 px-5 py-2.5 font-semibold text-white transition hover:bg-govblue-700"
-              >
-                Apply filters
-              </button>
-              <Link href="/elections" className="py-2.5 text-sm font-semibold text-govblue-700 hover:underline">
-                Clear
-              </Link>
-            </div>
-          </form>
+          <ListToolbar
+            label="Search FEC candidates"
+            searchPlaceholder="Candidate name or FEC ID"
+            searchValue={filters.q}
+            sortValue={filters.sort ?? "location"}
+            sorts={[{ value: "location", label: "Office / location" }, { value: "name", label: "Name A-Z" }, { value: "name_desc", label: "Name Z-A" }, { value: "recent", label: "Latest filing" }]}
+            fields={[
+              { name: "cycle", label: "Finance cycle", type: "number", min: 1979, max: 2100, value: filters.cycle ?? cycle },
+              { name: "election_year", label: "Election year", type: "number", min: 1979, max: 2100, value: filters.electionYear },
+              { name: "office", label: "Office", value: filters.office, options: [{ value: "", label: "All offices" }, { value: "H", label: "House" }, { value: "S", label: "Senate" }, { value: "P", label: "President" }] },
+              { name: "state", label: "State / territory", value: filters.state, maxLength: 2, pattern: "[A-Za-z]{2}", placeholder: "e.g. CA" },
+              { name: "district", label: "House district", value: filters.district, maxLength: 2, pattern: "[0-9]{2}", placeholder: "e.g. 01" },
+              { name: "party", label: "Party code", value: filters.party, maxLength: 3, pattern: "[A-Za-z]{1,3}", placeholder: "e.g. DEM" },
+            ]}
+          />
         </section>
 
         {invalid && (
@@ -546,16 +494,23 @@ export default async function ElectionsPage({ searchParams }: { searchParams: Se
                   No office groupings match these filters.
                 </p>
               ) : (
-                <div className="overflow-x-auto rounded-2xl border border-slate-warm-200 bg-white shadow-sm">
-                  <table className="min-w-full text-left text-sm">
-                    <thead className="bg-slate-warm-100 text-xs uppercase tracking-wide text-slate-warm-600">
+                <LocalList
+                  id="groupings"
+                  label="Office groupings"
+                  scope="Up to 600 matching FEC groupings"
+                  className="divide-y divide-line"
+                  tableHead={
                       <tr>
                         <th className="px-4 py-3">FEC race grouping</th>
                         <th className="px-4 py-3 text-right">Registered candidates</th>
                       </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-warm-100">
-                      {data.groupings.map((grouping) => (
+                  }
+                  items={data.groupings.map((grouping) => ({
+                    id: `${grouping.office ?? "?"}-${grouping.state ?? "US"}-${grouping.district ?? "00"}`,
+                    name: groupingName(grouping),
+                    amount: grouping.candidate_count,
+                    text: groupingName(grouping),
+                    content: (
                         <tr
                           key={`${grouping.office ?? "?"}-${grouping.state ?? "US"}-${grouping.district ?? "00"}`}
                         >
@@ -564,10 +519,9 @@ export default async function ElectionsPage({ searchParams }: { searchParams: Se
                             {grouping.candidate_count.toLocaleString()}
                           </td>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                    ),
+                  }))}
+                />
               )}
             </section>
 
@@ -579,8 +533,8 @@ export default async function ElectionsPage({ searchParams }: { searchParams: Se
                     FEC candidate IDs remain separate from GovMap member identities.
                   </p>
                 </div>
-                <p className="text-sm text-slate-warm-500">
-                  Showing {data.candidates.length.toLocaleString()} of {data.filtered_count.toLocaleString()}
+                <p role="status" className="text-sm text-slate-warm-500">
+                  {data.candidates.length ? (data.offset + 1).toLocaleString() : "0"}–{data.candidates.length ? (data.offset + data.candidates.length).toLocaleString() : "0"} of {data.filtered_count.toLocaleString()}
                 </p>
               </div>
 
@@ -615,6 +569,9 @@ export default async function ElectionsPage({ searchParams }: { searchParams: Se
                             </a>
                             <div className="mt-1 font-mono text-xs text-slate-warm-500">
                               {candidate.candidate_id}
+                            </div>
+                            <div className="mt-2 text-xs text-slate-warm-500">
+                              <CandidateMemberLink match={candidate.member_match} />
                             </div>
                             {supportsMoneyDetail(candidate.candidate_id, candidate.finance_cycle) && (
                               <Link
@@ -659,25 +616,25 @@ export default async function ElectionsPage({ searchParams }: { searchParams: Se
                 </div>
               )}
 
-              {data.filtered_count > data.offset + data.limit && (
-                <div className="mt-5 flex justify-end">
-                  <Link
-                    href={hrefFor(nextOffset, cycle, filters)}
-                    className="rounded-lg border border-slate-warm-300 bg-white px-4 py-2 font-semibold text-govblue-700 hover:bg-slate-warm-100"
-                  >
-                    Next candidates
-                  </Link>
-                </div>
-              )}
-              {data.offset > 0 && (
-                <div className="mt-5 flex justify-start">
-                  <Link
-                    href={hrefFor(previousOffset, cycle, filters)}
-                    className="rounded-lg border border-slate-warm-300 bg-white px-4 py-2 font-semibold text-govblue-700 hover:bg-slate-warm-100"
-                  >
-                    Previous candidates
-                  </Link>
-                </div>
+              {(data.offset > 0 || data.filtered_count > data.offset + data.limit) && (
+                <nav aria-label="Candidate pages" className="mt-5 flex items-center justify-between gap-3">
+                  {data.offset > 0 ? (
+                    <ListPageLink
+                      href={hrefFor(previousOffset, cycle, filters)}
+                      className="rounded-lg border border-slate-warm-300 bg-white px-4 py-2 font-semibold text-govblue-700 hover:bg-slate-warm-100"
+                    >
+                      Previous candidates
+                    </ListPageLink>
+                  ) : <span />}
+                  {data.filtered_count > data.offset + data.limit && (
+                    <ListPageLink
+                      href={hrefFor(nextOffset, cycle, filters)}
+                      className="rounded-lg border border-slate-warm-300 bg-white px-4 py-2 font-semibold text-govblue-700 hover:bg-slate-warm-100"
+                    >
+                      Next candidates
+                    </ListPageLink>
+                  )}
+                </nav>
               )}
             </section>
 

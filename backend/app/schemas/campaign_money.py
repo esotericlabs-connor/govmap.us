@@ -4,6 +4,8 @@ from typing import Annotated, Literal
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, computed_field
 
+from app.schemas.member import CandidateMemberMatchOut
+
 Amount = Annotated[Decimal, Field(max_digits=14, decimal_places=2, allow_inf_nan=False)]
 Office = Literal["H", "S", "P"]
 
@@ -80,6 +82,7 @@ class FecCampaignMoneySnapshotRaw(BaseModel):
 
 class CandidateFinanceOut(FecCandidateFinanceRaw):
     finance_cycle: int
+    member_match: CandidateMemberMatchOut | None = None
 
     model_config = ConfigDict(from_attributes=True, extra="forbid", allow_inf_nan=False)
 
@@ -142,6 +145,7 @@ class CandidateMoneyDetailOut(BaseModel):
     candidate: CandidateFinanceOut
     catalog_match: CatalogMatchOut | None
     linkage_count: int
+    filtered_linkage_count: int
     limit: int
     offset: int
     linkages: list[CommitteeLinkOut]

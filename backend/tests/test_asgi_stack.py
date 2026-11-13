@@ -385,6 +385,13 @@ def test_source_runs_rejects_invalid_filters_before_querying(
         ("/api/overview", "weeks=3"),
         ("/api/overview", "weeks=53"),
         ("/api/overview", "weeks=ten"),
+        ("/api/bills", "sort=unknown"),
+        ("/api/votes", "sort=unknown"),
+        ("/api/elections/candidates", "sort=unknown"),
+        ("/api/money/candidates", "sort=unknown"),
+        ("/api/money/candidates/H0CA00001", "sort=unknown"),
+        ("/api/bills", "q=" + "x" * 101),
+        ("/api/votes", "q=" + "x" * 101),
     ],
 )
 def test_public_lists_reject_out_of_range_paging_before_querying(
@@ -504,6 +511,18 @@ def test_election_responses_include_utc_generation_time(
             )
         ]
         results.extend([count, groupings, candidates])
+        member_matches = Mock()
+        member_matches.all.return_value = [
+            (
+                SimpleNamespace(
+                    bioguide_id="A000001",
+                    official_full_name="Linked Profile",
+                    in_office=False,
+                ),
+                ["S0CA00001", "H0CA00001"],
+            )
+        ]
+        results.append(member_matches)
 
     db = SimpleNamespace(
         connection=AsyncMock(), execute=AsyncMock(side_effect=results)
@@ -533,6 +552,15 @@ def test_election_responses_include_utc_generation_time(
         assert items[0]["event_id" if resource == "calendar" else "candidate_id"] == (
             1 if resource == "calendar" else "H0CA00001"
         )
+        if resource == "candidates":
+            assert items[0]["member_match"] == {
+                "status": "matched",
+                "profile": {
+                    "bioguide_id": "A000001",
+                    "official_full_name": "Linked Profile",
+                    "in_office": False,
+                },
+            }
     else:
         assert payload["fetched_at"] is None
     db.connection.assert_awaited_once_with(

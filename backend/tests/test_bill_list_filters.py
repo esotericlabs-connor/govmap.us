@@ -36,12 +36,14 @@ def test_became_law_filter_lists_only_enacted_bills_newest_action_first() -> Non
                     [
                         _bill(
                             1,
+                            title="Zulu Fair Tax Act",
                             status="Became Law",
                             latest_action_date=date(2025, 3, 1),
                             update_date=date(2025, 3, 2),
                         ),
                         _bill(
                             2,
+                            title="Alpha Fair Tax Act",
                             status="Became Law",
                             latest_action_date=date(2025, 6, 1),
                             update_date=date(2025, 1, 1),
@@ -83,6 +85,18 @@ def test_became_law_filter_lists_only_enacted_bills_newest_action_first() -> Non
 
                 paged = await list_bills(status="became_law", **{**common, "limit": 1, "offset": 1})
                 assert [b.bill_id for b in paged] == ["hr1-119"]
+
+                # Filtering and ordering happen before LIMIT/OFFSET, not on
+                # the already-loaded newest page. Both words are required.
+                named = await list_bills(
+                    status="became_law", q="tax fair", sort="title",
+                    **{**common, "limit": 1, "offset": 1},
+                )
+                assert [b.bill_id for b in named] == ["hr1-119"]
+                oldest = await list_bills(status="became_law", sort="oldest", **common)
+                assert [b.bill_id for b in oldest] == ["hr1-119", "hr2-119", "hr3-119"]
+                for query in ("tax unknown", "%", "_"):
+                    assert await list_bills(status=None, q=query, **common) == []
         finally:
             async with engine.begin() as connection:
                 await connection.run_sync(

@@ -1,12 +1,14 @@
 import Link from "next/link";
 
+import { CandidateMemberLink } from "@/components/CandidateMemberLink";
 import { ChartFigure } from "@/components/dashboard/ChartFigure";
 import { DataState, FreshnessBadge } from "@/components/dashboard/DataState";
 import { MoneyStack } from "@/components/dashboard/MoneyStack";
 import { Metric, Panel } from "@/components/dashboard/Panel";
 import { formatDate } from "@/components/DetailKit";
 import { PageBanner } from "@/components/PageBanner";
-import { SiteFooter } from "@/components/SiteFooter";
+import { ListToolbar } from "@/components/ListToolbar";
+import { ListPageLink } from "@/components/ListPageLink";
 import { apiGet } from "@/lib/api";
 import type { CampaignMoneyCandidate, CampaignMoneyList } from "@/lib/campaign-money";
 import { classifyFreshness, parseFreshnessReferenceTime } from "@/lib/freshness.mjs";
@@ -38,9 +40,9 @@ type Filters = {
   q?: string;
   through?: string;
   offset: number;
+  sort: "receipts" | "disbursements" | "cash" | "name" | "name_desc";
 };
 
-const fieldClass = "mt-1.5 w-full rounded-lg border border-line bg-canvas px-3 py-2 font-normal text-ink";
 const linkClass = "font-semibold text-govblue-600 underline-offset-2 hover:underline";
 
 function first(value: string | string[] | undefined): string | undefined {
@@ -63,7 +65,7 @@ function readFilters(params: Record<string, string | string[] | undefined>): {
   filters: Filters;
   invalid: boolean;
 } {
-  const filters: Filters = { office: "H", offset: 0 };
+  const filters: Filters = { office: "H", offset: 0, sort: "receipts" };
   let invalid = false;
   const cycle = first(params.cycle);
   const office = first(params.office);
@@ -72,6 +74,11 @@ function readFilters(params: Record<string, string | string[] | undefined>): {
   const q = first(params.q)?.trim();
   const through = first(params.through);
   const offset = first(params.offset);
+  const sort = first(params.sort);
+  if (sort) {
+    if (sort === "receipts" || sort === "disbursements" || sort === "cash" || sort === "name" || sort === "name_desc") filters.sort = sort;
+    else invalid = true;
+  }
   if (cycle) {
     const parsed = integer(cycle, 2000, 2098);
     if (parsed === undefined || parsed % 2 !== 0) invalid = true;
@@ -111,6 +118,7 @@ function queryFor(filters: Filters, cycle?: number, through?: string | null, off
   const selectedCycle = cycle ?? filters.cycle;
   if (selectedCycle !== undefined) query.set("cycle", String(selectedCycle));
   query.set("office", filters.office);
+  query.set("sort", filters.sort);
   if (filters.state) query.set("state", filters.state);
   if (filters.district) query.set("district", filters.district);
   if (filters.q) query.set("q", filters.q);
@@ -185,14 +193,15 @@ function CandidateChart({ candidates, through, financeCycle }: {
       source="Federal Election Commission, all-candidates financial summary"
       coverage={`Each illustrated stack level represents up to ${formatMoneyCents(block)}; the final level is rounded up and may be partial. This shared scale applies to the candidates shown on this page and can change on other pages or filters. Exact amounts are in the table. Gross receipts may include transfers, loans and double-counted committee activity.`}
       table={{
-        head: ["Candidate / FEC ID", "Gross receipts (USD)"],
+        head: ["Candidate / FEC ID", "Gross receipts (USD)", "GovMap profile"],
         rows: rows.map((candidate) => [
           `${candidate.name ?? "Name not reported"} (${candidate.candidate_id})`,
           formatMoneyExact(candidate.receipts),
+          <CandidateMemberLink key={candidate.candidate_id} match={candidate.member_match} />,
         ]),
       }}
     >
-      <div aria-hidden="true" className="space-y-3">
+      <div className="space-y-3">
         {rows.map((candidate) => (
           <div key={candidate.candidate_id} className="flex items-center gap-3">
             <MoneyStack amount={candidate.receipts} maximum={maximum} />
@@ -201,7 +210,10 @@ function CandidateChart({ candidates, through, financeCycle }: {
                 {candidate.name ?? "Name not reported"}
               </p>
               <p className="text-xs text-ink-muted">{candidate.candidate_id} · {location(candidate)}</p>
-              <div className="mt-2 h-2.5 overflow-hidden rounded-full bg-sunken">
+              <div className="mt-1 text-xs text-ink-muted">
+                <CandidateMemberLink match={candidate.member_match} />
+              </div>
+              <div aria-hidden="true" className="mt-2 h-2.5 overflow-hidden rounded-full bg-sunken">
                 <div
                   className="h-full rounded-full bg-emerald-600"
                   style={{ width: `${moneyPercent(candidate.receipts, maximum)}%` }}
@@ -250,85 +262,30 @@ export default async function CampaignMoneyPage({ searchParams }: { searchParams
           </DataState>
 
           <Panel level={2} title="Explore candidate summaries" eyebrow="FEC financial filings">
-            <form action="/money" method="get" className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              <label className="text-sm font-semibold text-ink-soft">
-                Two-year finance cycle
-                <input
-                  className={fieldClass}
-                  type="number"
-                  name="cycle"
-                  min={2000}
-                  max={2098}
-                  step={2}
-                  defaultValue={filters.cycle ?? data?.finance_cycle ?? ""}
-                  placeholder="Configured cycle"
-                />
-              </label>
-              <label className="text-sm font-semibold text-ink-soft">
-                Office
-                <select className={fieldClass} name="office" defaultValue={filters.office}>
-                  <option value="H">House</option>
-                  <option value="S">Senate</option>
-                  <option value="P">President</option>
-                </select>
-              </label>
-              <label className="text-sm font-semibold text-ink-soft">
-                State or territory
-                <input
-                  className={fieldClass}
-                  name="state"
-                  maxLength={2}
-                  placeholder="Two-letter code, e.g. CA"
-                  defaultValue={filters.state ?? ""}
-                />
-              </label>
-              <label className="text-sm font-semibold text-ink-soft">
-                House district
-                <input
-                  className={fieldClass}
-                  name="district"
-                  maxLength={2}
-                  inputMode="numeric"
-                  placeholder="Two digits, e.g. 01 or 00"
-                  defaultValue={filters.district ?? ""}
-                />
-                <span className="mt-1 block text-xs font-normal text-ink-muted">
-                  Requires a state and House office.
-                </span>
-              </label>
-              <label className="text-sm font-semibold text-ink-soft">
-                Candidate name or FEC ID
-                <input
-                  className={fieldClass}
-                  name="q"
-                  maxLength={100}
-                  defaultValue={filters.q ?? ""}
-                />
-              </label>
-              <label className="text-sm font-semibold text-ink-soft">
-                Most recent report through
-                <select className={fieldClass} name="through" defaultValue={filters.through ?? ""}>
-                  <option value="">Most common available date</option>
-                  {selectedOutsideList && filters.through && (
-                    <option value={filters.through}>{formatDate(filters.through)} · requested</option>
-                  )}
-                  {data?.reporting_dates.map((period) => (
-                    <option key={period.coverage_end} value={period.coverage_end}>
-                      {formatDate(period.coverage_end)} · {period.candidate_count.toLocaleString()} records
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <div className="flex flex-wrap items-center gap-4 lg:col-span-3">
-                <button
-                  type="submit"
-                  className="rounded-full bg-govblue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-govblue-700"
-                >
-                  Apply filters
-                </button>
-                <Link href="/money" className={`text-sm ${linkClass}`}>Clear filters</Link>
-              </div>
-            </form>
+            <ListToolbar
+              label="Search candidate finances"
+              searchPlaceholder="Candidate name or FEC ID"
+              searchValue={filters.q}
+              sortValue={filters.sort}
+              sorts={[
+                { value: "receipts", label: "Largest receipts" },
+                { value: "disbursements", label: "Largest disbursements" },
+                { value: "cash", label: "Most cash on hand" },
+                { value: "name", label: "Name A-Z" },
+                { value: "name_desc", label: "Name Z-A" },
+              ]}
+              fields={[
+                { name: "cycle", label: "Finance cycle", type: "number", min: 2000, max: 2098, step: 2, value: filters.cycle ?? data?.finance_cycle },
+                { name: "office", label: "Office", value: filters.office, options: [{ value: "H", label: "House" }, { value: "S", label: "Senate" }, { value: "P", label: "President" }] },
+                { name: "state", label: "State / territory", value: filters.state, maxLength: 2, pattern: "[A-Za-z]{2}", placeholder: "e.g. CA" },
+                { name: "district", label: "House district (state required)", value: filters.district, maxLength: 2, pattern: "[0-9]{2}", placeholder: "01, or 00 for at-large", requires: [{ name: "office", value: "H" }, { name: "state" }] },
+                { name: "through", label: "Report through", value: filters.through, options: [
+                  { value: "", label: "Most common available date" },
+                  ...(selectedOutsideList && filters.through ? [{ value: filters.through, label: `${formatDate(filters.through)} · requested` }] : []),
+                  ...(data?.reporting_dates.map((period) => ({ value: period.coverage_end, label: `${formatDate(period.coverage_end)} · ${period.candidate_count.toLocaleString()} records` })) ?? []),
+                ] },
+              ]}
+            />
           </Panel>
 
           {invalid ? (
@@ -424,6 +381,9 @@ export default async function CampaignMoneyPage({ searchParams }: { searchParams
                               <span className="mt-1 block font-mono text-xs font-normal text-ink-muted">
                                 {candidate.candidate_id} · {candidate.party ?? "Party not reported"}
                               </span>
+                              <div className="mt-1 text-xs font-normal text-ink-muted">
+                                <CandidateMemberLink match={candidate.member_match} />
+                              </div>
                             </th>
                             <td className="px-3 py-3 text-ink-soft">{location(candidate)}</td>
                             <td className="whitespace-nowrap px-3 py-3 text-right">{formatMoneyExact(candidate.receipts)}</td>
@@ -438,17 +398,17 @@ export default async function CampaignMoneyPage({ searchParams }: { searchParams
                 )}
                 <nav aria-label="Candidate finance pages" className="mt-5 flex flex-wrap items-center gap-5 text-sm">
                   {data.offset > 0 && (
-                    <Link className={linkClass} href={moneyHref(filters, data, Math.max(0, data.offset - data.limit))}>
+                    <ListPageLink className={linkClass} href={moneyHref(filters, data, Math.max(0, data.offset - data.limit))}>
                       Previous
-                    </Link>
+                    </ListPageLink>
                   )}
                   {data.offset + data.candidates.length < data.filtered_count && data.candidates.length > 0 && (
-                    <Link className={linkClass} href={moneyHref(filters, data, data.offset + data.limit)}>
+                    <ListPageLink className={linkClass} href={moneyHref(filters, data, data.offset + data.limit)}>
                       Next
-                    </Link>
+                    </ListPageLink>
                   )}
-                  <span className="text-ink-muted">
-                    Showing {data.candidates.length.toLocaleString()} of {data.filtered_count.toLocaleString()} matching records
+                  <span role="status" className="text-ink-muted">
+                    {data.candidates.length ? (data.offset + 1).toLocaleString() : "0"}–{data.candidates.length ? (data.offset + data.candidates.length).toLocaleString() : "0"} of {data.filtered_count.toLocaleString()} matching records
                   </span>
                 </nav>
               </Panel>
@@ -459,6 +419,9 @@ export default async function CampaignMoneyPage({ searchParams }: { searchParams
                     The FEC&rsquo;s file includes candidates with reported financial activity, including
                     people who are not current members of Congress. FEC IDs are source identities,
                     not proof of ballot access, a win, or a Bioguide match.
+                    {" "}Profile links use exact FEC IDs in the existing Bioguide crosswalk,
+                    including earlier candidate IDs and former members. Names and current
+                    districts are never used to guess an identity.
                   </p>
                   <p>
                     Individual contributor identities and donor-location rankings are not part of this
@@ -482,7 +445,6 @@ export default async function CampaignMoneyPage({ searchParams }: { searchParams
           )}
         </div>
       </main>
-      <SiteFooter />
     </>
   );
 }

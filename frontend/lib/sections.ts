@@ -10,6 +10,7 @@
 
 export type SectionAvailability = "live" | "planned";
 export type SectionGroup = "workspace" | "project";
+export type NavigationGroup = "explore" | "congress" | "elections" | "project" | "planned";
 
 export type Section = {
   id: string;
@@ -18,6 +19,7 @@ export type Section = {
   description: string;
   keywords: readonly string[];
   group: SectionGroup;
+  navigationGroup: NavigationGroup;
   availability: SectionAvailability;
 };
 
@@ -26,6 +28,7 @@ const COVERAGE_HREF = "/about#coverage";
 export const SECTIONS: readonly Section[] = [
   {
     id: "overview",
+    navigationGroup: "explore",
     label: "Federal overview",
     href: "/",
     description: "All three federal branches at a glance",
@@ -35,6 +38,7 @@ export const SECTIONS: readonly Section[] = [
   },
   {
     id: "map",
+    navigationGroup: "explore",
     label: "Congress map",
     href: "/map",
     description: "Every House and Senate seat, by district",
@@ -44,6 +48,7 @@ export const SECTIONS: readonly Section[] = [
   },
   {
     id: "members",
+    navigationGroup: "congress",
     label: "Members of Congress",
     href: "/members",
     description: "All currently serving representatives and senators",
@@ -53,6 +58,7 @@ export const SECTIONS: readonly Section[] = [
   },
   {
     id: "bills",
+    navigationGroup: "congress",
     label: "Bills & resolutions",
     href: "/bills",
     description: "The most recently active legislation",
@@ -62,6 +68,7 @@ export const SECTIONS: readonly Section[] = [
   },
   {
     id: "laws",
+    navigationGroup: "congress",
     label: "Recently enacted laws",
     href: "/bills?status=became-law",
     description: "Bills that became law, newest action first",
@@ -71,6 +78,7 @@ export const SECTIONS: readonly Section[] = [
   },
   {
     id: "votes",
+    navigationGroup: "congress",
     label: "Roll-call votes",
     href: "/votes",
     description: "Recent House and Senate floor votes",
@@ -80,6 +88,7 @@ export const SECTIONS: readonly Section[] = [
   },
   {
     id: "elections",
+    navigationGroup: "elections",
     label: "Elections",
     href: "/elections",
     description: "FEC-registered candidates by federal race; results are not integrated",
@@ -89,6 +98,7 @@ export const SECTIONS: readonly Section[] = [
   },
   {
     id: "money",
+    navigationGroup: "elections",
     label: "Campaign money",
     href: "/money",
     description: "FEC candidate financial summaries by office and area",
@@ -98,6 +108,7 @@ export const SECTIONS: readonly Section[] = [
   },
   {
     id: "accountability",
+    navigationGroup: "planned",
     label: "Accountability",
     href: COVERAGE_HREF,
     description: "Sourced misconduct records and their outcomes",
@@ -107,6 +118,7 @@ export const SECTIONS: readonly Section[] = [
   },
   {
     id: "executive",
+    navigationGroup: "planned",
     label: "Executive · White House & agencies",
     href: COVERAGE_HREF,
     description: "Presidential documents, agencies and leadership",
@@ -116,6 +128,7 @@ export const SECTIONS: readonly Section[] = [
   },
   {
     id: "judicial",
+    navigationGroup: "planned",
     label: "Judicial · Federal courts",
     href: COVERAGE_HREF,
     description: "Courts, judges, nominations and opinions",
@@ -125,6 +138,7 @@ export const SECTIONS: readonly Section[] = [
   },
   {
     id: "about",
+    navigationGroup: "project",
     label: "About GovMap",
     href: "/about",
     description: "Mission, coverage and data sources",
@@ -134,6 +148,7 @@ export const SECTIONS: readonly Section[] = [
   },
   {
     id: "status",
+    navigationGroup: "project",
     label: "Data pipeline status",
     href: "/status",
     description: "Every data source and when it last refreshed",
@@ -143,6 +158,7 @@ export const SECTIONS: readonly Section[] = [
   },
   {
     id: "security",
+    navigationGroup: "project",
     label: "Security & transparency",
     href: "/security",
     description: "Open source, public data and how we protect it",
@@ -152,6 +168,7 @@ export const SECTIONS: readonly Section[] = [
   },
   {
     id: "privacy",
+    navigationGroup: "project",
     label: "Privacy",
     href: "/privacy",
     description: "What GovMap stores and why",
@@ -161,6 +178,7 @@ export const SECTIONS: readonly Section[] = [
   },
   {
     id: "support",
+    navigationGroup: "project",
     label: "Support the project",
     href: "/support",
     description: "Help keep GovMap free and independent",
@@ -169,6 +187,50 @@ export const SECTIONS: readonly Section[] = [
     availability: "live",
   },
 ];
+
+export const NAVIGATION_GROUPS: readonly { id: Exclude<NavigationGroup, "planned">; label: string }[] = [
+  { id: "explore", label: "Explore government" },
+  { id: "congress", label: "Congress & legislation" },
+  { id: "elections", label: "Elections & campaign money" },
+  { id: "project", label: "Sources & GovMap" },
+];
+
+function belongsToPath(pathname: string, root: string): boolean {
+  return root === "/" ? pathname === "/" : pathname === root || pathname.startsWith(`${root}/`);
+}
+
+export function isWorkspacePath(pathname: string): boolean {
+  return belongsToPath(pathname, "/status") || belongsToPath(pathname, "/committees") ||
+    SECTIONS.some((section) => section.group === "workspace" &&
+      section.availability === "live" && belongsToPath(pathname, section.href.split("?")[0]));
+}
+
+/** Query-specific destinations, such as enacted laws, outrank their parent page. */
+export function activeSectionId(
+  pathname: string,
+  search: { get(name: string): string | null },
+): string | null {
+  let best: { id: string; score: number } | null = null;
+  for (const section of SECTIONS) {
+    if (section.availability !== "live") continue;
+    const [path, query] = section.href.split("?");
+    let score: number;
+    if (query !== undefined) {
+      let matches = pathname === path;
+      new URLSearchParams(query).forEach((value, key) => {
+        if (search.get(key) !== value) matches = false;
+      });
+      if (!matches) continue;
+      score = path.length + 1000;
+    } else if (belongsToPath(pathname, path)) {
+      score = path.length;
+    } else {
+      continue;
+    }
+    if (!best || score > best.score) best = { id: section.id, score };
+  }
+  return best?.id ?? null;
+}
 
 export function normalizeQuery(query: string): string {
   return query.toLowerCase().replace(/\s+/g, " ").trim();

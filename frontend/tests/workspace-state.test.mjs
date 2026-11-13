@@ -12,6 +12,7 @@ import {
   parseMapView,
   withMapView,
   withMemberEntry,
+  withListHistory,
 } from "../lib/workspace-state.ts";
 
 const map = {
@@ -100,6 +101,39 @@ test("profile, donations and expansion have distinct URLs while retaining the or
   assert.equal(memberHref(fullUrl, null), origin);
   assert.equal(memberHref(fullUrl, profile), profileUrl);
   assert.deepEqual(memberLocation("?member=C001124"), profile);
+});
+
+test("local list filtering preserves member Back/close ownership and map snapshots", () => {
+  const href = "/map?member=C001124";
+  const entry = panelEntry(href);
+  const original = withMapView(withMemberEntry({
+    __NA: true, _N: true, __PRIVATE_NEXTJS_INTERNALS_TREE: ["original-route"], other: "retained",
+  }, entry), map);
+  const nextHref = `${href}&sponsored-C001124_q=tax`;
+  const next = withListHistory(original, href, nextHref);
+  assert.deepEqual(memberEntry(next, nextHref), { ...entry, href: nextHref });
+  assert.deepEqual(mapViewFromHistory(next), map);
+  assert.equal(next.__NA, undefined);
+  assert.equal(next._N, undefined);
+  assert.equal(next.other, "retained");
+  assert.deepEqual(next.__PRIVATE_NEXTJS_INTERNALS_TREE, ["original-route"]);
+  assert.equal(original[MEMBER_HISTORY_KEY].href, href);
+  assert.throws(() => withListHistory(original, href, "/bills?member=C001124"), Error);
+  assert.throws(() => withListHistory(original, href, "/map?member=A000001"), Error);
+  assert.throws(() => withListHistory(original, href, "https://other.example/map?member=C001124"), Error);
+  assert.deepEqual(withListHistory({ __NA: true }, "/bills", "/bills?bills_q=tax"), {});
+});
+
+test("candidate member blades retain campaign filters, pagination and return context", () => {
+  for (const origin of [
+    "/money?cycle=2026&state=TX&offset=20#candidate-H2TX30178",
+    "/money/H2TX30178?cycle=2026&returnTo=%2Fmoney%3Fstate%3DTX",
+    "/elections?cycle=2026&office=H&offset=50",
+  ]) {
+    const href = memberHref(origin, { member: "A000001", view: "profile", expanded: false });
+    assert.equal(memberHref(href, null), origin);
+    assert.equal(memberLocation(new URL(href, "https://govmap.invalid").search).member, "A000001");
+  }
 });
 
 test("malformed deep links fail rather than navigating to an invalid panel", () => {

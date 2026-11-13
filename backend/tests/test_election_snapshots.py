@@ -8,15 +8,19 @@ from sqlalchemy import delete, func, insert, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.db import Base
+from app.models.crosswalk import IdCrosswalk
 from app.models.election import (
     ElectionCalendarCoverage,
     ElectionCalendarEvent,
     ElectionCandidate,
     ElectionCatalogCoverage,
 )
+from app.models.member import Member
 from app.routers.elections import list_election_calendar, list_election_candidates
 
 _TABLES = [
+    Member.__table__,
+    IdCrosswalk.__table__,
     ElectionCalendarCoverage.__table__,
     ElectionCalendarEvent.__table__,
     ElectionCatalogCoverage.__table__,

@@ -1,11 +1,20 @@
 /**
  * Frame shared by every dashboard chart: what it shows, the period and unit,
  * a one-sentence reading, the legend, its source and coverage, and the exact
- * numbers as a table. The table is the accessible version of the chart, so
- * chart bodies are aria-hidden and every figure stays checkable.
+ * numbers as a table. Decorative chart marks are aria-hidden; interactive
+ * labels stay accessible, and every figure stays checkable.
  */
 
-import type { ReactNode } from "react";
+import { isValidElement, type ReactNode } from "react";
+
+import { LocalList } from "@/components/LocalList";
+
+function cellText(node: ReactNode): string {
+  if (typeof node === "string" || typeof node === "number" || typeof node === "bigint") return String(node);
+  if (Array.isArray(node)) return node.map(cellText).join(" ");
+  if (isValidElement<{ children?: ReactNode }>(node)) return cellText(node.props.children);
+  return "";
+}
 
 export type LegendItem = {
   label: string;
@@ -83,10 +92,13 @@ export function ChartFigure({
         <summary className="cursor-pointer select-none font-semibold text-govblue-600 transition-colors hover:text-ink">
           Show the data table
         </summary>
-        <div className="mt-2 overflow-x-auto rounded-lg border border-line">
-          <table className="w-full text-left tabular-nums">
-            <caption className="sr-only">{title}</caption>
-            <thead className="bg-sunken text-ink-soft">
+        <div className="mt-2">
+          <LocalList
+            id={`chart-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
+            label="Table rows"
+            scope="Table only; the chart and its source coverage are unchanged"
+            className="divide-y divide-line text-ink tabular-nums"
+            tableHead={
               <tr>
                 {table.head.map((h, c) => (
                   <th key={h} scope="col" className={`px-3 py-1.5 font-semibold ${c > 0 ? "text-right" : ""}`}>
@@ -94,9 +106,12 @@ export function ChartFigure({
                   </th>
                 ))}
               </tr>
-            </thead>
-            <tbody className="divide-y divide-line text-ink">
-              {table.rows.map((row, r) => (
+            }
+            items={table.rows.map((row, r) => ({
+              id: r,
+              name: cellText(row[0]),
+              text: row.map(cellText).join(" "),
+              content: (
                 <tr key={r}>
                   {row.map((cell, c) =>
                     c === 0 ? (
@@ -110,9 +125,9 @@ export function ChartFigure({
                     ),
                   )}
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              ),
+            }))}
+          />
         </div>
       </details>
     </figure>

@@ -83,6 +83,14 @@ Self-hosting is the current low-cost deployment choice. Application containers a
 
 ## Sites & branding
 
+Data lists have their own compact search and sorting controls, independent of
+global search. Extra filters expand on demand; search updates automatically.
+Bills, votes and FEC candidate lists filter stored records before pagination,
+and paging preserves scroll instead of returning to the top. Detail lists that
+contain only recent or bounded records explicitly label that search scope.
+Local list criteria stay in the URL; filtering a chart's data table leaves the
+chart and its source coverage unchanged.
+
 GovMap serves the whole app on one host:
 
 - **govmap.us** — the app itself: the Federal overview at `/` (`frontend/app/page.tsx`), a three-branch dashboard of Congress today with the executive and judicial branches marked as planned; the Congress map at `/map` (`frontend/app/map/page.tsx`); and members, bills and votes alongside. Every data source, its publisher and its last successful refresh are listed on the public data pipeline status page at `/status` (`frontend/app/status/page.tsx`, backed by `GET /api/sources`). The old `/congress` path permanently redirects to `/map`.
@@ -100,10 +108,36 @@ Authorized-committee transfers can double-count activity. Missing candidates
 are not assumed to have zero activity, and donor-area rankings, individual
 contributor analytics and independent expenditures are not yet integrated.
 The FEC candidate ID is a source identity, not a replacement for Bioguide.
+Candidates in both workspaces link to existing congressional profiles only
+when their exact FEC ID appears in the Bioguide crosswalk. All stored IDs are
+considered, including older IDs from a different office and former members;
+names are never used to guess an identity. Unknown or conflicting matches
+remain explicitly unlinked. Profile links open in place and preserve the
+workspace underneath; matching does not depend on the Elections catalog refresh.
+
+The main search and candidate filters accept partial words in any order:
+`CROCKETT jas` and `jas crockett` both match `Jasmine Crockett`. Every entered
+word must match; commas and whitespace separate words, while `%` and `_` are
+literal characters, not wildcards. The main search also accepts exact Bioguide
+and crosswalk FEC IDs, and retains bill-ID and state-code lookup.
 
 Navigation uses relative paths defined in `frontend/lib/site-config.ts`. Separate `app.govmap.us` and `api.govmap.us` hosts are not part of the current deployment. Browser `/api/*` requests are forwarded by Next.js to the private backend.
 
-The visual signature — the Capitol photo under a navy scrim with white text — lives in `frontend/components/PageBanner.tsx` and is shared by the footer and page banners. Pages follow the system Light/Dark setting unless a theme is chosen from the header toggle or the menu. The top bar is white in Light mode and a dark panel in Dark mode; the menu, banners, footer and map status bar keep the navy-and-white look. Dashboard panels, data states and charts live in `frontend/components/dashboard/`.
+The visual signature — the Capitol photo under a navy scrim with white text — lives in `frontend/components/PageBanner.tsx` and is shared by the footer and page banners. Pages follow the system Light/Dark setting unless a theme is chosen from **Settings** in the header. The top bar is white in Light mode and a dark panel in Dark mode; navigation, banners, the footer and the workspace status bar keep the navy-and-white look. Dashboard panels, data states and charts live in `frontend/components/dashboard/`.
+
+The universal navigation groups destinations into Explore government,
+Congress & legislation, Elections & campaign money, and Sources & GovMap.
+Planned work stays in a separate **Coming next** disclosure. **Settings** is
+a separate dropdown for System/Light/Dark, the saved home area, sign-in
+availability, problem reports and privacy. Sign-in remains explicitly coming
+soon; no authentication is implemented.
+
+All data workspaces and their detail pages, including `/status`, share the
+Congress legend, House/Senate balance and local/Washington clocks along the
+bottom. Chamber data is requested on workspace navigation; loading and failed
+requests are explicit, with a retry instead of invented counts. Layout spacing
+and map geometry reserve the bar's height and the device safe area.
+About, Support, Security and Privacy retain the branded GovMap footer instead.
 
 The map remembers its chamber, position and selected seat in this browser.
 **Reset** zooms back out to the national House view without clearing the saved home ZIP.

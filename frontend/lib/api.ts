@@ -52,6 +52,15 @@ export interface MemberSummary {
   in_office?: boolean;
 }
 
+export type CandidateMemberMatch = {
+  status: "matched" | "unmatched" | "ambiguous";
+  profile: {
+    bioguide_id: string;
+    official_full_name: string;
+    in_office: boolean;
+  } | null;
+};
+
 export interface CommitteeSeat {
   committee_id: string;
   name: string;

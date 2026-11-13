@@ -4,6 +4,88 @@ What's been built, in what order, and what's next. This is a living log — add 
 
 ## Build log
 
+**2026-11-13 — Compact list browsing (awaiting CI/dev validation)**
+- Replaced the large Elections and Campaign money filter forms with a compact
+  local search/sort bar and collapsed additional filters. Search is debounced;
+  select changes apply immediately. Criteria reset pagination without scrolling
+  to the page top, and remain in the URL for sharing and history navigation.
+  FEC candidate and committee-link pagination explicitly disables route-change
+  scroll resets; the selected sort and filters travel with each page.
+- Bills and Votes now search and sort the stored dataset before pagination,
+  rather than filtering a newest-250 preview. Queries require every literal
+  partial word in any order; sorting uses validated, fixed SQLAlchemy columns,
+  stable ID tie-breakers and missing-last ordering. Existing API response shapes
+  and default ordering remain compatible. Candidate-finance comparison still
+  requires the same finance cycle, office and report-through date.
+- Shared local controls cover the current member directory, election calendar
+  and office groupings, source status, overview meetings, member-profile lists
+  (including the map blade), bill actions/cosponsors, roll-call member groups,
+  committee rosters/subcommittees/meetings/referrals, and expandable chart data
+  tables. Each has local search, applicable sorting, counts and clear controls;
+  categorical filters appear where available. Local list state is namespaced
+  in the URL without a server navigation; updates retain member-panel Back/close
+  ownership and map snapshots while notifying Next's native-history bridge.
+  The existing donations ledger keeps
+  its in-place loading behavior and adopts compact controls with a clear action.
+- Bounded recent/detail subsets remain explicitly labeled as loaded-only;
+  searching them does not claim complete source history. Chart-table filtering
+  does not alter the chart or its coverage. No new sources, auth or migrations.
+- Added CI regressions for unordered search, literal metacharacters, sorting
+  before pagination, missing-last ordering, URL validation/state retention and
+  FEC scroll flags. No local app, tests or builds were run. CI and development
+  checks remain required for keyboard focus, rapid edits, mobile layout,
+  pagination scroll and browser Back/Forward.
+
+**2026-11-13 — Shared workspace chrome and universal navigation (awaiting CI/dev validation)**
+- The map's congressional legend, chamber diagrams and local/Washington clocks
+  now also appear on every data workspace and its record pages, including the
+  source-status page. The shared layout reserves space, including mobile safe
+  areas; the map retains its fixed viewport and reset behavior. The money
+  workspace no longer mounts the informational footer. About, Support,
+  Security and Privacy retain their existing branded footers.
+- The bar requests the existing summary endpoint on workspace navigation,
+  bounds request duration, validates seat counts, cancels obsolete requests
+  and offers an explicit unavailable/retry state. Missing data is not zero.
+  Informational routes do not mount the bar or make its summary request.
+- Universal navigation is grouped by purpose using the shared section registry,
+  not release history. Planned sections sit in a collapsed Coming next group;
+  active filters such as enacted laws still highlight the right destination.
+  A separate header Settings dropdown contains the existing System/Light/Dark
+  control, saved home area, clearly marked sign-in availability, problem
+  reporting and privacy. No account/authentication backend was added.
+- Navigation, the mobile legend and problem reporting use native modal dialogs
+  for focus containment, Escape dismissal and return focus. Reporting retains
+  the existing endpoint and verification flow; scroll locks are shared with
+  other overlays. Navigation/settings close on history navigation.
+- Added CI regressions for route coverage/exclusions, navigation grouping,
+  query-specific active links and summary validation. Local work remains
+  static only; CI and dev checks are required for responsive layouts, modal
+  focus, reporting, theme changes and the map's unchanged reset/return behavior.
+
+**2026-11-12 — Candidate profile links and unordered search (awaiting CI/dev validation)**
+- Campaign-money lists, comparisons and detail views, plus Elections candidate
+  rows, now resolve exact FEC IDs through the existing Bioguide crosswalk.
+  One batched lookup considers all stored IDs, including earlier office IDs
+  and former members. No name, office, district or finance-cycle inference
+  creates a person match. Unknown candidates remain unlinked; conflicting
+  crosswalk matches withhold the link and log a warning. A missing Elections
+  catalog does not prevent an independently evidenced member link.
+- Profile links reuse the existing slide-in member view, retaining the current
+  workspace and filters. Candidate finance records remain separate source
+  records; their names still link to finance details. No new member records,
+  migration or source refresh is required by this change.
+- Global member, bill, vote and committee search, plus campaign-money and
+  Elections candidate filters, now require each partial word in any order.
+  Commas and whitespace separate words; LIKE metacharacters stay escaped and
+  bound. Existing result caps, state lookup and compact bill-ID lookup remain;
+  exact Bioguide and crosswalk FEC-ID lookup are also supported.
+- Added CI regressions for reversed/partial names, literal metacharacters,
+  every-word matching, all global entity groups, historical-office IDs,
+  former members, conflicting matches, API serialization and workspace return
+  context. These tests have not run locally; CI and dev interaction checks
+  are still required. The separately reported FEC candidate-source HTTP 429
+  remains an upstream refresh issue, not a profile-matching dependency.
+
 **2026-11-12 — Candidate campaign-money foundation (awaiting CI/dev validation)**
 Added a bounded first `/money` view and a new FEC candidate-finance pipeline.
 This is a partial Step 2 release, not completion of the campaign-money plan.

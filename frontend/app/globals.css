@@ -11,6 +11,7 @@
     /* Define CSS vars for SVG fills, which can't use Tailwind classes */
     --color-govblue: #58a9e6;
     --color-govred: #dd1922;
+    --workspace-bar-height: calc(2.25rem + env(safe-area-inset-bottom, 0px));
   }
 
   :focus-visible {
@@ -35,7 +36,8 @@
   }
 }
 
-.member-dialog[open] {
+.member-dialog[open],
+.navigation-dialog[open] {
   animation: member-enter 0.18s ease-out;
 }
 

@@ -1,3 +1,5 @@
+import type { CandidateMemberMatch } from "@/lib/api";
+
 export type CampaignMoneyCandidate = {
   finance_cycle: number;
   candidate_id: string;
@@ -25,6 +27,7 @@ export type CampaignMoneyCandidate = {
   individual_refunds: string | null;
   committee_refunds: string | null;
   coverage_end: string | null;
+  member_match?: CandidateMemberMatch | null;
 };
 
 export type CampaignMoneyCoverage = {
@@ -65,6 +68,7 @@ export type CampaignMoneyDetail = {
     district: string | null;
   } | null;
   linkage_count: number;
+  filtered_linkage_count: number;
   limit: number;
   offset: number;
   linkages: {

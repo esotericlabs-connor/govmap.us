@@ -4,6 +4,7 @@ import "./globals.css";
 
 import { MemberBlade } from "@/components/MemberBlade";
 import { SiteHeader } from "@/components/SiteHeader";
+import { WorkspaceChrome } from "@/components/WorkspaceChrome";
 import { MapWorkspaceProvider } from "@/lib/map-workspace";
 import { MemberBladeProvider } from "@/lib/member-blade";
 import { THEME_SCRIPT } from "@/lib/theme.mjs";
@@ -76,7 +77,7 @@ export default function RootLayout({
               {/* Mounted once here so the header, its search and menu survive
                   navigation instead of remounting with every page. */}
               <SiteHeader />
-              {children}
+              <WorkspaceChrome>{children}</WorkspaceChrome>
             </ZipProvider>
             <MemberBlade />
           </MemberBladeProvider>

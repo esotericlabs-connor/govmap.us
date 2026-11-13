@@ -1,17 +1,20 @@
 import Link from "next/link";
 
+import { CandidateMemberLink } from "@/components/CandidateMemberLink";
 import { ChartFigure } from "@/components/dashboard/ChartFigure";
 import { DataState, FreshnessBadge } from "@/components/dashboard/DataState";
 import { Metric, Panel } from "@/components/dashboard/Panel";
 import { formatDate } from "@/components/DetailKit";
 import { PageBanner } from "@/components/PageBanner";
-import { SiteFooter } from "@/components/SiteFooter";
+import { ListToolbar } from "@/components/ListToolbar";
+import { ListPageLink } from "@/components/ListPageLink";
 import { apiGet, HttpError } from "@/lib/api";
 import type { CampaignMoneyCandidate, CampaignMoneyDetail } from "@/lib/campaign-money";
 import { classifyFreshness, parseFreshnessReferenceTime } from "@/lib/freshness.mjs";
 import { formatMeetingTime } from "@/lib/format";
 import { formatMoneyExact, maxPositiveMoney, moneyCents, moneyPercent } from "@/lib/money.mjs";
 import { moneyReturnHref, safeMoneyReturn } from "@/lib/money-navigation.mjs";
+import { readListQuery } from "@/lib/list-controls.mjs";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Candidate campaign finance" };
@@ -83,9 +86,11 @@ function parseInteger(value: string | undefined, min: number, max: number): numb
   return Number.isSafeInteger(parsed) && parsed >= min && parsed <= max ? parsed : undefined;
 }
 
-function pageHref(candidate: CampaignMoneyCandidate, offset: number, returnTo: string): string {
+function pageHref(candidate: CampaignMoneyCandidate, offset: number, returnTo: string, search: string, sort: string): string {
   const query = new URLSearchParams({ cycle: String(candidate.finance_cycle), returnTo });
   if (offset > 0) query.set("offset", String(offset));
+  if (search) query.set("q", search);
+  query.set("sort", sort);
   return `/money/${encodeURIComponent(candidate.candidate_id)}?${query.toString()}`;
 }
 
@@ -143,14 +148,22 @@ async function loadDetail(
   candidateId: string,
   cycle: number | undefined,
   offset: number,
+  search: string,
+  sort: string,
 ): Promise<{ data: CampaignMoneyDetail; nowMs: number } | "missing" | null> {
   try {
     const query = new URLSearchParams();
     if (cycle !== undefined) query.set("cycle", String(cycle));
     if (offset > 0) query.set("offset", String(offset));
+    if (search) query.set("q", search);
+    query.set("sort", sort);
     const data = await apiGet<CampaignMoneyDetail>(
       `/api/money/candidates/${encodeURIComponent(candidateId)}?${query.toString()}`,
     );
+    if (!Number.isSafeInteger(data.filtered_linkage_count)
+      || data.filtered_linkage_count < 0 || data.filtered_linkage_count > data.linkage_count) {
+      throw new Error("Candidate finance returned an invalid filtered linkage count");
+    }
     const nowMs = parseFreshnessReferenceTime(data.generated_at);
     for (const key of ["receipts", "disbursements", "cash_on_hand", "debts"] as const) {
       moneyCents(data.candidate[key]);
@@ -175,13 +188,14 @@ export default async function CandidateMoneyPage({
   const query = await searchParams;
   const rawCycle = first(query.cycle);
   const rawOffset = first(query.offset);
+  const browse = readListQuery(query, ["recent", "committee", "designation"], "recent");
   const cycle = rawCycle ? parseInteger(rawCycle, 2000, 2098) : undefined;
   const offset = rawOffset ? parseInteger(rawOffset, 0, 1_000_000) : 0;
   const invalid = !/^[HSP][A-Z0-9]{8}$/.test(candidateId)
     || (Boolean(rawCycle) && (cycle === undefined || cycle % 2 !== 0))
-    || offset === undefined;
+    || offset === undefined || browse.invalid;
   const returnTo = safeMoneyReturn(first(query.returnTo));
-  const response = invalid ? null : await loadDetail(candidateId, cycle, offset ?? 0);
+  const response = invalid ? null : await loadDetail(candidateId, cycle, offset ?? 0, browse.q, browse.sort);
   const data = response && response !== "missing" ? response.data : null;
   const candidate = data?.candidate ?? null;
   const freshness = data && response && response !== "missing"
@@ -274,6 +288,9 @@ export default async function CandidateMoneyPage({
               </Panel>
 
               <Panel level={2} title="Candidate and reporting context" eyebrow="FEC source identities">
+                <p className="mb-4 text-sm text-ink-soft">
+                  <CandidateMemberLink match={candidate.member_match} />
+                </p>
                 <dl className="grid gap-4 text-sm sm:grid-cols-2 lg:grid-cols-4">
                   <div><dt className="text-ink-muted">Office</dt><dd className="font-semibold text-ink">{{ H: "House", S: "Senate", P: "President" }[candidate.office]}</dd></div>
                   <div><dt className="text-ink-muted">State / district</dt><dd className="font-semibold text-ink">{[candidate.state, candidate.office === "H" ? candidate.district : null].filter(Boolean).join(" / ") || "Not reported"}</dd></div>
@@ -292,12 +309,21 @@ export default async function CandidateMoneyPage({
                 ) : (
                   <p className="mt-4 text-sm leading-6 text-ink-soft">
                     No matching FEC ID is currently available in the separately refreshed candidate
-                    catalog. This does not create or imply a member identity.
+                    catalog. The independently resolved member-profile link above uses the
+                    Bioguide crosswalk, not this catalog or a name match.
                   </p>
                 )}
               </Panel>
 
               <Panel level={2} title="FEC-reported committee links" eyebrow={`${data.linkage_count.toLocaleString()} source records`}>
+                <ListToolbar
+                  label="Search committee links"
+                  searchPlaceholder="Committee ID, designation or type code"
+                  searchValue={browse.q}
+                  sortValue={browse.sort}
+                  resetHref={pageHref(candidate, 0, returnTo, "", "recent")}
+                  sorts={[{ value: "recent", label: "Election year" }, { value: "committee", label: "Committee ID" }, { value: "designation", label: "Designation" }]}
+                />
                 <p className="mb-4 text-sm leading-6 text-ink-soft">
                   These are source-reported relationships for the {candidate.finance_cycle} FEC
                   cycle. Election years and designations are shown as filed; a link does not prove a
@@ -312,7 +338,7 @@ export default async function CandidateMoneyPage({
                   update times can differ.
                 </p>
                 {data.linkages.length === 0 ? (
-                  <DataState kind="empty" title={data.linkage_count ? "No links on this page" : "No links in this FEC file"}>
+                  <DataState kind="empty" title={browse.q && !data.filtered_linkage_count ? "No committee links match this search" : data.linkage_count ? "No links on this page" : "No links in this FEC file"}>
                     This is not proof that the candidate has no committees.
                   </DataState>
                 ) : (
@@ -364,17 +390,17 @@ export default async function CandidateMoneyPage({
                 )}
                 <nav aria-label="Committee link pages" className="mt-4 flex flex-wrap gap-5 text-sm">
                   {data.offset > 0 && (
-                    <Link className={linkClass} href={pageHref(candidate, Math.max(0, data.offset - data.limit), returnTo)}>
+                    <ListPageLink className={linkClass} href={pageHref(candidate, Math.max(0, data.offset - data.limit), returnTo, browse.q, browse.sort)}>
                       Previous
-                    </Link>
+                    </ListPageLink>
                   )}
-                  {data.offset + data.linkages.length < data.linkage_count && data.linkages.length > 0 && (
-                    <Link className={linkClass} href={pageHref(candidate, data.offset + data.limit, returnTo)}>
+                  {data.offset + data.linkages.length < data.filtered_linkage_count && data.linkages.length > 0 && (
+                    <ListPageLink className={linkClass} href={pageHref(candidate, data.offset + data.limit, returnTo, browse.q, browse.sort)}>
                       Next
-                    </Link>
+                    </ListPageLink>
                   )}
-                  <span className="text-ink-muted">
-                    Showing {data.linkages.length.toLocaleString()} of {data.linkage_count.toLocaleString()} link records
+                  <span role="status" className="text-ink-muted">
+                    {data.linkages.length ? (data.offset + 1).toLocaleString() : "0"}–{data.linkages.length ? (data.offset + data.linkages.length).toLocaleString() : "0"} of {data.filtered_linkage_count.toLocaleString()} matching link records ({data.linkage_count.toLocaleString()} total)
                   </span>
                 </nav>
               </Panel>
@@ -394,7 +420,6 @@ export default async function CandidateMoneyPage({
           )}
         </div>
       </main>
-      <SiteFooter />
     </>
   );
 }

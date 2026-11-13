@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import type { ChamberBalance, ChamberSummary } from "@/lib/api";
 import { hemicycleSeats, seatRows } from "@/lib/hemicycle.mjs";
+import { useScrollLock } from "@/lib/use-scroll-lock";
 
 function timeIn(d: Date, tz?: string): string {
   return d.toLocaleTimeString("en-US", {
@@ -154,7 +155,7 @@ function LegendIcon() {
 }
 
 /**
- * Slim status bar pinned to the bottom of the map app: the party legend +
+ * Shared workspace status bar: the congressional party legend +
  * House/Senate balance, plus the viewer's local time (from their browser
  * timezone, which tracks their location — no IP lookup needed) and Washington,
  * DC time.
@@ -165,12 +166,25 @@ function LegendIcon() {
  * bottom-left "Legend" button that opens a sheet: the legend plus a drill-in to
  * each chamber's seating chart. The clock is client-only (SSR-safe) and ticks in.
  */
-export function MapStatusBar({ summary }: { summary: ChamberSummary | null }) {
+export function MapStatusBar({ summary, status, onRetry }: {
+  summary: ChamberSummary | null;
+  status: "loading" | "ready" | "error";
+  onRetry: () => void;
+}) {
   const [now, setNow] = useState<Date | null>(null);
   const [openChamber, setOpenChamber] = useState<null | "House" | "Senate">(null);
   const [legendOpen, setLegendOpen] = useState(false);
   const [mobileView, setMobileView] = useState<"menu" | "House" | "Senate">("menu");
   const statsRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  useScrollLock(legendOpen);
+
+  useLayoutEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    if (legendOpen && !dialog.open) dialog.showModal();
+    else if (!legendOpen && dialog.open) dialog.close();
+  }, [legendOpen]);
 
   useEffect(() => {
     setNow(new Date());
@@ -202,27 +216,33 @@ export function MapStatusBar({ summary }: { summary: ChamberSummary | null }) {
     mobileView === "House" ? summary?.house : mobileView === "Senate" ? summary?.senate : null;
 
   return (
-    <div className="chrome fixed inset-x-0 bottom-0 z-30 flex h-9 items-center justify-between gap-4 border-t border-white/10 bg-govnavy-800/95 px-4 text-xs text-white/70 backdrop-blur">
+    <div
+      role="region"
+      aria-label="Congress balance and clocks"
+      className="chrome fixed inset-x-0 bottom-0 z-30 flex h-[var(--workspace-bar-height)] items-center justify-between gap-4 border-t border-white/10 bg-govnavy-800/95 px-4 pb-[env(safe-area-inset-bottom)] text-xs text-white/70 backdrop-blur"
+    >
       <div ref={statsRef} className="flex min-w-0 items-center gap-4">
         {/* Mobile: a single Legend button (the inline legend gets cut off here). */}
         <button
           type="button"
           onClick={openSheet}
-          className="flex items-center gap-1.5 font-medium text-white/70 transition-colors hover:text-white md:hidden"
+          className="flex items-center gap-1.5 font-medium text-white/70 transition-colors hover:text-white lg:hidden"
           aria-haspopup="dialog"
           aria-expanded={legendOpen}
+          aria-label={status === "error" ? "Congress legend; chamber data unavailable" : "Congress legend and chamber balance"}
         >
           <LegendIcon />
           Legend
+          {status === "error" && <span aria-hidden="true" className="text-amber-300">!</span>}
         </button>
 
         {/* Desktop: full inline legend. */}
-        <div className="hidden items-center gap-4 md:flex">
+        <div className="hidden items-center gap-4 lg:flex">
           <LegendItems />
         </div>
 
         {summary && (
-          <div className="hidden items-center gap-4 md:flex">
+          <div className="hidden items-center gap-4 lg:flex">
             <span className="text-white/20">|</span>
             <ChamberStat
               name="House"
@@ -238,6 +258,16 @@ export function MapStatusBar({ summary }: { summary: ChamberSummary | null }) {
             />
           </div>
         )}
+        {!summary && (
+          <div className="hidden items-center gap-2 lg:flex" role="status">
+            <span>{status === "error" ? "Chamber data unavailable" : "Loading chamber data"}</span>
+            {status === "error" && (
+              <button type="button" onClick={onRetry} className="font-semibold text-white underline">
+                Retry
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="flex shrink-0 items-center gap-2 tabular-nums text-white/60 sm:gap-3">
@@ -251,31 +281,28 @@ export function MapStatusBar({ summary }: { summary: ChamberSummary | null }) {
         )}
       </div>
 
-      {/* Mobile legend sheet — portaled to <body> so the bar's backdrop-blur
-          (a containing block for fixed elements) can't trap it. Always mounted
-          so it can slide. */}
+      {/* Native modality keeps keyboard focus and the backdrop out of the workspace. */}
       {typeof document !== "undefined" &&
         createPortal(
-          <div className="chrome md:hidden">
-            <div
-              className={`fixed inset-0 z-[45] bg-black/60 transition-opacity duration-300 ${
-                legendOpen ? "opacity-100" : "pointer-events-none opacity-0"
-              }`}
-              onClick={() => setLegendOpen(false)}
-              aria-hidden="true"
-            />
-            <div
-              role="dialog"
+            <dialog
+              ref={dialogRef}
               aria-modal="true"
-              aria-hidden={!legendOpen}
-              className={`fixed inset-x-0 bottom-0 z-[46] transform rounded-t-2xl border-t border-white/10 bg-govnavy-800 p-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] text-sm text-white/80 shadow-2xl transition-transform duration-300 ease-out ${
-                legendOpen ? "translate-y-0" : "translate-y-full"
-              }`}
+              aria-label="Congress legend and chamber balance"
+              onCancel={(event) => {
+                event.preventDefault();
+                setLegendOpen(false);
+              }}
+              onClick={(event) => {
+                if (event.target !== event.currentTarget) return;
+                const bounds = event.currentTarget.getBoundingClientRect();
+                if (event.clientY < bounds.top || event.clientY > bounds.bottom) setLegendOpen(false);
+              }}
+              className="chrome fixed inset-x-0 bottom-0 top-auto m-0 max-h-[85dvh] w-full max-w-none overflow-y-auto rounded-t-2xl border-t border-white/10 bg-govnavy-800 p-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] text-sm text-white/80 shadow-2xl backdrop:bg-black/60"
             >
               {mobileView === "menu" ? (
                 <>
                   <div className="mb-3 flex items-center justify-between">
-                    <span className="text-sm font-semibold text-white">Map legend</span>
+                    <span className="text-sm font-semibold text-white">Congress legend</span>
                     <button
                       type="button"
                       onClick={() => setLegendOpen(false)}
@@ -288,6 +315,16 @@ export function MapStatusBar({ summary }: { summary: ChamberSummary | null }) {
                   <div className="flex flex-col gap-2.5">
                     <LegendItems />
                   </div>
+                  {!summary && (
+                    <p className="mt-4 text-xs" role="status">
+                      {status === "error" ? "Chamber data is unavailable. " : "Loading chamber data."}
+                      {status === "error" && (
+                        <button type="button" onClick={onRetry} className="font-semibold text-white underline">
+                          Retry
+                        </button>
+                      )}
+                    </p>
+                  )}
                   {summary && (
                     <div className="mt-4 border-t border-white/10 pt-3">
                       <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-white/40">
@@ -338,8 +375,7 @@ export function MapStatusBar({ summary }: { summary: ChamberSummary | null }) {
                   {mobileData && <ChamberPanel name={mobileView} data={mobileData} />}
                 </>
               )}
-            </div>
-          </div>,
+            </dialog>,
           document.body,
         )}
     </div>
