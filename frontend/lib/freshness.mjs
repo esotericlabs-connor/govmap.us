@@ -18,6 +18,7 @@ export const SOURCE_CADENCE_HOURS = Object.freeze({
   fec_finance: 24,
   fec_candidates: 24,
   fec_election_calendar: 24,
+  fec_candidate_totals: 24,
   committee_meetings: 12,
   backfill_bills: 0.5,
   zip_districts: 24 * 31,

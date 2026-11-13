@@ -1,7 +1,7 @@
 from datetime import date, datetime
-from typing import Literal
+from typing import Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, StrictBool, model_validator
 
 ElectionOffice = Literal["H", "S", "P"]
 
@@ -102,19 +102,36 @@ class ElectionCandidatesOut(BaseModel):
 class FecCalendarEventRaw(BaseModel):
     """FEC calendar events in the publisher's Election Dates category."""
 
-    all_day: bool
+    all_day: StrictBool
     calendar_category_id: Literal[36]
     category: Literal["Election Dates"]
     description: str | None = Field(default=None, max_length=4000)
-    end_date: date | None = None
+    end_date: date | datetime | None = None
     event_id: int = Field(gt=0)
     location: str | None = Field(default=None, max_length=255)
-    start_date: date
+    start_date: date | datetime
     state: list[str] | None = None
     summary: str = Field(min_length=1, max_length=255)
     url: HttpUrl | None = None
 
     model_config = ConfigDict(extra="ignore", allow_inf_nan=False)
+
+    @model_validator(mode="after")
+    def validate_date_range(self) -> Self:
+        if self.end_date is None:
+            return self
+        start = self.start_date.date() if isinstance(self.start_date, datetime) else self.start_date
+        end = self.end_date.date() if isinstance(self.end_date, datetime) else self.end_date
+        if end < start or (self.all_day and end == start):
+            raise ValueError("FEC calendar end date is not a valid range")
+        if isinstance(self.start_date, datetime) and isinstance(self.end_date, datetime):
+            try:
+                reversed_times = self.end_date < self.start_date
+            except TypeError as exc:
+                raise ValueError("FEC calendar timestamps have incompatible timezones") from exc
+            if reversed_times:
+                raise ValueError("FEC calendar end time precedes its start time")
+        return self
 
 
 class FecCalendarPageRaw(BaseModel):
@@ -147,6 +164,7 @@ class ElectionCalendarEventOut(BaseModel):
     state: list[str]
     start_date: date
     end_date: date | None
+    end_date_normalized: bool
     url: HttpUrl | None
 
     model_config = ConfigDict(from_attributes=True)

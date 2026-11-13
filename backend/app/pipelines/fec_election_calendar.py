@@ -64,8 +64,8 @@ def run(calendar_year: int | None = None) -> BatchResult:
             "calendar-dates",
             calendar_category_id=_ELECTION_DATE_CATEGORY_ID,
             min_start_date=f"{year}-01-01",
-            max_start_date=f"{year}-12-31",
-            sort="start_date",
+            max_start_date=f"{year}-12-31T23:59:59.999999",
+            sort="event_id",
             page=page_number,
             per_page=_PAGE_SIZE,
         )
@@ -130,7 +130,9 @@ def run(calendar_year: int | None = None) -> BatchResult:
 
     event_rows = [
         event.model_dump(mode="json")
-        for event in sorted(candidates, key=lambda row: (row.start_date, row.event_id))
+        for event in sorted(
+            candidates, key=lambda row: (row.start_date.strftime("%Y-%m-%d"), row.event_id)
+        )
     ]
     revision = hashlib.sha256(
         json.dumps(event_rows, sort_keys=True, separators=(",", ":")).encode("utf-8")

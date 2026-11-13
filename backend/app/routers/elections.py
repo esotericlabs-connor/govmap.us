@@ -6,14 +6,18 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.db import get_db
+from app.db import begin_consistent_read, get_db
 from app.models.election import (
     ElectionCalendarCoverage,
     ElectionCalendarEvent,
     ElectionCandidate,
     ElectionCatalogCoverage,
 )
-from app.schemas.election import ElectionCalendarOut, ElectionCandidatesOut
+from app.schemas.election import (
+    ElectionCalendarEventOut,
+    ElectionCalendarOut,
+    ElectionCandidatesOut,
+)
 from app.types import MAX_LIST_OFFSET
 
 router = APIRouter(prefix="/api/elections", tags=["elections"])
@@ -24,6 +28,7 @@ async def list_election_calendar(
     db: AsyncSession = Depends(get_db),
     year: int = Query(default=settings.fec_cycle, ge=1979, le=2100),
 ) -> ElectionCalendarOut:
+    await begin_consistent_read(db)
     coverage = (
         await db.execute(
             select(ElectionCalendarCoverage).where(
@@ -51,6 +56,12 @@ async def list_election_calendar(
             .order_by(ElectionCalendarEvent.start_date, ElectionCalendarEvent.event_id)
         )
     ).scalars().all()
+    event_output = []
+    for event in events:
+        parsed = ElectionCalendarEventOut.model_validate(event)
+        event_output.append(
+            parsed if parsed.end_date_normalized else parsed.model_copy(update={"end_date": None})
+        )
 
     return ElectionCalendarOut(
         generated_at=datetime.now(UTC),
@@ -60,7 +71,7 @@ async def list_election_calendar(
         event_count=coverage.event_count,
         expected_count=coverage.expected_count,
         fetched_at=coverage.fetched_at,
-        events=events,
+        events=event_output,
     )
 
 
@@ -79,6 +90,7 @@ async def list_election_candidates(
     limit: int = Query(default=50, ge=1, le=100),
     offset: int = Query(default=0, ge=0, le=MAX_LIST_OFFSET),
 ) -> ElectionCandidatesOut:
+    await begin_consistent_read(db)
     coverage = (
         await db.execute(
             select(ElectionCatalogCoverage).where(

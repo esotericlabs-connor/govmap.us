@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from typing import Annotated, Any
 
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
+from pydantic import AliasChoices, BaseModel, BeforeValidator, ConfigDict, Field
 
 
 def _date_only(v: Any) -> Any:
@@ -24,16 +24,22 @@ class CandidateTotalRaw(BaseModel):
     combined individual total). Only the persisted fields are modeled; the rest of
     the Form 3 line items are ignored.
 
-    Field names below are OpenFEC's; the pipeline renames a few for storage
-    (e.g. other_political_committee_contributions -> pac_contributions)."""
+    Balance fields accept OpenFEC's current ``last_*`` names as well as the
+    older internal names; the pipeline renames several fields for storage."""
 
     cycle: int | None = None
 
     # Topline
     receipts: float | None = None
     disbursements: float | None = None
-    cash_on_hand_end_period: float | None = None
-    debts_owed_by_committee: float | None = None
+    cash_on_hand_end_period: float | None = Field(
+        default=None,
+        validation_alias=AliasChoices("last_cash_on_hand_end_period", "cash_on_hand_end_period"),
+    )
+    debts_owed_by_committee: float | None = Field(
+        default=None,
+        validation_alias=AliasChoices("last_debts_owed_by_committee", "debts_owed_by_committee"),
+    )
 
     # Where the money came from (Form 3, Line 11 family)
     contributions: float | None = None  # total contributions
@@ -59,8 +65,8 @@ class CandidateTotalRaw(BaseModel):
 
 class ScheduleAItemRaw(BaseModel):
     """One itemized receipt from GET /schedules/schedule_a/ — 'who gave what,
-    when'. sub_id is the FEC transaction id (stable dedupe key). Only display
-    fields are modeled; the rest of the Schedule A row is ignored."""
+    when'. sub_id identifies a source row, not a unique contribution across
+    amended filings. Only display fields are modeled."""
 
     sub_id: str = Field(min_length=1, max_length=32)
     committee_id: str | None = None

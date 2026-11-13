@@ -24,6 +24,7 @@ from app.config import settings
 from app.db import async_session_factory
 from app.models.member import Member
 from app.normalize.bills import normalize_and_load as normalize_bills
+from app.normalize.campaign_money import load_campaign_money
 from app.normalize.committee_meetings import load_committee_meetings
 from app.normalize.committees import load_committees
 from app.normalize.crosswalk import load_crosswalk
@@ -40,6 +41,7 @@ from app.pipelines import (
     congress_legislators,
     congress_member_sponsored,
     fec_candidates,
+    fec_candidate_totals,
     fec_election_calendar,
     fec_finance,
     house_clerk_votes,
@@ -300,6 +302,20 @@ async def refresh_election_calendar() -> None:
         raise
 
 
+async def refresh_campaign_money() -> None:
+    """Complete FEC candidate-finance and committee-linkage bulk snapshots."""
+    source = "fec_candidate_totals"
+    try:
+        result = await asyncio.to_thread(fec_candidate_totals.run)
+        count = await load_campaign_money()
+        status = await _record_batch(source, count, result, "candidate summaries")
+        logger.info("refresh %s: %s (%d candidate summaries)", source, status, count)
+    except Exception as exc:
+        await record_run(source, 0, "error", str(exc))
+        logger.exception("refresh %s failed", source)
+        raise
+
+
 async def refresh_committee_meetings() -> None:
     """Committee meetings from Congress.gov (detail per event) → committee_meetings.
     Independent of the other sources except the committees FK, so refresh_members
@@ -378,6 +394,7 @@ EXTRA_REFRESHERS: dict[str, TrackedRefresh] = {
     "finance": tracked("fec_finance", refresh_finance),
     "election_candidates": tracked("fec_candidates", refresh_election_candidates),
     "election_calendar": tracked("fec_election_calendar", refresh_election_calendar),
+    "money_totals": tracked("fec_candidate_totals", refresh_campaign_money),
     "zip_districts": tracked("zip_districts", refresh_zip_districts),
     "committee_meetings": tracked("committee_meetings", refresh_committee_meetings),
     "backfill_bills": tracked("backfill_bills", refresh_backfill_bills),
@@ -397,6 +414,8 @@ _NOT_RETRIED = (
     RosterChangeWithheldError,
     RunSkippedError,
     fec_candidates.CandidateSnapshotIncompleteError,
+    fec_election_calendar.CalendarSnapshotIncompleteError,
+    fec_candidate_totals.CampaignMoneySnapshotIncompleteError,
 )
 
 

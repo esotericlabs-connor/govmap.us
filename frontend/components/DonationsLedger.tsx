@@ -139,7 +139,7 @@ export function DonationsLedger({
   const cycleOptions = Array.from(new Set([cycle, ...cycles])).sort((a, b) => b - a);
 
   return (
-    <Section title="Contributions" count={total ?? undefined}>
+    <Section title="Reported receipt records">
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <input
           type="search"
@@ -202,8 +202,8 @@ export function DonationsLedger({
       {items.length === 0 ? (
         <EmptyState>
           {q
-            ? `No contributions match “${q}”.`
-            : `No itemized contributions found for this member in the ${cycle} cycle.`}
+            ? `No loaded receipt records match “${q}”.`
+            : `No receipt records are currently shown for the selected committee in the ${cycle} cycle. This does not establish zero contributions.`}
         </EmptyState>
       ) : (
         <div className={pending ? "pointer-events-none opacity-60 transition-opacity" : "transition-opacity"}>
@@ -239,7 +239,10 @@ export function DonationsLedger({
                 <>
                   Showing <strong>{shownFrom.toLocaleString()}</strong>–
                   <strong>{shownTo.toLocaleString()}</strong> of{" "}
-                  <strong>{total.toLocaleString()}</strong>
+                  <strong>{total.toLocaleString()}</strong>{" "}
+                  {q || sort !== "amount"
+                    ? "matching cached rows"
+                    : "FEC-reported rows (count may be approximate)"}
                 </>
               ) : (
                 <>
@@ -260,11 +263,13 @@ export function DonationsLedger({
       )}
 
       <p className="mt-8 border-t border-slate-warm-200 pt-6 text-xs leading-relaxed text-slate-warm-400">
-        Every disclosed contribution of <strong>$200 or more</strong> to this member&rsquo;s
-        principal campaign committee. Small-dollar gifts under $200 aren&rsquo;t itemized by the FEC
-        and so don&rsquo;t appear individually. Search and the alternate sorts cover the
-        contributions loaded so far — browse the default largest-first view to load more. Records are
-        pulled and cached on demand from the FEC. Source: Federal Election Commission.
+        These are cached FEC Schedule A records for one selected principal committee, not all
+        contributions to a candidate. Search and alternate sorts cover only rows loaded so far;
+        browse the default largest-first view to load more. Source-row IDs prevent replaying the
+        same row but do not reconcile amended filings, memo entries, transfers, or unique gifts.
+        Itemization is based on reporting thresholds and can include individual gifts below $200;
+        unitemized activity is not listed. Records are fetched on demand and may be stale.
+        Source: Federal Election Commission.
       </p>
     </Section>
   );

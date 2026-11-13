@@ -11,6 +11,7 @@ from app.config import settings
 from app.logging_setup import setup_file_logging
 from app.routers import (
     bills,
+    campaign_money,
     committees,
     congress,
     data_sources,
@@ -104,6 +105,7 @@ async def upstream_capacity_handler(
 app.include_router(members.router)
 app.include_router(donations.router)
 app.include_router(elections.router)
+app.include_router(campaign_money.router)
 app.include_router(committees.router)
 app.include_router(bills.router)
 app.include_router(votes.router)

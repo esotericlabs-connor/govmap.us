@@ -97,6 +97,13 @@ JOBS: list[tuple[str, Callable[[], Awaitable[None]], dict]] = [
         REFRESHERS["election_calendar"],
         {"trigger": "cron", "hour": 11},
     ),
+    # Two bounded FEC bulk files provide candidate summaries and linkages
+    # without a per-candidate request loop.
+    (
+        "refresh_campaign_money",
+        REFRESHERS["money_totals"],
+        {"trigger": "cron", "hour": 12},
+    ),
     # ZIP→district crosswalk only changes on redistricting — monthly (1st,
     # 06:00 UTC) is generous. The deploy-time refresh_all keeps it warm too.
     (

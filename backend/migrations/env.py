@@ -13,6 +13,7 @@ from app.db import Base
 # tests/test_migration_safety.py fails if one is missing.
 from app.models import (  # noqa: F401
     bill,
+    campaign_money,
     committee,
     contribution,
     crosswalk,

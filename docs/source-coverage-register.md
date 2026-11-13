@@ -47,7 +47,8 @@ infrastructure are authorized by this document.
 | Bill document cache: **delivered-partial**, alternate publisher metadata **duplicate** | Latest readable text, source URL/version and revision-aware cache | Lazy first request; up to 16 MiB upstream HTML. Not all document versions or a full GovInfo API integration. | Preserve source version/date/checksum and reviewed formats; avoid downloading PDF/XML/HTML copies indiscriminately. |
 | Committee meetings/referrals: **delivered-partial** | Event ID, chamber, time/status/title/location, committee codes and related bills; lazy referred-bill list | Default 300 recent meetings/chamber; referrals default to 15. Witnesses, video, support documents and related nominations/treaties are outside modeled fields. | Expand typed relationships and documents with page completeness and distinct scheduled versus actually held events. |
 | Roll calls: **delivered-partial** | Chamber/Congress/session/roll, date, question/result, totals and member positions mapped through Bioguide | Default latest 100/chamber; older rows on file do not imply full history. House/LIS parsing and Voteview fallback have different coverage. | Reconcile chamber inventories by session; refresh corrected votes and retain publisher/revision for each record. |
-| Candidate finance totals: **delivered-partial** | Receipts, spending, cash/debt, contribution categories, transfers/loans/refunds, coverage dates and cycle | First matching-office FEC ID is selected from the array; newest cycle with activity is preferred. Not all candidate IDs, races, committees or historical cycles. | Preserve cycle/report scope and reconcile all evidenced IDs before geography/rankings; never silently sum overlapping totals. |
+| Member finance totals: **delivered-partial** | Receipts, spending, cash/debt, contribution categories, transfers/loans/refunds, coverage dates and cycle | First matching-office FEC ID is selected from the array; newest cycle with activity is preferred. Existing amounts use floating point. Not all candidate IDs, races, committees or historical cycles. | Reconcile all evidenced IDs and verify read-adapter parity before replacing the member card; never silently sum overlapping totals. |
+| FEC candidate financial summaries and linkage: **delivered-partial** | Candidate FEC ID, reported office/state/district and party, exact-decimal gross summaries, coverage end, source linkage IDs/years and committee IDs; archive hashes, optional modification times and fetch time | Configured two-year file only; one summary per candidate who raised or spent money, not all registrations. Some publisher-reported linkage years fall outside 1900–2100 and are flagged as unverified. No claim that every publisher record has been independently reconciled; authorized-committee transfers can double-count activity and financial periods can differ. Source-reported candidate districts are not a FIPS/boundary-vintage geographic join. Committee IDs are linkage evidence, not committee totals. | Reconcile multiple candidate IDs, committee coverage and comparable filing periods. Add donor geography and organization or individual rankings only after lineage and use review; keep independent spending separate. |
 | Itemized receipts: **delivered-partial / privacy-restricted** | `sub_id`, committee, amount/date, contributor name, city/state, employer/occupation, year-to-date aggregate | One selected principal committee; first 20 committee results; Schedule A fetched in at most eight pages/request, with persistent keyset cursor. Cached subset and reported total are distinct. | Audit amendment/back-reference/transaction IDs, memo entries, conduit/earmark and entity fields before rankings. Current display-field schema cannot support deduplicated money-flow analysis. |
 | ZIP to district: **delivered-partial** | ZIP and state/district pairs; all parsed pairings, not a claimed single exact district | Parser discards source GEOID after decoding, ratios and release vintage; current table replacement has a size guard, not version reconciliation. | Preserve FIPS/GEOID, Congress/boundary vintage and ratios through shared normalization. Quantify ambiguous ZIPs; never use ZIP as exact residence/donor district. |
 
@@ -61,6 +62,8 @@ Implementation evidence:
 [committee schema](../backend/app/schemas/committee.py),
 [finance schema](../backend/app/schemas/finance.py),
 [finance pipeline](../backend/app/pipelines/fec_finance.py),
+[candidate-finance bulk pipeline](../backend/app/pipelines/fec_candidate_totals.py),
+[candidate-finance normalization](../backend/app/normalize/campaign_money.py),
 [election candidate schema](../backend/app/schemas/election.py),
 [election candidate pipeline](../backend/app/pipelines/fec_candidates.py),
 [donation service](../backend/app/services/donations.py),
@@ -107,15 +110,15 @@ make an unrestricted backfill **deferred** until identity/date handling is revie
 
 | Source/family | Disposition and next use |
 | --- | --- |
-| OpenFEC `candidate`, `candidates`, `committee`, `committees` | Current member totals, candidate catalog, and principal-committee metadata **delivered-partial**. The catalog is cycle-scoped and grouped only by FEC-reported office/state/district; verified ballot access, committee history and broader race metadata remain **queued**. Keep FEC IDs as external candidate identities until an evidenced Bioguide mapping exists. No fabricated member IDs. |
+| OpenFEC `candidate`, `candidates`, `committee`, `committees` | Current member totals and candidate catalog **delivered-partial**; the on-demand member ledger resolves one principal committee. The catalog is cycle-scoped and grouped only by FEC-reported office/state/district. The candidate-list schema does not document principal committees, so an empty passthrough array is not evidence that none exist. Verified ballot access, committee history and broader race metadata remain **queued**. Keep FEC IDs as external candidate identities until an evidenced Bioguide mapping exists. No fabricated member IDs. |
 | OpenFEC `schedules` | Schedule A subset **delivered-partial / privacy-restricted**. Receipt aggregates and other schedules **queued** for reconciliation of spending, debts, loans and independent expenditures; field/line-item semantics must be reviewed per endpoint. |
 | OpenFEC `reports`, `filings`, `efile` | **Queued**: filed/amended/latest distinctions and lineage. Electronic filings are not automatically equivalent to processed reports. |
-| OpenFEC `calendar-dates` (Election Dates category) | FEC-published calendar events **delivered-partial**, refreshed daily for the configured FEC cycle year. The category includes elections, runoffs, and party conventions. Exact pagination counts and event IDs are retained; entries can be revised and are not proof of state ballot qualification, official results, or a complete state/local calendar. The API has no event revision token; GovMap stores a local content hash and fetch time. |
+| OpenFEC `calendar-dates` (Election Dates category) | FEC-published calendar events **delivered-partial**, refreshed daily for the configured FEC cycle year. The category includes elections, runoffs, and party conventions. Timed event timestamps are displayed as publisher-local dates, and exclusive all-day ends become inclusive dates. Older end dates are withheld until a successful updated refresh. Exact pagination counts and event IDs are retained; entries can be revised and are not proof of state ballot qualification, official results, or a complete state/local calendar. FEC event IDs are not permanent; they identify records within a fetched snapshot, not durable event identities. The API has no event revision token; matching counts cannot prove the source was unchanged during pagination. GovMap stores a local content hash and fetch time. |
 | OpenFEC `elections`, `election-dates`, `state-election-office`, `reporting-dates` | **Queued**: broader race catalog and official state-source discovery. These are not nationwide live election results or proof of ballot qualification. |
 | OpenFEC `communication_costs`, `electioneering`, `presidential`, `national_party`, `totals` | **Queued**: separately labeled money datasets; never conflate spending for/against a candidate with contributions received by that candidate. |
 | OpenFEC `audit-case`, `audit-category`, `audit-primary-category`, `legal`, `rulemaking` | **Deferred** to an evidenced accountability/regulatory slice; source classifications and outcomes need review, not automatic misconduct labels. |
 | OpenFEC `names`, `rad-analyst`, `operations-log` | **Deferred** support metadata; no current user-facing need. Donor identities must not enter universal search. |
-| OpenFEC bulk releases | **Queued** alternative for reconciled history. Benchmark against paginated API acquisition; never double-count both copies. |
+| FEC all-candidates and candidate–committee bulk files | **Delivered-partial** for the configured current finance cycle. Archive SHA-256 and a local parsed-content hash identify what was fetched; neither is an FEC revision ID nor proof of full upstream coverage. Latest reported dates must be compared explicitly, and authorized-committee transfers can double-count gross receipts and disbursements. Historical reconciliation and other bulk collections remain **queued**; never add API and bulk copies of the same activity. |
 | congress-legislators historical people/committees, official social media, district offices | **Queued**: all published files not currently ingested. Preserve revision and historical terms; offices are not residential addresses. |
 | congress-legislators `executive` | **Queued** President/VP reference; not a Cabinet roster. Document non-Bioguide identities and manual matches before adding a person pipeline. |
 | HUD other crosswalk types/history/ratios | **Queued** after documentation/access review. No guessed type codes or 120th-Congress boundary assumptions. |
@@ -128,6 +131,24 @@ make an unrestricted backfill **deferred** until identity/date handling is revie
 OpenFEC families were enumerated from its [Swagger schema](https://api.open.fec.gov/swagger/).
 These family decisions do not certify every available field: unmodeled schemas,
 account-only responses and collection histories remain explicitly queued.
+
+The FEC describes its Schedule E candidate aggregates as excluding memoed
+items, and its API documentation says candidate aggregates exclude 24/48-hour
+reports to avoid double counting. `election_full` defaults to an election
+period, not necessarily a two-year finance cycle. These observations are
+preliminary source qualification, not evidence that amendments, report
+revisions, periods or all outside spending have been reconciled. Schedule E is
+not yet ingested or combined with campaign receipts.
+
+The [FEC's contributor-use guidance](https://www.fec.gov/updates/sale-or-use-contributor-information/)
+restricts using individual contributor information for solicitation, including
+charitable solicitation, or commercial purposes. The existing on-demand
+one-committee receipt cache is not an amendment-safe contribution census. The
+existing ledger and its API also need review; their current availability does
+not establish that their use is permitted. Expanded individual-donor views,
+rankings or exports remain blocked pending a documented permitted-use review
+of the donation-funded site and all relevant API and fundraising surfaces; a
+public-source attribution alone is insufficient.
 
 ## Identity, dates and resource gates
 

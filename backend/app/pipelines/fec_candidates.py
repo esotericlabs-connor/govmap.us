@@ -50,6 +50,7 @@ def run() -> BatchResult:
     seen_ids: set[str] = set()
     expected_count: int | None = None
     expected_count_changed = False
+    exact_count: int | None = None
     page_count = 0
     complete = False
 
@@ -59,6 +60,7 @@ def run() -> BatchResult:
         payload = _fec_get(
             "candidates",
             cycle=finance_cycle,
+            sort="candidate_id",
             page=page_number,
             per_page=_PAGE_SIZE,
         )
@@ -71,6 +73,25 @@ def run() -> BatchResult:
 
         page_count = page_number
         page_expected = _expected_count(page)
+        is_exact = page.pagination.get("is_count_exact")
+        if is_exact is not None and not isinstance(is_exact, bool):
+            raise CandidateSnapshotIncompleteError(
+                "OpenFEC candidate count exactness flag is malformed"
+            )
+        if is_exact is True:
+            if page_expected is None:
+                raise CandidateSnapshotIncompleteError(
+                    "OpenFEC marked the candidate count exact but omitted the count"
+                )
+            if exact_count is not None and exact_count != page_expected:
+                raise CandidateSnapshotIncompleteError(
+                    "OpenFEC exact candidate count changed during pagination"
+                )
+            exact_count = page_expected
+        elif exact_count is not None:
+            raise CandidateSnapshotIncompleteError(
+                "OpenFEC stopped marking the candidate count exact during pagination"
+            )
         if page_number == 1:
             expected_count = page_expected
         elif page_expected is not None:
@@ -111,10 +132,14 @@ def run() -> BatchResult:
         raise CandidateSnapshotIncompleteError(
             f"OpenFEC returned no candidates for finance cycle {finance_cycle}"
         )
+    if exact_count is not None and len(candidates) != exact_count:
+        raise CandidateSnapshotIncompleteError(
+            "OpenFEC candidate result count did not match its exact count"
+        )
     if expected_count_changed:
         logger.warning(
-            "OpenFEC candidate count changed during pagination; using the terminal page "
-            "boundary as completion evidence"
+            "OpenFEC candidate count changed during pagination; only counts explicitly "
+            "marked exact are required to match the staged rows"
         )
 
     candidate_rows = [

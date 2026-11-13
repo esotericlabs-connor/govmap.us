@@ -50,6 +50,13 @@ test("the election workspace is findable and links to the live candidate catalog
   assert.equal(matchSections("white house")[0].id, "executive");
 });
 
+test("campaign money links to the candidate finance workspace", () => {
+  const [money] = matchSections("campaign money");
+  assert.equal(money.id, "money");
+  assert.equal(money.availability, "live");
+  assert.equal(money.href, "/money");
+});
+
 test("live sections come before planned ones, even on a weaker match", () => {
   const custom = [
     { ...byId("elections"), id: "planned-x", label: "Data", availability: "planned" },

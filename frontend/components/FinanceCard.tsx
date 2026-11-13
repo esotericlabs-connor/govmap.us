@@ -3,11 +3,12 @@ import Link from "next/link";
 import { formatDate, Section } from "@/components/DetailKit";
 import type { MemberFinance } from "@/lib/api";
 import { formatMoney } from "@/lib/format";
+import { legacyItemizationSplit } from "@/lib/money.mjs";
 
 /**
  * Campaign-finance snapshot for a member's latest FEC cycle: the topline totals,
- * where the money came from (individual / PAC / party / self / transfers / other),
- * and the small-dollar vs large-dollar split. Pure server-safe presentation,
+ * where the money came from, and itemized versus unitemized individual totals.
+ * Pure server-safe presentation,
  * reusing the app's card / proportional-bar language. Data-only, sourced to the
  * FEC — no interpretation. Itemized "who gave what, when" lives in the donations
  * ledger (loaded separately).
@@ -32,15 +33,20 @@ function Tile({ label, value, sub }: { label: string; value: string; sub?: strin
   );
 }
 
-// Receipts by source — these sum to ~total receipts. Self-funding folds in the
-// candidate's own contributions and loans; "Other" catches miscellaneous
-// receipts. Zero-value sources are dropped so the bar stays clean.
-const SOURCES: { key: keyof MemberFinance; label: string; color: string }[] = [
+type SourceKey =
+  | "individual_contributions"
+  | "pac_contributions"
+  | "party_contributions"
+  | "transfers"
+  | "candidate_contribution"
+  | "other_receipts";
+
+const SOURCES: { key: SourceKey; label: string; color: string }[] = [
   { key: "individual_contributions", label: "Individuals", color: "var(--color-govblue)" },
-  { key: "pac_contributions", label: "PACs", color: "#f59e0b" /* amber-500 */ },
+  { key: "pac_contributions", label: "Other committees", color: "#f59e0b" /* amber-500 */ },
   { key: "party_contributions", label: "Party", color: "#8b5cf6" /* violet-500 */ },
   { key: "transfers", label: "Transfers", color: "#14b8a6" /* teal-500 */ },
-  { key: "candidate_contribution", label: "Self-funding", color: "#64748b" /* slate-500 */ },
+  { key: "candidate_contribution", label: "Candidate contributions", color: "#64748b" /* slate-500 */ },
   { key: "other_receipts", label: "Other", color: "#94a3b8" /* slate-400 */ },
 ];
 
@@ -57,37 +63,33 @@ export function FinanceCard({
 }) {
   const parts = SOURCES.map((s) => ({
     ...s,
-    amount: (finance[s.key] as number | null) ?? 0,
-  })).filter((p) => p.amount > 0);
+    amount: finance[s.key] ?? 0,
+  })).filter((p) => Number.isFinite(p.amount) && p.amount > 0);
   const totalSources = parts.reduce((sum, p) => sum + p.amount, 0);
-
-  // Grassroots (small-dollar, < $200) share of individual money, when itemized
-  // and unitemized are both known.
-  const individual = finance.individual_contributions ?? 0;
-  const smallDollar = finance.individual_unitemized ?? 0;
-  const showSmallDollar = individual > 0 && (finance.individual_unitemized ?? null) !== null;
+  const split = legacyItemizationSplit(finance.individual_itemized, finance.individual_unitemized);
 
   return (
     <Section title="Campaign Finance">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Tile label="Total Raised" value={formatMoney(finance.receipts, compact)} sub="this cycle" />
         <Tile label="Total Spent" value={formatMoney(finance.disbursements, compact)} sub="this cycle" />
-        <Tile label="Cash on Hand" value={formatMoney(finance.cash_on_hand, compact)} sub="current balance" />
+        <Tile label="Cash on Hand" value={formatMoney(finance.cash_on_hand, compact)} sub="latest reported balance" />
         <Tile label="Debts" value={formatMoney(finance.debts, compact)} sub="owed by committee" />
       </div>
 
-      {totalSources > 0 && (
+      {Number.isFinite(totalSources) && totalSources > 0 && (
         <div className="mt-6">
           <p className="text-xs font-semibold uppercase tracking-wider text-slate-warm-500">
-            Where the money came from
+            Reported positive receipt categories
           </p>
           <p className="mt-0.5 text-xs text-slate-warm-400">
-            Share of this cycle&rsquo;s receipts, by source
+            Shares of the positive categories shown, not necessarily total receipts. Loans,
+            adjustments and missing categories can differ.
           </p>
           <div
             className="mt-2 flex h-3 w-full overflow-hidden rounded-full bg-slate-warm-200"
             role="img"
-            aria-label="Receipts by source"
+            aria-label="Shares of the positive receipt categories shown"
           >
             {parts.map((p) => (
               <div
@@ -110,40 +112,46 @@ export function FinanceCard({
         </div>
       )}
 
-      {showSmallDollar && (
+      {split && (
         <div className="mt-6 rounded-lg border border-slate-warm-200 bg-slate-warm-50/70 p-4">
           <div className="flex items-baseline justify-between">
             <p className="text-xs font-semibold uppercase tracking-wider text-slate-warm-500">
-              Grassroots vs. large donors
+              Itemized vs. unitemized individual receipts
             </p>
-            <p className="text-xs text-slate-warm-400">of individual money</p>
+            <p className="text-xs text-slate-warm-400">of these two reported amounts</p>
           </div>
           <div
             className="mt-2 flex h-2.5 w-full overflow-hidden rounded-full bg-slate-warm-200"
             role="img"
-            aria-label="Small-dollar vs large-dollar individual contributions"
+            aria-label="Unitemized and itemized individual receipt amounts"
           >
             <div
-              style={{ width: `${pct(smallDollar, individual)}%`, background: "var(--color-govblue)" }}
+              style={{ width: `${split.unitemizedPercent}%`, background: "var(--color-govblue)" }}
             />
             <div
               className="bg-slate-700"
-              style={{ width: `${100 - pct(smallDollar, individual)}%` }}
+              style={{ width: `${split.itemizedPercent}%` }}
             />
           </div>
           <div className="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-sm">
             <span className="text-slate-warm-600">
-              <span className="font-semibold text-govnavy">{pct(smallDollar, individual)}%</span>{" "}
-              small-dollar (&lt;&nbsp;$200) · {formatMoney(smallDollar)}
+              <span className="font-semibold text-govnavy">{split.unitemizedPercent}%</span>{" "}
+              unitemized · {formatMoney(finance.individual_unitemized)}
             </span>
             <span className="text-slate-warm-600">
               <span className="font-semibold text-govnavy">
                 {formatMoney(finance.individual_itemized)}
               </span>{" "}
-              itemized (larger, disclosed donors)
+              itemized · {split.itemizedPercent}%
             </span>
           </div>
         </div>
+      )}
+      {!split && (
+        <p className="mt-6 text-xs leading-relaxed text-slate-warm-500">
+          Itemized and unitemized amounts cannot be compared here unless both are reported,
+          nonnegative, and have a positive combined value.
+        </p>
       )}
 
       {bioguide &&
@@ -151,12 +159,12 @@ export function FinanceCard({
           // In the blade: swap to the in-blade ledger instead of navigating away,
           // so the map underneath is never torn down.
           <button type="button" onClick={onViewDonations} className={CTA_CLASS}>
-            See who gave — itemized donations
+            View cached FEC receipt records
             <span className="transition-transform group-hover:translate-x-0.5">→</span>
           </button>
         ) : (
           <Link href={`/members/${bioguide}/donations`} className={CTA_CLASS}>
-            See who gave — itemized donations
+            View cached FEC receipt records
             <span className="transition-transform group-hover:translate-x-0.5">→</span>
           </Link>
         ))}
@@ -165,8 +173,8 @@ export function FinanceCard({
         <span className="font-semibold text-slate-warm-500">Raised</span> and{" "}
         <span className="font-semibold text-slate-warm-500">Spent</span> cover the {finance.cycle}{" "}
         two-year cycle; <span className="font-semibold text-slate-warm-500">Cash on Hand</span> is
-        the committee&rsquo;s running balance, which carries over from earlier cycles — so a member
-        can spend more than they raised this cycle by drawing it down.
+        the latest reported balance, which can include funds from earlier cycles. Gross amounts may
+        also include transfers between authorized committees.
         {finance.coverage_end && ` Figures through ${formatDate(finance.coverage_end)}.`} Source:
         Federal Election Commission.
       </p>

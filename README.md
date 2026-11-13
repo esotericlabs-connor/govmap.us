@@ -89,6 +89,18 @@ GovMap serves the whole app on one host:
 - **govmap.us/about**, **/support**, **/security**, **/privacy** — the project pages: mission and coverage, donations, security and transparency, and privacy.
 - **dev.govmap.us** — the separate test environment, protected by Cloudflare Access and seeded from a production snapshot.
 
+The `/elections` workspace shows FEC candidate registrations and a reported
+election-date calendar, not ballot certification or results. FEC all-day event
+ends are converted from exclusive to inclusive calendar dates; timed events use
+the publisher's local dates. Older unverified event end dates remain hidden
+until the updated calendar pipeline completes a successful refresh. `/money`
+provides a partial candidate-finance view from FEC bulk summaries: it compares reported
+gross receipts for the same office, finance cycle and report-through date.
+Authorized-committee transfers can double-count activity. Missing candidates
+are not assumed to have zero activity, and donor-area rankings, individual
+contributor analytics and independent expenditures are not yet integrated.
+The FEC candidate ID is a source identity, not a replacement for Bioguide.
+
 Navigation uses relative paths defined in `frontend/lib/site-config.ts`. Separate `app.govmap.us` and `api.govmap.us` hosts are not part of the current deployment. Browser `/api/*` requests are forwarded by Next.js to the private backend.
 
 The visual signature — the Capitol photo under a navy scrim with white text — lives in `frontend/components/PageBanner.tsx` and is shared by the footer and page banners. Pages follow the system Light/Dark setting unless a theme is chosen from the header toggle or the menu. The top bar is white in Light mode and a dark panel in Dark mode; the menu, banners, footer and map status bar keep the navy-and-white look. Dashboard panels, data states and charts live in `frontend/components/dashboard/`.
@@ -258,7 +270,7 @@ request-triggered fetches or application writes.
 
 The worker never migrates. With scheduling enabled, it waits up to five
 minutes for the database to reach the Alembic revision built into its image
-(the backend applies it), then logs `scheduler started with 8 job(s)`. If the
+(the backend applies it), then logs its registered scheduler job count. If the
 revision does not arrive, it exits and the restart policy retries; it never
 writes to a schema it was not built for. Its health check reads a heartbeat
 file touched every 30 seconds, so a blocked event loop turns it unhealthy; a
@@ -280,6 +292,40 @@ Run manual refreshes in the worker:
 `docker compose exec worker python -m app.pipelines.refresh <source>` (or
 `all`). A per-source advisory lock records an overlapping run as `skipped`
 rather than loading the same source twice.
+
+For the development resource, a "not yet loaded" FEC candidate or election
+calendar card means that no successful refresh is recorded; it does not by
+itself prove a credential problem. Both sources use the development worker's
+`FEC_API_KEY` and the configured `FEC_CYCLE`. After the updated code and
+migrations are deployed, request both **inside the development worker
+terminal**, not on the static checkout:
+
+```sh
+python -m app.pipelines.refresh election_candidates election_calendar
+```
+
+Each source is attempted even if the other fails; the command exits nonzero if
+either did not succeed. When scheduling is enabled, the corresponding daily
+jobs run at 10:00 and 11:00 UTC. Check `/status` for an updated last-success
+time and the Elections page for the expected cycle and records. An older
+restored status does not establish that the current key works. If a run fails
+or is skipped, inspect the development worker's operator-only logs and run
+history, keep credentials private, and wait for an overlapping job or quota
+window rather than bypassing a lock or changing the request budget.
+
+After the candidate-money code is deployed and migrations `0018` and `0019`
+have completed, the new unkeyed bulk source can be loaded in the same worker
+with:
+
+```sh
+python -m app.pipelines.refresh money_totals
+```
+
+It still shares the application's FEC request budget. Its daily job runs at
+12:00 UTC when scheduling is enabled. Confirm a new successful
+`fec_candidate_totals` run, `/status`, and `/money`; an unavailable cycle is
+not a zero-dollar cycle. Do not infer the development scheduler's current
+setting from these documented defaults.
 
 PostgreSQL records each outbound attempt in a rolling 60-minute window, before
 HTTP starts. The API and worker keep separate shares: `API_*` and `WORKER_*`

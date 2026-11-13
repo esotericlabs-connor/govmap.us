@@ -90,11 +90,11 @@ export const SECTIONS: readonly Section[] = [
   {
     id: "money",
     label: "Campaign money",
-    href: COVERAGE_HREF,
-    description: "Contributions to candidates and from donors, by area",
+    href: "/money",
+    description: "FEC candidate financial summaries by office and area",
     keywords: ["campaign", "money", "contributions", "donors", "fec", "finance", "fundraising"],
     group: "workspace",
-    availability: "planned",
+    availability: "live",
   },
   {
     id: "accountability",

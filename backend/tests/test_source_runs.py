@@ -98,9 +98,16 @@ def test_outcomes_only_reach_the_matching_active_run() -> None:
 
 
 @pytest.mark.parametrize(
-    "error", [refresh.RosterChangeWithheldError("held"), runs.RunSkippedError("busy")]
+    "error",
+    [
+        refresh.RosterChangeWithheldError("held"),
+        runs.RunSkippedError("busy"),
+        refresh.fec_candidates.CandidateSnapshotIncompleteError("incomplete candidates"),
+        refresh.fec_election_calendar.CalendarSnapshotIncompleteError("incomplete calendar"),
+        refresh.fec_candidate_totals.CampaignMoneySnapshotIncompleteError("incomplete money"),
+    ],
 )
-def test_withheld_and_skipped_runs_are_not_retried(error: Exception) -> None:
+def test_nonretryable_refresh_errors_are_attempted_once(error: Exception) -> None:
     fn = AsyncMock(side_effect=error)
     assert asyncio.run(refresh._run_with_retry("members", fn, delay=0)) is False
     assert fn.await_count == 1

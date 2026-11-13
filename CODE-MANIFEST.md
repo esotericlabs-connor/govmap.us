@@ -4,6 +4,79 @@ What's been built, in what order, and what's next. This is a living log — add 
 
 ## Build log
 
+**2026-11-12 — Candidate campaign-money foundation (awaiting CI/dev validation)**
+Added a bounded first `/money` view and a new FEC candidate-finance pipeline.
+This is a partial Step 2 release, not completion of the campaign-money plan.
+The source-qualified FEC candidate ID identifies a candidate registration or
+financial summary, not a federal legislative person: it never replaces
+Bioguide, creates a member, or implies a name-based identity match. The
+separately refreshed Elections catalog is joined only on the exact candidate ID
+and finance cycle; missing matches remain missing.
+
+- The unkeyed FEC [all-candidates financial summary](https://www.fec.gov/campaign-finance-data/all-candidates-file-description/)
+  and [candidate–committee linkage](https://www.fec.gov/campaign-finance-data/candidate-committee-linkage-file-description/)
+  bulk archives are size/row bounded, shape checked and atomically staged.
+  Their individual archive SHA-256 hashes, optional publisher `Last-Modified`,
+  fetch time and locally computed content revision are retained. The complete
+  parsed pair replaces only its own finance cycle in one transaction. File
+  parsing does not independently prove the publisher's coverage is complete.
+  The FEC publishes the two files independently, not as a verified simultaneous
+  publisher snapshot; their modification times may differ.
+  The source uses the existing FEC request budget, is tracked as
+  `fec_candidate_totals`, and is scheduled for 12:00 UTC when scheduling is
+  enabled. The FEC's observed archive redirect is restricted to its matching
+  HTTPS GovCloud object, with a separate request-budget reservation per hop;
+  an unexpected destination fails closed. Migration `0018` creates the new
+  tables. Some source linkage rows report four-digit candidate election years
+  outside the supported 1900–2100 range. Those publisher values are preserved
+  and flagged as unverified rather than treated as election evidence.
+- New candidate amounts use exact PostgreSQL decimals and JSON decimal strings;
+  chart and table labels use integer cents. The existing member-finance table
+  remains a separate floating-point source; no precision is recovered by
+  casting it. Its reader now accepts the publisher's `last_cash_on_hand_end_period`
+  and `last_debts_owed_by_committee` fields. Existing rows change on their next
+  successful finance refresh.
+- Candidate comparisons filter by office, two-year finance cycle and the same
+  latest reported coverage-end date. They show gross receipts, not unique
+  contributions. The FEC warns that transfers among authorized committees can
+  double-count activity; committee and candidate totals are never added
+  together. Candidate absence is not zero, reporting schedules can differ even
+  with the same end date, and a Senate finance cycle is not an election year.
+  Location filters use source-reported candidate state/district, not a
+  boundary-vintage or donor-residence geographic join.
+- Tables, exact amount labels, accessible chart data and a bounded pixel stack
+  share a stated per-block dollar scale for the candidates shown. Links from the
+  Elections catalog preserve the cycle and return filters. The explicit return
+  link targets the originating candidate row when it is still present; browser
+  scroll and focus behavior still require dev verification. A separate detail
+  chart compares selected source-reported contributions, loans and transfers
+  without adding potentially overlapping fields. The existing member
+  donation ledger now describes its one-committee, cached source rows as
+  incomplete/unreconciled rather than claiming every gift is represented.
+  The existing member card labels positive-category shares as a subset and
+  compares itemized/unitemized amounts only when both are reported and nonnegative.
+- Donor-area analytics, amendment-safe receipt reconciliation, contributor and
+  organization rankings, independent expenditures, historical parity and
+  publication-use approval are still outstanding. No new donor identity
+  dataset or donor export is introduced. FEC contributor information has
+  [solicitation and commercial-use restrictions](https://www.fec.gov/updates/sale-or-use-contributor-information/);
+  a disclaimer is not approval for expanded use on a donation-funded site.
+- Candidate and calendar pagination now request unique source-ID order, while
+  calendar output remains date ordered. Candidate pagination rejects mismatched
+  publisher counts when the FEC explicitly marks them exact.
+  Approximate counts still use the terminal boundary and duplicate-ID checks;
+  OpenFEC provides no verified consistent-snapshot token. Election source dates
+  use the shared date normalizer, with timed events reduced to FEC-local dates
+  and exclusive all-day ends converted to inclusive dates. The calendar's
+  upstream range includes the whole final day of the selected year. Migration `0019`
+  marks successfully normalized event rows; older ambiguous end dates are
+  withheld until refresh. The marker is per-row so even an older worker that
+  replaces a snapshot cannot accidentally certify its raw end dates.
+  Each election API response reads coverage and records from one database
+  snapshot. FEC calendar event IDs are not permanent identifiers. Regression
+  tests were added for CI. No local tests, builds or application processes were
+  run.
+
 **2026-11-12 — Election CI and bill-ingestion safety fixes (awaiting CI/dev validation)**
 Election responses now include a UTC generation time, so the page uses the
 shared source-freshness rules without reading the clock during React render.
@@ -30,13 +103,14 @@ withheld; existing stored rows are not replaced with incomplete data.
 **2026-11-12 — FEC candidate catalog (awaiting CI/dev validation)**
 Added a bounded, complete-snapshot OpenFEC candidate catalog for the configured
 two-year finance cycle, with separate publisher-reported election years, office,
-state, district, candidate IDs, status, and principal-committee metadata. The
-page groups source records by office/state/district and supports validated
-filters. FEC registration is explicitly not treated as ballot access, a win,
-or members-elect; state election-office sources, official results, and the
-incoming Congress remain unintegrated. A full snapshot replaces only its own
-cycle in one transaction; capped, malformed, unstable, or interrupted pulls
-leave the last complete snapshot intact. Candidate refresh is tracked and
+state, district, candidate IDs, and status. The candidate-list schema does not
+document principal committees; an empty passthrough array is not evidence that
+none exist. The page groups source records by office/state/district and supports
+validated filters. FEC registration is explicitly not treated as ballot access,
+a win, or members-elect; state election-office sources, official results, and
+the incoming Congress remain unintegrated. A full snapshot replaces only its
+own cycle in one transaction; capped, malformed, unstable, or interrupted
+pulls leave the last complete snapshot intact. Candidate refresh is tracked and
 scheduled after campaign-finance refresh. No local tests/builds were run.
 
 **2026-11-12 — FEC election-date calendar (awaiting CI/dev validation)**

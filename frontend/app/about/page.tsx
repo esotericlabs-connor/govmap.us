@@ -49,9 +49,9 @@ const CONGRESS_NEXT: Coverage[] = [
   },
   {
     name: "Campaign money",
-    status: "planned",
+    status: "live",
     what:
-      "Who gives the most in each state and district and how money reaches each candidate, charted from Federal Election Commission filings.",
+      "FEC candidate-level financial summaries by office, state, district and report-through date. Donor-location rankings, reconciled individual receipts, and independent spending are not integrated yet.",
   },
   {
     name: "Accountability",
@@ -216,9 +216,11 @@ export default function AboutPage() {
               title="All three branches, at every level."
             >
               <p>
-                We&apos;re building GovMap one layer at a time and only publish a
-                layer once its data is complete and reliable. Here&apos;s exactly
-                what&apos;s live today and what&apos;s coming next.
+                We&apos;re building GovMap in verified slices. Live means a
+                specific feature is available with its sources and limits shown —
+                not that every office, jurisdiction or result is covered.
+                Here&apos;s exactly what&apos;s live today and what&apos;s coming
+                next.
               </p>
             </SectionHeading>
 

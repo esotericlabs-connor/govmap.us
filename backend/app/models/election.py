@@ -1,6 +1,17 @@
 from datetime import date, datetime
 
-from sqlalchemy import ARRAY, Boolean, CheckConstraint, Date, DateTime, Integer, String, Text, func
+from sqlalchemy import (
+    ARRAY,
+    Boolean,
+    CheckConstraint,
+    Date,
+    DateTime,
+    Integer,
+    String,
+    Text,
+    false,
+    func,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -81,6 +92,9 @@ class ElectionCalendarEvent(Base):
     state: Mapped[list[str]] = mapped_column(ARRAY(String(100)), nullable=False, default=list)
     start_date: Mapped[date] = mapped_column(Date, nullable=False)
     end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    end_date_normalized: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=false()
+    )
     url: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     __table_args__ = (

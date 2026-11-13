@@ -11,9 +11,8 @@ class MemberFinance(Base):
     two-year election cycle. Source: OpenFEC ``/candidate/{id}/totals/`` (the
     singular per-candidate endpoint, which carries the full Form 3 breakdown).
 
-    Amounts are display aggregates in USD, already rounded to cents by the FEC —
-    stored as Float (double precision represents cent values well past any real
-    campaign total exactly). One row per (member, cycle); the current-office
+    Amounts are legacy USD display aggregates stored as Float; binary floating
+    point does not guarantee exact cents. One row per (member, cycle); the current-office
     candidate id is chosen by chamber prefix (S… for senators, H… for
     representatives).
     """

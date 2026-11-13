@@ -58,6 +58,17 @@ def test_fec_election_calendar_is_registered_as_official_and_keyed() -> None:
     assert spec.staging_files[0].name == "fec_election_calendar_raw.json"
 
 
+def test_fec_candidate_finance_bulk_source_is_official_and_unkeyed() -> None:
+    spec = SOURCES["fec_candidate_totals"]
+    assert spec.publisher == "Federal Election Commission (bulk data)"
+    assert spec.auth_env is None
+    assert all(endpoint.official for endpoint in spec.endpoints)
+    assert len(spec.endpoints) == 2
+    assert spec.endpoints[0].url.endswith(".zip")
+    assert spec.endpoints[1].url.endswith(".zip")
+    assert spec.staging_files[0].name == "fec_candidate_totals_raw.json"
+
+
 def test_tracking_rejects_an_unregistered_source() -> None:
     async def fn() -> None:
         return None

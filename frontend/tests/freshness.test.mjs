@@ -26,6 +26,7 @@ test("unregistered and prototype names fall back to a daily cadence", () => {
   assert.equal(cadenceHours("committee_meetings"), 12);
   assert.equal(cadenceHours("fec_candidates"), 24);
   assert.equal(cadenceHours("fec_election_calendar"), 24);
+  assert.equal(cadenceHours("fec_candidate_totals"), 24);
   assert.equal(cadenceHours("a_new_source"), 24);
   assert.equal(cadenceHours("constructor"), 24);
   assert.equal(cadenceHours("toString"), 24);
@@ -101,6 +102,7 @@ test("refresh schedules read in plain language", () => {
   assert.equal(describeCadence("congress_legislators"), "Daily");
   assert.equal(describeCadence("fec_candidates"), "Daily");
   assert.equal(describeCadence("fec_election_calendar"), "Daily");
+  assert.equal(describeCadence("fec_candidate_totals"), "Daily");
   assert.equal(describeCadence("zip_districts"), "Monthly");
   assert.equal(describeCadence("a_new_source"), "Daily");
   // Every registered source gets a phrase, never a raw number of hours.

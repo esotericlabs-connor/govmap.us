@@ -2,7 +2,13 @@ import Link from "next/link";
 
 import { formatDate } from "@/components/DetailKit";
 import { apiGet } from "@/lib/api";
+import { hasNormalizedCalendarRange } from "@/lib/election-calendar.mjs";
 import { classifyFreshness, parseFreshnessReferenceTime } from "@/lib/freshness.mjs";
+import {
+  moneyCandidateAnchor,
+  moneyCandidateHref,
+  supportsMoneyDetail,
+} from "@/lib/money-navigation.mjs";
 
 export const dynamic = "force-dynamic";
 
@@ -66,6 +72,7 @@ type CalendarEvent = {
   state: string[];
   start_date: string;
   end_date: string | null;
+  end_date_normalized?: boolean;
   url: string | null;
 };
 
@@ -192,7 +199,9 @@ function hrefFor(offset: number, cycle: number, filters: Filters): string {
 function groupingName(grouping: CandidateGrouping): string {
   const office = grouping.office_full ?? grouping.office ?? "Federal office";
   const location = grouping.state ?? (grouping.office === "P" ? "National" : "Location not reported");
-  const district = grouping.district ? `District ${grouping.district}` : null;
+  const district = grouping.office === "H" && grouping.district
+    ? `District ${grouping.district}`
+    : null;
   return [office, location, district].filter(Boolean).join(" · ");
 }
 
@@ -340,39 +349,48 @@ export default async function ElectionsPage({ searchParams }: { searchParams: Se
             </p>
           ) : calendar.events.length === 0 ? (
             <p role="status" className="rounded-xl border border-amber-300 bg-amber-50 p-5 text-sm text-amber-950">
-              The complete FEC snapshot contains no Election Dates events for {calendar.calendar_year}.
+              No stored events are available despite the calendar coverage record. Please check
+              source freshness or try another refresh.
             </p>
           ) : (
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {calendar.events.map((event) => (
-                <article
-                  key={`${event.calendar_year}-${event.event_id}`}
-                  className="rounded-2xl border border-slate-warm-200 bg-white p-5 shadow-sm"
-                >
-                  <p className="text-sm font-semibold text-govblue-700">
-                    <time dateTime={event.start_date}>{formatDate(event.start_date)}</time>
-                    {event.end_date && event.end_date !== event.start_date && (
-                      <> – <time dateTime={event.end_date}>{formatDate(event.end_date)}</time></>
+            <>
+              {calendar.events.some((event) => !hasNormalizedCalendarRange(event)) && (
+                <p role="status" className="mb-4 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
+                  Event end dates may be unavailable until the updated calendar pipeline completes
+                  a successful refresh and confirms how their date ranges should be interpreted.
+                </p>
+              )}
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {calendar.events.map((event) => (
+                  <article
+                    key={`${event.calendar_year}-${event.event_id}`}
+                    className="rounded-2xl border border-slate-warm-200 bg-white p-5 shadow-sm"
+                  >
+                    <p className="text-sm font-semibold text-govblue-700">
+                      <time dateTime={event.start_date}>{formatDate(event.start_date)}</time>
+                      {hasNormalizedCalendarRange(event) && event.end_date && event.end_date !== event.start_date && (
+                        <> – <time dateTime={event.end_date}>{formatDate(event.end_date)}</time></>
+                      )}
+                    </p>
+                    <h3 className="mt-2 font-semibold text-govnavy">{event.summary}</h3>
+                    {event.location && <p className="mt-1 text-sm text-slate-warm-600">{event.location}</p>}
+                    {event.description && (
+                      <p className="mt-3 text-sm leading-6 text-slate-warm-700">{event.description}</p>
                     )}
-                  </p>
-                  <h3 className="mt-2 font-semibold text-govnavy">{event.summary}</h3>
-                  {event.location && <p className="mt-1 text-sm text-slate-warm-600">{event.location}</p>}
-                  {event.description && (
-                    <p className="mt-3 text-sm leading-6 text-slate-warm-700">{event.description}</p>
-                  )}
-                  {event.url?.startsWith("https://www.fec.gov/") && (
-                    <a
-                      href={event.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="mt-3 inline-block text-sm font-semibold text-govblue-700 hover:underline"
-                    >
-                      FEC event details
-                    </a>
-                  )}
-                </article>
-              ))}
-            </div>
+                    {event.url?.startsWith("https://www.fec.gov/") && (
+                      <a
+                        href={event.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="mt-3 inline-block text-sm font-semibold text-govblue-700 hover:underline"
+                      >
+                        FEC event details
+                      </a>
+                    )}
+                  </article>
+                ))}
+              </div>
+            </>
           )}
         </section>
 
@@ -500,12 +518,13 @@ export default async function ElectionsPage({ searchParams }: { searchParams: Se
           <>
             <section className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50 px-5 py-4 text-sm text-blue-950">
               <p>
-                <strong>{data.candidate_count.toLocaleString()}</strong> candidates in the complete
-                FEC snapshot; <strong>{data.filtered_count.toLocaleString()}</strong> match these
-                filters.
+                <strong>{data.candidate_count.toLocaleString()}</strong> candidate records collected
+                in the latest completed FEC page walk;{" "}
+                <strong>{data.filtered_count.toLocaleString()}</strong> match these filters.
                 {data.expected_count !== null && (
-                  <> OpenFEC reported {data.expected_count.toLocaleString()} records.</>
+                  <> OpenFEC reported {data.expected_count.toLocaleString()} records; its count may be approximate.</>
                 )}
+                {" "}The source can change while pages are collected.
               </p>
               <p className="text-blue-800">
                 Snapshot: {data.fetched_at ? formatDate(data.fetched_at) : "unknown"}
@@ -597,11 +616,24 @@ export default async function ElectionsPage({ searchParams }: { searchParams: Se
                             <div className="mt-1 font-mono text-xs text-slate-warm-500">
                               {candidate.candidate_id}
                             </div>
+                            {supportsMoneyDetail(candidate.candidate_id, candidate.finance_cycle) && (
+                              <Link
+                                id={moneyCandidateAnchor(candidate.candidate_id)}
+                                href={moneyCandidateHref(
+                                  candidate.candidate_id,
+                                  candidate.finance_cycle,
+                                  hrefFor(data.offset, cycle, filters),
+                                )}
+                                className="mt-2 inline-block scroll-mt-24 text-xs font-semibold text-govblue-700 hover:underline"
+                              >
+                                View campaign financial summary
+                              </Link>
+                            )}
                           </td>
                           <td className="px-4 py-4 text-slate-warm-700">
                             <div>{candidate.office_full ?? candidate.office ?? "Office not reported"}</div>
                             <div className="mt-1 text-xs text-slate-warm-500">
-                              {[candidate.state, candidate.district ? `District ${candidate.district}` : null]
+                              {[candidate.state, candidate.office === "H" && candidate.district ? `District ${candidate.district}` : null]
                                 .filter(Boolean)
                                 .join(" · ") || "Location not reported"}
                             </div>
@@ -653,8 +685,9 @@ export default async function ElectionsPage({ searchParams }: { searchParams: Se
               <strong className="text-govnavy">Coverage boundary:</strong> this page is an FEC
               registration catalog and candidate-provided race metadata. It does not verify state
               ballot qualification, publish official election results, identify members-elect, or
-              determine who will serve in the next Congress. Committee filings and donor records
-              are not part of this workspace yet. See the{" "}
+              determine who will serve in the next Congress. Candidate financial summaries are
+              available separately when loaded; committee filings and donor records are not part of
+              this workspace. See the{" "}
               <Link href="/status" className="font-semibold text-govblue-700 hover:underline">
                 data pipeline status
               </Link>{" "}

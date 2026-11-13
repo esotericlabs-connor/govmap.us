@@ -407,6 +407,29 @@ def test_public_list_accepts_paging_bounds(run_store: _FakeRunStore) -> None:
     assert len(run_store.statements) == 1
 
 
+@pytest.mark.parametrize(
+    "query",
+    [
+        "cycle=2025",
+        "cycle=2100",
+        "office=X",
+        "state=California",
+        "office=S&state=CA&district=01",
+        "office=H&district=01",
+        "through=2026-02-30",
+        "offset=1000001",
+    ],
+)
+def test_money_filters_are_rejected_before_querying_data(query: str) -> None:
+    status, _, _ = asyncio.run(_call(main.app, "GET", "/api/money/candidates", query=query))
+    assert status == 422
+
+
+def test_money_candidate_identifier_is_validated() -> None:
+    status, _, _ = asyncio.run(_call(main.app, "GET", "/api/money/candidates/not-an-id"))
+    assert status == 422
+
+
 @pytest.mark.parametrize(("resource", "query"), [("calendar", "year=2026"), ("candidates", "cycle=2026")])
 @pytest.mark.parametrize("available", [False, True])
 def test_election_responses_include_utc_generation_time(
@@ -441,6 +464,7 @@ def test_election_responses_include_utc_generation_time(
                 state=[],
                 start_date=date(2026, 11, 3),
                 end_date=None,
+                end_date_normalized=True,
                 url=None,
             )
         ]
@@ -481,7 +505,9 @@ def test_election_responses_include_utc_generation_time(
         ]
         results.extend([count, groupings, candidates])
 
-    db = SimpleNamespace(execute=AsyncMock(side_effect=results))
+    db = SimpleNamespace(
+        connection=AsyncMock(), execute=AsyncMock(side_effect=results)
+    )
 
     async def fake_db() -> AsyncIterator[SimpleNamespace]:
         yield db
@@ -509,7 +535,56 @@ def test_election_responses_include_utc_generation_time(
         )
     else:
         assert payload["fetched_at"] is None
+    db.connection.assert_awaited_once_with(
+        execution_options={"isolation_level": "REPEATABLE READ"}
+    )
     assert db.execute.await_count == len(results)
+
+
+@pytest.mark.parametrize("normalized", [False, True])
+def test_calendar_withholds_uninterpreted_stored_end_dates(
+    monkeypatch: pytest.MonkeyPatch, normalized: bool
+) -> None:
+    coverage = Mock()
+    coverage.scalar_one_or_none.return_value = SimpleNamespace(
+        complete=True,
+        event_count=1,
+        expected_count=1,
+        fetched_at=datetime(2026, 1, 3, tzinfo=UTC),
+    )
+    events = Mock()
+    events.scalars.return_value.all.return_value = [
+        SimpleNamespace(
+            calendar_year=2026,
+            event_id=1,
+            category="Election Dates",
+            summary="Election",
+            description=None,
+            location=None,
+            state=[],
+            start_date=date(2026, 11, 3),
+            end_date=date(2026, 11, 4),
+            end_date_normalized=normalized,
+            url=None,
+        )
+    ]
+    db = SimpleNamespace(
+        connection=AsyncMock(), execute=AsyncMock(side_effect=[coverage, events])
+    )
+
+    async def fake_db() -> AsyncIterator[SimpleNamespace]:
+        yield db
+
+    monkeypatch.setitem(main.app.dependency_overrides, get_db, fake_db)
+    status, _, body = asyncio.run(
+        _call(main.app, "GET", "/api/elections/calendar", query="year=2026")
+    )
+
+    assert status == 200
+    event = json.loads(body)["events"][0]
+    assert event["start_date"] == "2026-11-03"
+    assert event["end_date_normalized"] is normalized
+    assert event["end_date"] == ("2026-11-04" if normalized else None)
 
 
 def test_bill_list_applies_the_became_law_filter(run_store: _FakeRunStore) -> None:

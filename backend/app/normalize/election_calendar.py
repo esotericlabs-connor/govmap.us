@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import timedelta
 from pathlib import Path
 
 from pydantic import ValidationError
@@ -12,6 +13,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.db import async_session_factory
 from app.models.election import ElectionCalendarCoverage, ElectionCalendarEvent
+from app.normalize.dates import normalize_date
 from app.schemas.election import FecCalendarEventRaw, FecCalendarSnapshotRaw
 
 logger = logging.getLogger(__name__)
@@ -23,6 +25,12 @@ _CHUNK = 500
 
 
 def _event_row(calendar_year: int, event: FecCalendarEventRaw) -> dict[str, object]:
+    start_date = normalize_date(event.start_date)
+    if start_date is None:
+        raise ValueError("FEC calendar event has no valid start date")
+    end_date = normalize_date(event.end_date)
+    if event.all_day and end_date is not None:
+        end_date -= timedelta(days=1)
     return {
         "calendar_year": calendar_year,
         "event_id": event.event_id,
@@ -31,8 +39,9 @@ def _event_row(calendar_year: int, event: FecCalendarEventRaw) -> dict[str, obje
         "description": event.description,
         "location": event.location,
         "state": event.state or [],
-        "start_date": event.start_date,
-        "end_date": event.end_date,
+        "start_date": start_date,
+        "end_date": end_date,
+        "end_date_normalized": True,
         "url": str(event.url) if event.url is not None else None,
     }
 

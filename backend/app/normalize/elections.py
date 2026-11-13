@@ -12,6 +12,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.db import async_session_factory
 from app.models.election import ElectionCandidate, ElectionCatalogCoverage
+from app.normalize.dates import normalize_date
 from app.schemas.election import FecCandidateRaw, FecCandidateSnapshotRaw
 
 logger = logging.getLogger(__name__)
@@ -35,8 +36,8 @@ def _candidate_row(finance_cycle: int, candidate: FecCandidateRaw) -> dict:
         "party_full": candidate.party_full,
         "candidate_status": candidate.candidate_status,
         "incumbent_challenge": candidate.incumbent_challenge,
-        "first_file_date": candidate.first_file_date,
-        "last_file_date": candidate.last_file_date,
+        "first_file_date": normalize_date(candidate.first_file_date),
+        "last_file_date": normalize_date(candidate.last_file_date),
         "cycles": candidate.cycles or [],
         "election_years": candidate.election_years or [],
         "principal_committees": [
