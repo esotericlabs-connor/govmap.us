@@ -13,7 +13,9 @@ from app.routers import (
     bills,
     committees,
     congress,
+    data_sources,
     donations,
+    elections,
     health,
     members,
     overview,
@@ -101,12 +103,14 @@ async def upstream_capacity_handler(
 
 app.include_router(members.router)
 app.include_router(donations.router)
+app.include_router(elections.router)
 app.include_router(committees.router)
 app.include_router(bills.router)
 app.include_router(votes.router)
 app.include_router(search.router)
 app.include_router(congress.router)
 app.include_router(overview.router)
+app.include_router(data_sources.router)
 # Ops-only endpoints never appear in the published schema, even with docs on.
 app.include_router(pipeline_status.router, include_in_schema=False)
 app.include_router(report.router)

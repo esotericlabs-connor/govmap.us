@@ -61,7 +61,7 @@ _RATE_LIMIT_RETRIES = 2   # short retries for a per-second burst blip, then bail
 _RATE_LIMIT_ABORT = 8     # consecutive rate-limited members -> abort the whole run
 
 
-class _RateLimited(Exception):
+class FecRateLimited(Exception):
     """OpenFEC returned 429 after the short burst retries — the hourly budget is
     (near) exhausted, so the caller should stop rather than keep hammering."""
 # How many 2-year cycles back to consider (newest with activity wins). Covers all
@@ -105,7 +105,7 @@ def _fec_get(path: str, **params: Any) -> dict:
             if attempt <= _RATE_LIMIT_RETRIES:
                 time.sleep(attempt)
                 continue
-            raise _RateLimited(path)
+            raise FecRateLimited(path)
         if status >= 500:
             wait = min(2**attempt, 30)
             logger.warning(
@@ -216,7 +216,7 @@ def run() -> int:
             raw = _candidate_total(candidate_id, cycles)
         except UpstreamCapacityError:
             raise
-        except _RateLimited:
+        except FecRateLimited:
             # Budget spent — abort once we've seen a run of consecutive 429s
             # rather than burning minutes on the remaining members. Whatever was
             # staged so far still loads; a re-run in a fresh hour continues.

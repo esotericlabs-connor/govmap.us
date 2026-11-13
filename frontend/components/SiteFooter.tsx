@@ -18,6 +18,7 @@ const EXPLORE: FooterLink[] = [
 
 const PROJECT: FooterLink[] = [
   { label: "About", href: "/about" },
+  { label: "Data status", href: "/status" },
   { label: "Support", href: "/support" },
   { label: "GitHub", href: siteConfig.githubUrl, external: true },
 ];

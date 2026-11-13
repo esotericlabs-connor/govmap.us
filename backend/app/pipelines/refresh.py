@@ -27,6 +27,8 @@ from app.normalize.bills import normalize_and_load as normalize_bills
 from app.normalize.committee_meetings import load_committee_meetings
 from app.normalize.committees import load_committees
 from app.normalize.crosswalk import load_crosswalk
+from app.normalize.elections import load_candidates
+from app.normalize.election_calendar import load_calendar
 from app.normalize.finance import load_finance
 from app.normalize.member_sponsored import load_member_sponsored
 from app.normalize.members import normalize_and_load
@@ -37,6 +39,8 @@ from app.pipelines import (
     congress_gov_bills,
     congress_legislators,
     congress_member_sponsored,
+    fec_candidates,
+    fec_election_calendar,
     fec_finance,
     house_clerk_votes,
     senate_lis_votes,
@@ -268,6 +272,34 @@ async def refresh_finance() -> None:
         raise
 
 
+async def refresh_election_candidates() -> None:
+    """Complete OpenFEC candidate snapshot for the configured FEC cycle."""
+    source = "fec_candidates"
+    try:
+        result = await asyncio.to_thread(fec_candidates.run)
+        count = await load_candidates()
+        status = await _record_batch(source, count, result, "candidates")
+        logger.info("refresh %s: %s (%d candidates)", source, status, count)
+    except Exception as exc:
+        await record_run(source, 0, "error", str(exc))
+        logger.exception("refresh %s failed", source)
+        raise
+
+
+async def refresh_election_calendar() -> None:
+    """Complete OpenFEC Election Dates snapshot for the configured FEC cycle year."""
+    source = "fec_election_calendar"
+    try:
+        result = await asyncio.to_thread(fec_election_calendar.run)
+        count = await load_calendar()
+        status = await _record_batch(source, count, result, "election dates")
+        logger.info("refresh %s: %s (%d election dates)", source, status, count)
+    except Exception as exc:
+        await record_run(source, 0, "error", str(exc))
+        logger.exception("refresh %s failed", source)
+        raise
+
+
 async def refresh_committee_meetings() -> None:
     """Committee meetings from Congress.gov (detail per event) → committee_meetings.
     Independent of the other sources except the committees FK, so refresh_members
@@ -344,6 +376,8 @@ CORE_REFRESHERS: dict[str, TrackedRefresh] = {
 EXTRA_REFRESHERS: dict[str, TrackedRefresh] = {
     "sponsored_bills": tracked("member_sponsored", refresh_sponsored_bills),
     "finance": tracked("fec_finance", refresh_finance),
+    "election_candidates": tracked("fec_candidates", refresh_election_candidates),
+    "election_calendar": tracked("fec_election_calendar", refresh_election_calendar),
     "zip_districts": tracked("zip_districts", refresh_zip_districts),
     "committee_meetings": tracked("committee_meetings", refresh_committee_meetings),
     "backfill_bills": tracked("backfill_bills", refresh_backfill_bills),
@@ -358,9 +392,11 @@ REFRESHERS: dict[str, TrackedRefresh] = {**CORE_REFRESHERS, **EXTRA_REFRESHERS}
 _NOT_RETRIED = (
     UpstreamUnavailableError,
     UpstreamCapacityError,
+    fec_finance.FecRateLimited,
     VoteRefreshIncompleteError,
     RosterChangeWithheldError,
     RunSkippedError,
+    fec_candidates.CandidateSnapshotIncompleteError,
 )
 
 

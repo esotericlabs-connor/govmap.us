@@ -112,9 +112,8 @@ function Mark({ state, index }: { state: StepState; index: number }) {
 }
 
 /**
- * Where a bill stands, as a stepper read from its official action log. Every
- * done step can be traced to the verbatim action under "How this was
- * determined"; nothing is predicted.
+ * Compact bill stepper derived from the official action log. The full log
+ * remains on the bill page; the stepper does not predict outcomes.
  */
 export function BillProgress({ progress }: { progress: Progress }) {
   const { steps, completed, outcome, headline, next, notes, noun } = progress;
@@ -139,8 +138,7 @@ export function BillProgress({ progress }: { progress: Progress }) {
         <div className={`h-full rounded-full ${BAR[outcome]}`} style={{ width: `${percent}%` }} />
       </div>
       <p className="mt-2 text-xs text-slate-warm-500">
-        Recorded milestones, not odds of becoming law. Steps can repeat or be bypassed;
-        missing actions may leave this view incomplete.
+        Milestones are not odds of becoming law; missing actions may leave steps incomplete.
       </p>
 
       <ol
@@ -192,39 +190,9 @@ export function BillProgress({ progress }: { progress: Progress }) {
         </ul>
       )}
 
-      <details className="mt-6 rounded-lg border border-slate-warm-200 bg-slate-warm-50/70">
-        <summary className="cursor-pointer select-none px-4 py-3 text-sm font-semibold text-slate-warm-600 transition-colors hover:text-govnavy">
-          How this was determined
-        </summary>
-        <div className="border-t border-slate-warm-200 px-4 py-4 text-sm">
-          <p className="text-slate-warm-600">
-            Each step is read from this {noun}&apos;s official Congress.gov action log, listed in
-            full below. GovMap doesn&apos;t predict or summarize outcomes.
-          </p>
-          <dl className="mt-4 space-y-3">
-            {steps.map((step) => (
-              <div key={step.id}>
-                <dt className="font-semibold text-govnavy">
-                  {step.label}{" "}
-                  <span className="font-medium text-slate-warm-500">
-                    · {STATE_WORD[step.state]}
-                    {step.date ? `, ${formatDate(step.date)}` : ""}
-                  </span>
-                </dt>
-                <dd className="mt-0.5 space-y-0.5 text-slate-warm-600">
-                  {step.source && (
-                    <p>
-                      <q className="text-slate-warm-700">{step.source}</q>
-                    </p>
-                  )}
-                  {step.note && <p>{step.note}</p>}
-                  {!step.source && !step.note && <p>No matching action on record.</p>}
-                </dd>
-              </div>
-            ))}
-          </dl>
-        </div>
-      </details>
+      <p className="mt-3 text-xs text-slate-warm-400">
+        Source: Congress.gov · Full action history below
+      </p>
     </Section>
   );
 }

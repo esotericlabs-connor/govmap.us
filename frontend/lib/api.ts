@@ -389,6 +389,19 @@ export interface Overview {
   sources: SourceFreshness[];
 }
 
+/** One registered source from /api/sources. Run outcomes and error detail are
+ *  deliberately not public. */
+export interface SourceStatus extends SourceFreshness {
+  /** Whether the publisher requires an access key (never the key itself). */
+  requires_key: boolean;
+  endpoints: { url: string; official: boolean }[];
+}
+
+export interface SourcesStatus {
+  generated_at: string;
+  sources: SourceStatus[];
+}
+
 /** Party/link index from /api/map. House keyed `STATE-DISTRICT` (district 0 =
  *  at-large); Senate keyed by state (its two seats). */
 export interface MapEntry {

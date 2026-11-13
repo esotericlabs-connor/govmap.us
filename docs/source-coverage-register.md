@@ -61,6 +61,8 @@ Implementation evidence:
 [committee schema](../backend/app/schemas/committee.py),
 [finance schema](../backend/app/schemas/finance.py),
 [finance pipeline](../backend/app/pipelines/fec_finance.py),
+[election candidate schema](../backend/app/schemas/election.py),
+[election candidate pipeline](../backend/app/pipelines/fec_candidates.py),
 [donation service](../backend/app/services/donations.py),
 [HUD parser](../backend/app/pipelines/zip_crosswalk.py).
 Staging is often the validated, reduced shape, not a lossless raw archive;
@@ -105,10 +107,11 @@ make an unrestricted backfill **deferred** until identity/date handling is revie
 
 | Source/family | Disposition and next use |
 | --- | --- |
-| OpenFEC `candidate`, `candidates`, `committee`, `committees` | Current candidate totals and principal-committee lookup **delivered-partial**; candidate/race/committee metadata and history **queued**. Keep FEC IDs as external candidate identities until an evidenced Bioguide mapping exists. No fabricated member IDs. |
+| OpenFEC `candidate`, `candidates`, `committee`, `committees` | Current member totals, candidate catalog, and principal-committee metadata **delivered-partial**. The catalog is cycle-scoped and grouped only by FEC-reported office/state/district; verified ballot access, committee history and broader race metadata remain **queued**. Keep FEC IDs as external candidate identities until an evidenced Bioguide mapping exists. No fabricated member IDs. |
 | OpenFEC `schedules` | Schedule A subset **delivered-partial / privacy-restricted**. Receipt aggregates and other schedules **queued** for reconciliation of spending, debts, loans and independent expenditures; field/line-item semantics must be reviewed per endpoint. |
 | OpenFEC `reports`, `filings`, `efile` | **Queued**: filed/amended/latest distinctions and lineage. Electronic filings are not automatically equivalent to processed reports. |
-| OpenFEC `elections`, `election-dates`, `state-election-office`, `calendar-dates`, `reporting-dates` | **Queued**: calendars, races and official state-source discovery. These are not nationwide live election results or proof of ballot qualification. |
+| OpenFEC `calendar-dates` (Election Dates category) | FEC-published calendar events **delivered-partial**, refreshed daily for the configured FEC cycle year. The category includes elections, runoffs, and party conventions. Exact pagination counts and event IDs are retained; entries can be revised and are not proof of state ballot qualification, official results, or a complete state/local calendar. The API has no event revision token; GovMap stores a local content hash and fetch time. |
+| OpenFEC `elections`, `election-dates`, `state-election-office`, `reporting-dates` | **Queued**: broader race catalog and official state-source discovery. These are not nationwide live election results or proof of ballot qualification. |
 | OpenFEC `communication_costs`, `electioneering`, `presidential`, `national_party`, `totals` | **Queued**: separately labeled money datasets; never conflate spending for/against a candidate with contributions received by that candidate. |
 | OpenFEC `audit-case`, `audit-category`, `audit-primary-category`, `legal`, `rulemaking` | **Deferred** to an evidenced accountability/regulatory slice; source classifications and outcomes need review, not automatic misconduct labels. |
 | OpenFEC `names`, `rad-analyst`, `operations-log` | **Deferred** support metadata; no current user-facing need. Donor identities must not enter universal search. |

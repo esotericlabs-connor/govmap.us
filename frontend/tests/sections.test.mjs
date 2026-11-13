@@ -41,11 +41,11 @@ test("every query word has to match", () => {
   assert.deepEqual(matchSections("qqqq"), []);
 });
 
-test("planned sections are findable and stay labelled as planned", () => {
+test("the election workspace is findable and links to the live candidate catalog", () => {
   const [elections] = matchSections("midterms");
   assert.equal(elections.id, "elections");
-  assert.equal(elections.availability, "planned");
-  assert.equal(elections.href, "/about#coverage");
+  assert.equal(elections.availability, "live");
+  assert.equal(elections.href, "/elections");
   assert.equal(matchSections("judges")[0].id, "judicial");
   assert.equal(matchSections("white house")[0].id, "executive");
 });
@@ -69,6 +69,13 @@ test("live sections come before planned ones, even on a weaker match", () => {
 
 test("the limit caps the number of shortcuts", () => {
   assert.equal(matchSections("e", 3).length, 3);
+});
+
+test("the data pipeline status page is reachable from search", () => {
+  assert.equal(byId("status").href, "/status");
+  assert.equal(byId("status").availability, "live");
+  assert.equal(matchSections("status")[0].id, "status");
+  assert.equal(matchSections("pipeline")[0].id, "status");
 });
 
 test("the registry stays internally consistent", () => {

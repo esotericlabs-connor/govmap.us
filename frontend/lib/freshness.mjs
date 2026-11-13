@@ -16,6 +16,8 @@ export const SOURCE_CADENCE_HOURS = Object.freeze({
   votes: 0.5,
   member_sponsored: 24,
   fec_finance: 24,
+  fec_candidates: 24,
+  fec_election_calendar: 24,
   committee_meetings: 12,
   backfill_bills: 0.5,
   zip_districts: 24 * 31,
@@ -56,6 +58,34 @@ export function classifyFreshness(source, lastSuccess, nowMs) {
   const at = lastSuccess ? Date.parse(lastSuccess) : Number.NaN;
   if (Number.isNaN(at)) return "never";
   return nowMs - at > staleAfterHours(cadenceHours(source)) * HOUR_MS ? "stale" : "fresh";
+}
+
+/**
+ * Plain-language refresh schedule: "Every 30 minutes", "Twice a day", "Daily",
+ * "Monthly".
+ * @param {string} source registered source name
+ * @returns {string}
+ */
+export function describeCadence(source) {
+  const hours = cadenceHours(source);
+  if (hours < 1) return `Every ${Math.round(hours * 60)} minutes`;
+  if (hours === 12) return "Twice a day";
+  if (hours === 24) return "Daily";
+  if (hours >= 24 * 28) return "Monthly";
+  if (hours % 24 === 0) return `Every ${hours / 24} days`;
+  return `Every ${hours} hours`;
+}
+
+/**
+ * Compact length of time: "45 min", "6.5 h", "2 days".
+ * @param {number} hours
+ * @returns {string}
+ */
+export function formatHours(hours) {
+  if (hours < 1) return `${Math.round(hours * 60)} min`;
+  if (hours < 48) return `${Math.round(hours * 10) / 10} h`;
+  const days = Math.round(hours / 24);
+  return `${days} days`;
 }
 
 /**

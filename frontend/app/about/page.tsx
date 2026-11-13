@@ -39,14 +39,13 @@ const FEDERAL: Coverage[] = [
   },
 ];
 
-// Planned dashboards that deepen the live Congress layer; the app's
-// "Planned" menu and search entries point at this list.
+// Dashboards that deepen the live Congress layer.
 const CONGRESS_NEXT: Coverage[] = [
   {
     name: "Elections",
-    status: "planned",
+    status: "live",
     what:
-      "Official results as states certify them, the members-elect, and who takes each seat when the next Congress is sworn in.",
+      "A current-cycle catalog of FEC-registered candidates and events from the FEC Election Dates calendar category, including party conventions. State ballot qualification, official results, members-elect, and the incoming Congress are not integrated yet.",
   },
   {
     name: "Campaign money",
@@ -110,7 +109,7 @@ const SOURCES: { name: string; use: string }[] = [
   { name: "GovInfo (U.S. Government Publishing Office)", use: "Full bill text" },
   { name: "Clerk of the House & U.S. Senate", use: "Roll-call votes" },
   { name: "Voteview (UCLA)", use: "Backup source for Senate roll-call votes" },
-  { name: "Federal Election Commission", use: "Campaign finance and donations" },
+  { name: "Federal Election Commission", use: "Candidate registrations, federal election dates, campaign finance and itemized contributions" },
   { name: "unitedstates/congress-legislators", use: "Member and committee records" },
   { name: "HUD USPS ZIP crosswalk", use: "Matching your ZIP code to your district" },
 ];

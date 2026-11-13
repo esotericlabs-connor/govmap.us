@@ -15,9 +15,9 @@ from app.config import settings
 from app.db import get_db
 from app.models.bill import Bill
 from app.models.committee import Committee, CommitteeMeeting
-from app.models.pipeline_status import PipelineStatusRow
 from app.models.vote import Vote
 from app.routers.congress import chamber_balance
+from app.routers.data_sources import last_successes
 from app.schemas.overview import (
     ActivityOut,
     ChambersOut,
@@ -154,14 +154,8 @@ async def _upcoming_meetings(db: AsyncSession, now: datetime) -> list[MeetingOut
 
 
 async def _source_freshness(db: AsyncSession) -> list[SourceFreshnessOut]:
-    # Only registered sources, and only when each last succeeded; run status and
-    # error detail stay on the authenticated /internal endpoints.
-    last_success: dict[str, datetime | None] = {
-        source: success
-        for source, success in (
-            await db.execute(select(PipelineStatusRow.source, PipelineStatusRow.last_success))
-        ).all()
-    }
+    # Only registered sources, and only when each last succeeded.
+    last_success = await last_successes(db)
     return [
         SourceFreshnessOut(
             name=spec.name,

@@ -85,7 +85,7 @@ Self-hosting is the current low-cost deployment choice. Application containers a
 
 GovMap serves the whole app on one host:
 
-- **govmap.us** — the app itself: the Federal overview at `/` (`frontend/app/page.tsx`), a three-branch dashboard of Congress today with the executive and judicial branches marked as planned; the Congress map at `/map` (`frontend/app/map/page.tsx`); and members, bills and votes alongside. The old `/congress` path permanently redirects to `/map`.
+- **govmap.us** — the app itself: the Federal overview at `/` (`frontend/app/page.tsx`), a three-branch dashboard of Congress today with the executive and judicial branches marked as planned; the Congress map at `/map` (`frontend/app/map/page.tsx`); and members, bills and votes alongside. Every data source, its publisher and its last successful refresh are listed on the public data pipeline status page at `/status` (`frontend/app/status/page.tsx`, backed by `GET /api/sources`). The old `/congress` path permanently redirects to `/map`.
 - **govmap.us/about**, **/support**, **/security**, **/privacy** — the project pages: mission and coverage, donations, security and transparency, and privacy.
 - **dev.govmap.us** — the separate test environment, protected by Cloudflare Access and seeded from a production snapshot.
 

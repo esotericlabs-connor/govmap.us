@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Suspense, type ReactNode } from "react";
 
 import { ChartFigure, type LegendItem } from "@/components/dashboard/ChartFigure";
-import { DataState, FreshnessBadge, LoadingBlock } from "@/components/dashboard/DataState";
+import { DataState, LoadingBlock } from "@/components/dashboard/DataState";
 import { Hemicycle } from "@/components/dashboard/Hemicycle";
 import { Metric, Panel, PanelLink } from "@/components/dashboard/Panel";
 import { WeeklyBars } from "@/components/dashboard/WeeklyBars";
@@ -14,7 +14,6 @@ import {
   type OverviewMeeting,
   type SourceFreshness,
 } from "@/lib/api";
-import { classifyFreshness, formatAge } from "@/lib/freshness.mjs";
 import { formatDateUTC, formatMeetingTime } from "@/lib/format";
 
 // Rendered on demand — the backend isn't reachable during the image build.
@@ -358,6 +357,10 @@ function Legislative({ data }: { data: Overview }) {
                 · as of <time dateTime={data.generated_at}>{asOf}</time>
               </>
             )}
+            {" · "}
+            <Link href="/status" className="font-semibold text-govblue-600 transition-colors hover:text-ink">
+              Data status
+            </Link>
           </p>
         </div>
         <PanelLink href="/map">Open the Congress map</PanelLink>
@@ -454,48 +457,6 @@ function PlannedBranch({
   );
 }
 
-// --- Source freshness -----------------------------------------------------
-
-function PipelinePanel({ sources, generatedAt }: { sources: SourceFreshness[]; generatedAt: string }) {
-  const nowMs = Date.parse(generatedAt);
-  const rows = sources.map((s) => ({ ...s, state: classifyFreshness(s.name, s.last_success, nowMs) }));
-  const current = rows.filter((r) => r.state === "fresh").length;
-
-  return (
-    <Panel level={2} eyebrow="Pipeline status" title="Data sources" className="md:col-span-2 xl:col-span-1">
-      <p className="text-sm text-ink-soft">
-        <b className="tabular-nums text-ink">
-          {current} of {rows.length}
-        </b>{" "}
-        sources are current against their refresh schedules.
-      </p>
-      <ul className="mt-4 divide-y divide-line">
-        {rows.map((s) => (
-          <li key={s.name} className="flex items-start justify-between gap-3 py-2.5 first:pt-0 last:pb-0">
-            <div className="min-w-0">
-              <p className="text-sm font-semibold leading-snug text-ink">{s.title}</p>
-              <p className="text-xs text-ink-muted">{s.publisher}</p>
-            </div>
-            <FreshnessBadge state={s.state}>
-              {s.last_success ? (
-                <time dateTime={s.last_success} title={formatMeetingTime(s.last_success) ?? undefined}>
-                  {formatAge(s.last_success, nowMs)}
-                </time>
-              ) : null}
-            </FreshnessBadge>
-          </li>
-        ))}
-      </ul>
-      <p className="mt-4 text-xs text-ink-muted">
-        Every figure on GovMap comes from these public sources.{" "}
-        <Link href="/about#coverage" className="font-semibold text-govblue-600 transition-colors hover:text-ink">
-          What GovMap covers
-        </Link>
-      </p>
-    </Panel>
-  );
-}
-
 // --- Page -----------------------------------------------------------------
 
 async function OverviewBody() {
@@ -531,7 +492,6 @@ async function OverviewBody() {
           Courts, judges, appointments, vacancies and new opinions, each linked to the original record. No legal
           summaries or predicted outcomes.
         </PlannedBranch>
-        <PipelinePanel sources={data.sources} generatedAt={data.generated_at} />
       </div>
     </div>
   );

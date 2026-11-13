@@ -4,7 +4,9 @@ import { test } from "node:test";
 import {
   cadenceHours,
   classifyFreshness,
+  describeCadence,
   formatAge,
+  formatHours,
   SOURCE_CADENCE_HOURS,
   staleAfterHours,
 } from "../lib/freshness.mjs";
@@ -21,6 +23,8 @@ test("a source is stale after two missed runs, and never within six hours of sch
 test("unregistered and prototype names fall back to a daily cadence", () => {
   assert.equal(cadenceHours("votes"), 0.5);
   assert.equal(cadenceHours("committee_meetings"), 12);
+  assert.equal(cadenceHours("fec_candidates"), 24);
+  assert.equal(cadenceHours("fec_election_calendar"), 24);
   assert.equal(cadenceHours("a_new_source"), 24);
   assert.equal(cadenceHours("constructor"), 24);
   assert.equal(cadenceHours("toString"), 24);
@@ -52,4 +56,26 @@ test("ages read compactly", () => {
   assert.equal(formatAge("2026-11-10T16:00:00Z", NOW), "47 h ago");
   assert.equal(formatAge("2026-11-10T15:00:00Z", NOW), "2 days ago");
   assert.equal(formatAge("garbage", NOW), "unknown");
+});
+
+test("refresh schedules read in plain language", () => {
+  assert.equal(describeCadence("votes"), "Every 30 minutes");
+  assert.equal(describeCadence("committee_meetings"), "Twice a day");
+  assert.equal(describeCadence("congress_legislators"), "Daily");
+  assert.equal(describeCadence("fec_candidates"), "Daily");
+  assert.equal(describeCadence("fec_election_calendar"), "Daily");
+  assert.equal(describeCadence("zip_districts"), "Monthly");
+  assert.equal(describeCadence("a_new_source"), "Daily");
+  // Every registered source gets a phrase, never a raw number of hours.
+  for (const source of Object.keys(SOURCE_CADENCE_HOURS)) {
+    assert.match(describeCadence(source), /^(Every \d+ (minutes|hours|days)|Twice a day|Daily|Monthly)$/);
+  }
+});
+
+test("durations read compactly", () => {
+  assert.equal(formatHours(0.75), "45 min");
+  assert.equal(formatHours(staleAfterHours(0.5)), "6.5 h");
+  assert.equal(formatHours(24), "24 h");
+  assert.equal(formatHours(48), "2 days");
+  assert.equal(formatHours(staleAfterHours(744)), "62 days");
 });

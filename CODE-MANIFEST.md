@@ -4,6 +4,78 @@ What's been built, in what order, and what's next. This is a living log — add 
 
 ## Build log
 
+**2026-11-12 — Compact bill timeline (awaiting CI/dev validation)**
+Removed the repeated "How this was determined" disclosure from
+`frontend/components/BillProgress.tsx`. The compact milestones, dates, outcome
+notes, and no-probability caveat remain; a short Congress.gov source line points
+to the complete Action Timeline on the bill page. Milestone inference and its
+regression cases are unchanged. Static checkout only; no local tests or build.
+
+**2026-11-12 — Incomplete bill child bundles are withheld (awaiting CI/dev validation)**
+Congress.gov child pagination now fails explicitly at its page cap, and an
+invalid required child row rejects that bill's full detail bundle instead of
+silently staging a shortened action/cosponsor list. Complete bundles remain
+upsertable, while the run is recorded partial whenever a required bundle is
+withheld; existing stored rows are not replaced with incomplete data.
+
+**2026-11-12 — FEC candidate catalog (awaiting CI/dev validation)**
+Added a bounded, complete-snapshot OpenFEC candidate catalog for the configured
+two-year finance cycle, with separate publisher-reported election years, office,
+state, district, candidate IDs, status, and principal-committee metadata. The
+page groups source records by office/state/district and supports validated
+filters. FEC registration is explicitly not treated as ballot access, a win,
+or members-elect; state election-office sources, official results, and the
+incoming Congress remain unintegrated. A full snapshot replaces only its own
+cycle in one transaction; capped, malformed, unstable, or interrupted pulls
+leave the last complete snapshot intact. Candidate refresh is tracked and
+scheduled after campaign-finance refresh. No local tests/builds were run.
+
+**2026-11-12 — FEC election-date calendar (awaiting CI/dev validation)**
+Added a daily, cycle-year snapshot of OpenFEC's explicit “Election Dates” calendar
+category, which includes primaries, general/special elections, runoffs, and party
+conventions, using exact-count pagination and atomic replacement. The Elections
+workspace labels these as FEC calendar events, not state ballot certification,
+results, or a complete state/local calendar. Events retain their FEC event IDs
+and source details; no identity match or member-elect inference is made. The
+official API describes nightly updates and a 100-result page limit; this source
+shares the existing FEC key and request budget. API terms and reuse rights remain
+unasserted in the source registry. The API supplies no event revision token, so
+the recorded revision hash is GovMap's local content hash and daily refresh is
+the correction mechanism. No local tests/builds were run.
+
+**2026-11-12 — Data pipeline status page at `/status` (awaiting CI/dev validation)**
+The source-freshness panel moves off the Federal overview to its own page, so
+the overview's side column is kept for branch data. No new upstream sources,
+pipelines, migrations or npm packages.
+
+- **`GET /api/sources`** (`app/routers/data_sources.py`, schema
+  `app/schemas/data_sources.py`, read-only, no upstream calls): every source in
+  `app/sources.py` with its title, publisher, public endpoint URLs (each marked
+  official or community-maintained), whether the publisher requires an access
+  key (never the key or its variable name), and its last successful refresh.
+  Like `/api/overview`, it reads only `pipeline_status.last_success`; run
+  outcomes, record counts and error detail stay on the authenticated
+  `/internal` endpoints. `/api/overview` now shares the same `last_successes()`
+  query and still returns `sources` for its chart attributions.
+- **`/status` page** (`frontend/app/status/page.tsx`): Capitol banner, counts of
+  current / stale / not-yet-loaded sources and of sources fetched only from
+  official publishers, then one card per source with its freshness badge,
+  plain-language schedule, exact last success, stale threshold and endpoints,
+  plus an explanation of what "current" means and links to coverage, the
+  source register and Security. The register link is pinned to the deployed
+  commit (`APP_COMMIT_SHA`, from the `SOURCE_COMMIT` build arg) so it resolves
+  on dev before `main` has the file; builds without a commit omit it. Reachable from the menu and search (`status`,
+  `pipeline`, `freshness`; registry entry in `lib/sections.ts`), the footer,
+  and a "Data status" link beside the overview's "as of" time.
+- `lib/freshness.mjs` gains `describeCadence()` and `formatHours()`, derived
+  from the same cadence table that drives staleness.
+- Tests: `backend/tests/test_data_sources.py` (registry order, last success
+  only, no internal fields or detail, no credential-bearing endpoint URL) and
+  new cases in `tests/freshness.test.mjs` and `tests/sections.test.mjs`, all
+  already in CI. Nothing was run in this static checkout. Still to confirm on
+  dev: the page in both themes and on mobile, the overview without the panel,
+  and the menu/search/footer links.
+
 **2026-11-12 — Source and coverage register: initial Group 2 inventory**
 Added [the register](docs/source-coverage-register.md) covering existing runtime
 sources and lazy upstream callers, Congress.gov endpoint families, OpenFEC
@@ -26,9 +98,9 @@ bill page. No new upstream sources, npm packages or LLM text.
   ends at "Passed Congress", since ratification is up to the states). It shows
   a headline, what has to happen next, a progress bar and an outcome pill
   (Became law, Agreed to, Stopped, Ended, In progress) in place of the old
-  status pill. Each state is read from the bill's Congress.gov action log, and
-  "How this was determined" quotes the action behind every step. Nothing is
-  predicted. The helper handles veto, pocket veto, veto override (passed or
+  status pill. Each state is read from the bill's Congress.gov action log; the
+  short source note points to the full Action Timeline below the stepper. The
+  helper handles veto, pocket veto, veto override (passed or
   failed), a measure failing in its first chamber, House/Senate differences,
   and rule resolutions that only *mention* the bill (those aren't counted as
   its passage). A bill from an earlier Congress that never finished reads

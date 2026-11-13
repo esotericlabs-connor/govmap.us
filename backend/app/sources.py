@@ -20,6 +20,8 @@ from app.pipelines import (
     congress_gov_bills,
     congress_legislators,
     congress_member_sponsored,
+    fec_candidates,
+    fec_election_calendar,
     fec_finance,
     house_clerk_votes,
     senate_lis_votes,
@@ -96,6 +98,24 @@ SOURCES: dict[str, SourceSpec] = {
             endpoints=(_CONGRESS_GOV,),
             auth_env="CONGRESS_GOV_API_KEY",
             staging_files=(congress_member_sponsored.STAGING_PATH,),
+        ),
+        SourceSpec(
+            name="fec_candidates",
+            title="FEC candidate registrations and contest metadata",
+            publisher="Federal Election Commission (OpenFEC API)",
+            endpoints=(Endpoint(fec_finance.FEC_BASE, official=True),),
+            auth_env="FEC_API_KEY",
+            staging_files=(fec_candidates.STAGING_PATH,),
+        ),
+        SourceSpec(
+            name="fec_election_calendar",
+            title="FEC-reported federal election dates",
+            publisher="Federal Election Commission (OpenFEC API)",
+            endpoints=(
+                Endpoint(f"{fec_finance.FEC_BASE}/calendar-dates/", official=True),
+            ),
+            auth_env="FEC_API_KEY",
+            staging_files=(fec_election_calendar.STAGING_PATH,),
         ),
         SourceSpec(
             name="fec_finance",

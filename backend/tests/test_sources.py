@@ -39,6 +39,25 @@ def test_registry_entries_are_well_formed() -> None:
         assert spec.rights is None, name
 
 
+def test_fec_candidate_catalog_is_registered_as_official_and_keyed() -> None:
+    spec = SOURCES["fec_candidates"]
+    assert spec.publisher == "Federal Election Commission (OpenFEC API)"
+    assert spec.auth_env == "FEC_API_KEY"
+    assert len(spec.endpoints) == 1
+    assert spec.endpoints[0].official
+    assert spec.staging_files[0].name == "fec_candidates_raw.json"
+
+
+def test_fec_election_calendar_is_registered_as_official_and_keyed() -> None:
+    spec = SOURCES["fec_election_calendar"]
+    assert spec.publisher == "Federal Election Commission (OpenFEC API)"
+    assert spec.auth_env == "FEC_API_KEY"
+    assert len(spec.endpoints) == 1
+    assert spec.endpoints[0].official
+    assert spec.endpoints[0].url.endswith("/calendar-dates/")
+    assert spec.staging_files[0].name == "fec_election_calendar_raw.json"
+
+
 def test_tracking_rejects_an_unregistered_source() -> None:
     async def fn() -> None:
         return None
