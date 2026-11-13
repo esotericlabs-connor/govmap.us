@@ -78,7 +78,7 @@ const BEYOND: Coverage[] = [
 
 const PRINCIPLES: { title: string; body: string }[] = [
   {
-    title: "Nonpartisan, always",
+    title: "Nonpartisan, above all",
     body: "No party, no candidate, no cause. Every official is shown the same way, with the same data.",
   },
   {
@@ -95,7 +95,7 @@ const PRINCIPLES: { title: string; body: string }[] = [
   },
   {
     title: "Built for your phone",
-    body: "Most people check on their government in a spare minute. GovMap is designed mobile-first.",
+    body: "Govmap is designed as mobile-first, so you can access the same information on your phone as on your computer's web browser.",
   },
   {
     title: "Open by default",
@@ -167,9 +167,9 @@ export default function AboutPage() {
       <main className="bg-white">
         <PageBanner eyebrow="About GovMap" title={siteConfig.tagline}>
           <p>
-            GovMap is a free, nonpartisan civic tool to understand who governs you — every branch,
-            every level, in one place. Real public records, always sourced and verified. No
-            ads, no bias, no spin.
+            GovMap is a free, open-source, nonpartisan civic tool to understand who governs 
+            you — every branch, every level, in one place. Real public records, always 
+            sourced and verified. No ads, no bias, no spin.
           </p>
         </PageBanner>
 
@@ -197,12 +197,12 @@ export default function AboutPage() {
                 The ambition
               </p>
               <p className="mt-3 font-display text-2xl font-bold leading-snug">
-                One map of American government — from your city council to Congress.
+                Everyone deserves a clear view of your government.
               </p>
               <p className="mt-4 leading-relaxed text-white/80">
                 Every official who represents you, every vote they cast, and every
                 law as it moves from a proposal, through signature or veto, to any
-                challenge in court — connected, and tied to where you live.
+                challenge in court — connected, and tied to where you live. 
               </p>
             </BannerCard>
           </div>

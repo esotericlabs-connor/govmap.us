@@ -14,34 +14,37 @@ export default function PrivacyPage() {
       <p>
         GovMap.us is a nonprofit, nonpartisan civic tool. We built it to make
         public government data easier to understand — not to collect data about
-        you. This page explains, in plain English, what we do and don&apos;t do
-        with information.
+        you. This page explains, in plain English, what we do and -do not- do
+        with anyone's information, including yours.
       </p>
 
-      <h2>What we collect</h2>
+      <h2>What we collect:</h2>
       <p>
         Today GovMap is a public informational website with no user accounts.
-        You can browse everything without giving us any personal information. We
-        do not sell data, we run no advertising, and we use no third-party
-        analytics or tracking pixels.
+        You can browse everything without giving us any personal information.
+        We will never sell data, run advertising, or use any third-party
+        analytics or tracking pixels. While part of our roadmap includes 
+        user account information, it will be optional and data you store 
+        with us will remain under your control, under aggressive security 
+        practices and policies.
       </p>
 
-      <h2>Server and network logs</h2>
+      <h2>Server and network logs:</h2>
       <p>
         Like any website, our infrastructure processes standard request
         metadata — such as IP address and browser type — to serve pages, keep
         the site secure, and diagnose problems. Traffic reaches us through
         Cloudflare, whose processing is governed by their own privacy terms.
-        This metadata is transient and is not used to build a profile of you.
+        This metadata we collect is transient and never used to build a profile 
+        of you.  
       </p>
 
       <h2>Cookies</h2>
       <p>
-        GovMap sets no non-essential or advertising cookies. If that ever
-        changes, we will describe it here first.
+        GovMap sets no non-essential or advertising cookies - and never will.
       </p>
 
-      <h2>Saved views on your device</h2>
+      <h2>What is stored on your device:</h2>
       <p>
         Your home ZIP and last map view are saved in your browser&apos;s local
         storage. The map view contains its position, zoom, House or Senate
@@ -61,7 +64,7 @@ export default function PrivacyPage() {
         history also remembers member views and scroll positions within a tab.
       </p>
 
-      <h2>Links to other services</h2>
+      <h2>Links to other services:</h2>
       <p>
         When you follow a link to a donation platform (Ko-fi, Buy Me a Coffee,
         or Liberapay, listed on our <Link href="/support">Support page</Link>),
@@ -69,7 +72,7 @@ export default function PrivacyPage() {
         and that service&apos;s own privacy policy applies.
       </p>
 
-      <h2>Where our data comes from</h2>
+      <h2>Where our data comes from:</h2>
       <p>
         The government information GovMap displays comes from public, official
         sources, which we read on our servers and normalize into a consistent
@@ -85,10 +88,10 @@ export default function PrivacyPage() {
         how to delete your account and data entirely.
       </p>
 
-      <h2>Children</h2>
+      <h2>Children:</h2>
       <p>
         GovMap is a general-audience civic resource and is not directed at
-        children under 13.
+        children under the age of13.
       </p>
 
       <h2>Contact</h2>
