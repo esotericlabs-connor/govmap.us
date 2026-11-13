@@ -85,6 +85,7 @@ class CandidateGroupingOut(BaseModel):
 
 
 class ElectionCandidatesOut(BaseModel):
+    generated_at: datetime
     finance_cycle: int
     available: bool
     complete: bool
@@ -152,6 +153,7 @@ class ElectionCalendarEventOut(BaseModel):
 
 
 class ElectionCalendarOut(BaseModel):
+    generated_at: datetime
     calendar_year: int
     available: bool
     complete: bool

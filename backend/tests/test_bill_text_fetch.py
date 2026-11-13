@@ -12,6 +12,7 @@ import requests
 from sqlalchemy.dialects import postgresql
 
 from app.config import settings
+from app.pipelines.congress_gov_bills import IncompleteBillDetailError
 from app.services import bill_enrich
 from app.services.upstream import UpstreamCapacityError
 
@@ -241,3 +242,28 @@ def test_enriched_bill_is_expired_so_the_caller_rereads_it(
     db.expire.assert_called_once_with(stub)
     upsert = str(db.execute.await_args_list[0].args[0].compile(dialect=postgresql.dialect()))
     assert "updated_at = now()" in upsert
+
+
+def test_incomplete_bill_detail_leaves_the_existing_stub_untouched(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture,
+) -> None:
+    stub = SimpleNamespace(enriched_at=None)
+    db = SimpleNamespace(
+        get=AsyncMock(return_value=stub),
+        commit=AsyncMock(),
+        execute=AsyncMock(),
+        expire=Mock(),
+    )
+
+    async def upstream(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+        raise IncompleteBillDetailError("invalid cosponsor")
+
+    monkeypatch.setattr(settings, "congress_gov_api_key", "test-placeholder")
+    monkeypatch.setattr(bill_enrich, "run_upstream", upstream)
+
+    assert asyncio.run(bill_enrich.enrich_bill(db, "hr1-119")) is False
+    db.commit.assert_awaited_once()
+    db.execute.assert_not_awaited()
+    db.expire.assert_not_called()
+    assert stub.enriched_at is None
+    assert "detail fetch failed for hr1-119: invalid cosponsor" in caplog.text

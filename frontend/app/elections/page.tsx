@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { formatDate } from "@/components/DetailKit";
 import { apiGet } from "@/lib/api";
+import { classifyFreshness, parseFreshnessReferenceTime } from "@/lib/freshness.mjs";
 
 export const dynamic = "force-dynamic";
 
@@ -41,6 +42,7 @@ type CandidateGrouping = {
 };
 
 type ElectionCandidates = {
+  generated_at: string;
   finance_cycle: number;
   available: boolean;
   complete: boolean;
@@ -68,6 +70,7 @@ type CalendarEvent = {
 };
 
 type ElectionCalendar = {
+  generated_at: string;
   calendar_year: number;
   available: boolean;
   complete: boolean;
@@ -203,19 +206,34 @@ function candidateStatus(code: string | null): string {
   return code ? labels[code] ?? `FEC status ${code}` : "FEC status not reported";
 }
 
-async function loadCandidates(filters: Filters): Promise<ElectionCandidates | null> {
+function withReferenceTime<T extends { generated_at: string }>(data: T): {
+  data: T;
+  nowMs: number;
+} {
+  return { data, nowMs: parseFreshnessReferenceTime(data.generated_at) };
+}
+
+async function loadCandidates(filters: Filters): Promise<{
+  data: ElectionCandidates;
+  nowMs: number;
+} | null> {
   try {
-    return await apiGet<ElectionCandidates>(apiPath(filters));
+    return withReferenceTime(await apiGet<ElectionCandidates>(apiPath(filters)));
   } catch (error) {
     console.error(error);
     return null;
   }
 }
 
-async function loadCalendar(year: number): Promise<ElectionCalendar | null> {
+async function loadCalendar(year: number): Promise<{
+  data: ElectionCalendar;
+  nowMs: number;
+} | null> {
   try {
-    return await apiGet<ElectionCalendar>(
-      `/api/elections/calendar?year=${encodeURIComponent(String(year))}`,
+    return withReferenceTime(
+      await apiGet<ElectionCalendar>(
+        `/api/elections/calendar?year=${encodeURIComponent(String(year))}`,
+      ),
     );
   } catch (error) {
     console.error(error);
@@ -226,16 +244,25 @@ async function loadCalendar(year: number): Promise<ElectionCalendar | null> {
 export default async function ElectionsPage({ searchParams }: { searchParams: SearchParams }) {
   const params = await searchParams;
   const { filters, invalid } = readFilters(params);
-  const data = await loadCandidates(filters);
+  const candidateResponse = await loadCandidates(filters);
+  const data = candidateResponse?.data ?? null;
   const cycle = data?.finance_cycle ?? filters.cycle ?? 2026;
-  const calendar = await loadCalendar(cycle);
-  const calendarIsStale = Boolean(
-    calendar?.fetched_at &&
-      Date.now() - Date.parse(calendar.fetched_at) > 48 * 60 * 60 * 1000,
-  );
-  const isStale = Boolean(
-    data?.fetched_at && Date.now() - Date.parse(data.fetched_at) > 48 * 60 * 60 * 1000,
-  );
+  const calendarResponse = await loadCalendar(cycle);
+  const calendar = calendarResponse?.data ?? null;
+  const calendarIsStale = calendarResponse
+    ? classifyFreshness(
+        "fec_election_calendar",
+        calendarResponse.data.fetched_at,
+        calendarResponse.nowMs,
+      ) === "stale"
+    : false;
+  const isStale = candidateResponse
+    ? classifyFreshness(
+        "fec_candidates",
+        candidateResponse.data.fetched_at,
+        candidateResponse.nowMs,
+      ) === "stale"
+    : false;
   const previousOffset = Math.max(0, (filters.offset ?? 0) - 50);
   const nextOffset = (filters.offset ?? 0) + 50;
 

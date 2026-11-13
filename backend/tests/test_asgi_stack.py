@@ -8,9 +8,10 @@ import base64
 import json
 from collections.abc import AsyncIterator, Iterator, Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
+from types import SimpleNamespace
 from typing import Any
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from fastapi import FastAPI
@@ -404,6 +405,111 @@ def test_public_list_accepts_paging_bounds(run_store: _FakeRunStore) -> None:
     assert status == 200
     assert json.loads(payload) == []
     assert len(run_store.statements) == 1
+
+
+@pytest.mark.parametrize(("resource", "query"), [("calendar", "year=2026"), ("candidates", "cycle=2026")])
+@pytest.mark.parametrize("available", [False, True])
+def test_election_responses_include_utc_generation_time(
+    monkeypatch: pytest.MonkeyPatch, resource: str, query: str, available: bool
+) -> None:
+    fetched_at = datetime(2026, 1, 3, tzinfo=UTC)
+    coverage = (
+        SimpleNamespace(
+            complete=True,
+            event_count=1,
+            candidate_count=1,
+            expected_count=1,
+            fetched_at=fetched_at,
+        )
+        if available
+        else None
+    )
+    coverage_result = Mock()
+    coverage_result.scalar_one_or_none.return_value = coverage
+    results = [coverage_result]
+
+    if available and resource == "calendar":
+        events = Mock()
+        events.scalars.return_value.all.return_value = [
+            SimpleNamespace(
+                calendar_year=2026,
+                event_id=1,
+                category="Election Dates",
+                summary="General Election",
+                description=None,
+                location="California",
+                state=[],
+                start_date=date(2026, 11, 3),
+                end_date=None,
+                url=None,
+            )
+        ]
+        results.append(events)
+    elif available:
+        count = Mock()
+        count.scalar_one.return_value = 1
+        groupings = Mock()
+        groupings.all.return_value = [
+            SimpleNamespace(
+                office="H",
+                office_full="House",
+                state="CA",
+                district="01",
+                candidate_count=1,
+            )
+        ]
+        candidates = Mock()
+        candidates.scalars.return_value.all.return_value = [
+            SimpleNamespace(
+                candidate_id="H0CA00001",
+                finance_cycle=2026,
+                name="Example Candidate",
+                office="H",
+                office_full="House",
+                state="CA",
+                district="01",
+                party="DEM",
+                party_full="Democratic Party",
+                candidate_status="C",
+                incumbent_challenge="C",
+                first_file_date=None,
+                last_file_date=None,
+                cycles=[2026],
+                election_years=[2026],
+                principal_committees=[],
+            )
+        ]
+        results.extend([count, groupings, candidates])
+
+    db = SimpleNamespace(execute=AsyncMock(side_effect=results))
+
+    async def fake_db() -> AsyncIterator[SimpleNamespace]:
+        yield db
+
+    monkeypatch.setitem(main.app.dependency_overrides, get_db, fake_db)
+    before = datetime.now(UTC)
+    status, _, body = asyncio.run(
+        _call(main.app, "GET", f"/api/elections/{resource}", query=query)
+    )
+    after = datetime.now(UTC)
+
+    assert status == 200
+    payload = json.loads(body)
+    generated_at = datetime.fromisoformat(payload["generated_at"].replace("Z", "+00:00"))
+    assert generated_at.utcoffset() == timedelta(0)
+    assert before <= generated_at <= after
+    assert payload["available"] is available
+    assert payload["complete"] is available
+    items = payload["events" if resource == "calendar" else "candidates"]
+    assert len(items) == int(available)
+    if available:
+        assert datetime.fromisoformat(payload["fetched_at"].replace("Z", "+00:00")) == fetched_at
+        assert items[0]["event_id" if resource == "calendar" else "candidate_id"] == (
+            1 if resource == "calendar" else "H0CA00001"
+        )
+    else:
+        assert payload["fetched_at"] is None
+    assert db.execute.await_count == len(results)
 
 
 def test_bill_list_applies_the_became_law_filter(run_store: _FakeRunStore) -> None:

@@ -28,6 +28,27 @@ const DEFAULT_CADENCE_HOURS = 24;
 /** @typedef {"fresh" | "stale" | "never"} Freshness */
 
 /**
+ * @param {unknown} timestamp API response generation time
+ * @returns {number} reference time in epoch milliseconds
+ */
+export function parseFreshnessReferenceTime(timestamp) {
+  const match = typeof timestamp === "string"
+    ? /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.exec(timestamp)
+    : null;
+  const parsed = typeof timestamp === "string" && match ? Date.parse(timestamp) : Number.NaN;
+  const wallTime = match ? Date.parse(`${match[1]}Z`) : Number.NaN;
+  if (
+    !match ||
+    !Number.isFinite(parsed) ||
+    !Number.isFinite(wallTime) ||
+    new Date(wallTime).toISOString().slice(0, 19) !== match[1]
+  ) {
+    throw new TypeError("Missing or invalid freshness reference timestamp");
+  }
+  return parsed;
+}
+
+/**
  * Hours after the last success at which a source is stale: two missed runs,
  * and never sooner than six hours past its schedule, so one slow or skipped
  * run doesn't raise a flag.
@@ -55,6 +76,7 @@ export function cadenceHours(source) {
  * @returns {Freshness}
  */
 export function classifyFreshness(source, lastSuccess, nowMs) {
+  if (!Number.isFinite(nowMs)) throw new TypeError("Invalid freshness reference time");
   const at = lastSuccess ? Date.parse(lastSuccess) : Number.NaN;
   if (Number.isNaN(at)) return "never";
   return nowMs - at > staleAfterHours(cadenceHours(source)) * HOUR_MS ? "stale" : "fresh";

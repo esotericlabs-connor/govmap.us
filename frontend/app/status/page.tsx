@@ -10,6 +10,7 @@ import {
   describeCadence,
   formatAge,
   formatHours,
+  parseFreshnessReferenceTime,
   staleAfterHours,
   type Freshness,
 } from "@/lib/freshness.mjs";
@@ -99,22 +100,23 @@ function SourceCard({ source, nowMs }: { source: Row; nowMs: number }) {
 }
 
 async function StatusBody() {
-  let data: SourcesStatus | null = null;
+  let response: { data: SourcesStatus; nowMs: number } | null = null;
   try {
-    data = await apiGet<SourcesStatus>("/api/sources");
+    const data = await apiGet<SourcesStatus>("/api/sources");
+    response = { data, nowMs: parseFreshnessReferenceTime(data.generated_at) };
   } catch (err) {
     console.error(err);
   }
 
-  if (!data) {
+  if (!response) {
     return (
       <DataState kind="error" title="Source status couldn’t load">
-        GovMap’s data service didn’t respond. Please refresh in a moment.
+        GovMap’s data service didn’t respond or returned incomplete status information. Please refresh in a moment.
       </DataState>
     );
   }
 
-  const nowMs = Date.parse(data.generated_at);
+  const { data, nowMs } = response;
   const rows: Row[] = data.sources.map((s) => ({ ...s, state: classifyFreshness(s.name, s.last_success, nowMs) }));
   const count = (state: Freshness) => rows.filter((r) => r.state === state).length;
   const officialOnly = rows.filter((r) => r.endpoints.every((e) => e.official)).length;

@@ -4,6 +4,15 @@ What's been built, in what order, and what's next. This is a living log — add 
 
 ## Build log
 
+**2026-11-12 — Election CI and bill-ingestion safety fixes (awaiting CI/dev validation)**
+Election responses now include a UTC generation time, so the page uses the
+shared source-freshness rules without reading the clock during React render.
+Election and status pages reject missing or invalid reference timestamps rather
+than labeling data fresh.
+Congress.gov cosponsor rows require a valid Bioguide ID; missing or malformed
+IDs withhold the bill bundle instead of silently dropping a cosponsor before
+replacement. No local tests or build were run.
+
 **2026-11-12 — Compact bill timeline (awaiting CI/dev validation)**
 Removed the repeated "How this was determined" disclosure from
 `frontend/components/BillProgress.tsx`. The compact milestones, dates, outcome

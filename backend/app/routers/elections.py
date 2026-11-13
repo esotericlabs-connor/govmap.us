@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Query
@@ -33,6 +34,7 @@ async def list_election_calendar(
 
     if coverage is None:
         return ElectionCalendarOut(
+            generated_at=datetime.now(UTC),
             calendar_year=year,
             available=False,
             complete=False,
@@ -51,6 +53,7 @@ async def list_election_calendar(
     ).scalars().all()
 
     return ElectionCalendarOut(
+        generated_at=datetime.now(UTC),
         calendar_year=year,
         available=True,
         complete=coverage.complete,
@@ -86,6 +89,7 @@ async def list_election_candidates(
 
     if coverage is None:
         return ElectionCandidatesOut(
+            generated_at=datetime.now(UTC),
             finance_cycle=cycle,
             available=False,
             complete=False,
@@ -163,6 +167,7 @@ async def list_election_candidates(
     ).scalars().all()
 
     return ElectionCandidatesOut(
+        generated_at=datetime.now(UTC),
         finance_cycle=cycle,
         available=True,
         complete=coverage.complete,
