@@ -15,7 +15,7 @@ export default function PrivacyPage() {
         GovMap.us is a nonprofit, nonpartisan civic tool. We built it to make
         public government data easier to understand — not to collect data about
         you. This page explains, in plain English, what we do and -do not- do
-        with anyone's information, including yours.
+        with anyone&apos;s information, including yours.
       </p>
 
       <h2>What we collect:</h2>
