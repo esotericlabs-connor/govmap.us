@@ -8,8 +8,9 @@ export const siteConfig = {
   name: "GovMap.us",
   tagline: "From City Council to Congress.",
 
-  // The app is the site: govmap.us opens straight to the map. /congress is a
-  // permanent redirect to / (next.config.mjs) so old links keep working.
+  // The app is the site: govmap.us opens straight to the federal overview and
+  // the map is at /map. /congress permanently redirects to /map
+  // (next.config.mjs) so old links keep working.
   appUrl: "/",
 
   githubUrl: "https://github.com/esotericlabs-connor/govmap.us",

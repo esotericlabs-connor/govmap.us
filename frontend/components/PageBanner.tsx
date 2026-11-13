@@ -4,7 +4,8 @@ import type { ReactNode } from "react";
 /**
  * The GovMap visual signature: the Capitol photo under a navy scrim with white
  * text. Shared by the footer and every page banner so the look stays identical.
- * Place inside a `relative isolate overflow-hidden` container.
+ * Place inside a `relative isolate overflow-hidden` container marked `chrome`,
+ * which keeps it navy-and-white in the dark theme too.
  */
 export function CapitolBackdrop({
   position = "bottom",
@@ -38,7 +39,7 @@ export function PageBanner({
   children?: ReactNode;
 }) {
   return (
-    <section className="relative isolate overflow-hidden bg-govnavy-800 text-white">
+    <section className="chrome relative isolate overflow-hidden bg-govnavy-800 text-white">
       <CapitolBackdrop position="center" priority />
       <div className="mx-auto max-w-6xl px-6 pb-14 pt-32 sm:pb-20 sm:pt-40">
         {eyebrow && (
@@ -57,7 +58,7 @@ export function PageBanner({
 export function BannerCard({ children, className = "" }: { children: ReactNode; className?: string }) {
   return (
     <div
-      className={`relative isolate overflow-hidden rounded-2xl bg-govnavy-800 p-6 text-white shadow-card sm:p-8 ${className}`}
+      className={`chrome relative isolate overflow-hidden rounded-2xl bg-govnavy-800 p-6 text-white shadow-card sm:p-8 ${className}`}
     >
       <CapitolBackdrop />
       {children}

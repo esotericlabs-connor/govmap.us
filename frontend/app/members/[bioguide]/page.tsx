@@ -42,7 +42,7 @@ export default async function MemberDetailPage({ params }: { params: Promise<{ b
     <>
       <main className="bg-slate-warm-50 pb-20 pt-28">
         <div className="mx-auto max-w-6xl px-6">
-          <BackLink href="/">Back to map</BackLink>
+          <BackLink href="/map">Back to map</BackLink>
           <Suspense fallback={<PageSkeleton />}>
             <MemberDetailContent bioguide={bioguide} />
           </Suspense>

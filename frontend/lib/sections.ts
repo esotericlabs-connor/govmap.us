@@ -25,11 +25,20 @@ const COVERAGE_HREF = "/about#coverage";
 
 export const SECTIONS: readonly Section[] = [
   {
+    id: "overview",
+    label: "Federal overview",
+    href: "/",
+    description: "All three federal branches at a glance",
+    keywords: ["overview", "dashboard", "home", "federal", "branches", "summary", "at a glance"],
+    group: "workspace",
+    availability: "live",
+  },
+  {
     id: "map",
     label: "Congress map",
-    href: "/",
+    href: "/map",
     description: "Every House and Senate seat, by district",
-    keywords: ["map", "home", "district", "seats", "house", "senate", "congress", "find my rep"],
+    keywords: ["map", "district", "seats", "house", "senate", "congress", "find my rep"],
     group: "workspace",
     availability: "live",
   },

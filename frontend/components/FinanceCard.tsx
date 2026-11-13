@@ -126,7 +126,10 @@ export function FinanceCard({
             <div
               style={{ width: `${pct(smallDollar, individual)}%`, background: "var(--color-govblue)" }}
             />
-            <div style={{ width: `${100 - pct(smallDollar, individual)}%`, background: "#334155" }} />
+            <div
+              className="bg-slate-700"
+              style={{ width: `${100 - pct(smallDollar, individual)}%` }}
+            />
           </div>
           <div className="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-sm">
             <span className="text-slate-warm-600">

@@ -16,6 +16,7 @@ from app.routers import (
     donations,
     health,
     members,
+    overview,
     pipeline_status,
     report,
     search,
@@ -105,6 +106,7 @@ app.include_router(bills.router)
 app.include_router(votes.router)
 app.include_router(search.router)
 app.include_router(congress.router)
+app.include_router(overview.router)
 # Ops-only endpoints never appear in the published schema, even with docs on.
 app.include_router(pipeline_status.router, include_in_schema=False)
 app.include_router(report.router)

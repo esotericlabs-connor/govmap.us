@@ -381,6 +381,9 @@ def test_source_runs_rejects_invalid_filters_before_querying(
         ("/api/members", "offset=-1"),
         ("/api/members", "limit=-1"),
         ("/api/members/A000360/donations", "offset=1000001"),
+        ("/api/overview", "weeks=3"),
+        ("/api/overview", "weeks=53"),
+        ("/api/overview", "weeks=ten"),
     ],
 )
 def test_public_lists_reject_out_of_range_paging_before_querying(

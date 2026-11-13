@@ -97,9 +97,9 @@ async def congress_map(db: AsyncSession = Depends(get_db)) -> dict:
     }
 
 
-@router.get("/summary")
-async def chamber_summary(db: AsyncSession = Depends(get_db)) -> dict:
-    """Per-chamber party balance: {house:{D,R,I,total}, senate:{D,R,I,total}}."""
+async def chamber_balance(db: AsyncSession) -> dict[str, dict[str, int]]:
+    """Per-chamber party balance of in-office members, delegates included:
+    {house:{D,R,I,total}, senate:{D,R,I,total}}. Shared with /api/overview."""
     rows = (
         await db.execute(
             select(Member.chamber, Member.party).where(Member.in_office.is_(True))
@@ -116,6 +116,12 @@ async def chamber_summary(db: AsyncSession = Depends(get_db)) -> dict:
         out[chamber][_party_bucket(party)] += 1
         out[chamber]["total"] += 1
     return out
+
+
+@router.get("/summary")
+async def chamber_summary(db: AsyncSession = Depends(get_db)) -> dict:
+    """Per-chamber party balance: {house:{D,R,I,total}, senate:{D,R,I,total}}."""
+    return await chamber_balance(db)
 
 
 @router.get("/lookup")

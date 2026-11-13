@@ -8,6 +8,7 @@ import { createPortal } from "react-dom";
 
 import { BugReport } from "@/components/BugReport";
 import { HomeZipChip } from "@/components/HomeZipChip";
+import { ThemeMenuChoice, ThemeToggle } from "@/components/ThemeControls";
 import { UniversalSearch } from "@/components/UniversalSearch";
 import { SECTIONS, type Section } from "@/lib/sections";
 import { siteConfig } from "@/lib/site-config";
@@ -157,7 +158,7 @@ export function SiteHeader() {
   }, [menuOpen]);
 
   return (
-    <header className="fixed inset-x-0 top-0 z-50 border-b border-white/10 bg-govnavy/80 backdrop-blur-lg">
+    <header className="chrome fixed inset-x-0 top-0 z-50 border-b border-white/10 bg-govnavy/80 backdrop-blur-lg">
       <div className="flex w-full items-center justify-between gap-4 px-6 py-3.5 md:grid md:grid-cols-[minmax(12rem,1fr)_minmax(0,36rem)_minmax(12rem,1fr)]">
         <Link
           href={siteConfig.appUrl}
@@ -183,6 +184,7 @@ export function SiteHeader() {
           <div className="hidden sm:block">
             <HomeZipChip />
           </div>
+          <ThemeToggle />
           <button
             type="button"
             className="shrink-0 text-white"
@@ -201,7 +203,7 @@ export function SiteHeader() {
             {/* Backdrop — always mounted so it fades; pointer-events off when
                 closed so it never blocks the page underneath. */}
             <div
-              className={`fixed inset-0 z-[55] bg-govnavy/70 backdrop-blur-sm transition-opacity duration-300 ${
+              className={`chrome fixed inset-0 z-[55] bg-govnavy/70 backdrop-blur-sm transition-opacity duration-300 ${
                 menuOpen ? "opacity-100" : "pointer-events-none opacity-0"
               }`}
               onClick={close}
@@ -211,7 +213,7 @@ export function SiteHeader() {
                 (a containing block for `fixed`) can't clip it; always mounted so
                 the slide transition actually animates. */}
             <div
-              className={`fixed inset-y-0 right-0 z-[60] flex w-full max-w-[340px] transform flex-col border-l border-white/10 bg-govnavy/95 shadow-2xl transition-transform duration-300 ease-out ${
+              className={`chrome fixed inset-y-0 right-0 z-[60] flex w-full max-w-[340px] transform flex-col border-l border-white/10 bg-govnavy/95 shadow-2xl transition-transform duration-300 ease-out ${
                 menuOpen ? "translate-x-0" : "translate-x-full"
               }`}
               aria-hidden={!menuOpen}
@@ -271,6 +273,9 @@ export function SiteHeader() {
                     triggerClassName="block w-full rounded-md px-3 py-2 text-left text-base font-medium text-white/80 transition-colors hover:bg-white/5"
                     triggerLabel="Report a problem"
                   />
+                </div>
+                <div className="mt-4 border-t border-white/10 pt-4">
+                  <ThemeMenuChoice />
                 </div>
                 {/* Home-area chip lives in the bar on desktop; surface it here
                     for mobile, where it's part of the app experience. */}

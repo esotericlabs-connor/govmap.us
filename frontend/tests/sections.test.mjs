@@ -4,11 +4,22 @@ import { test } from "node:test";
 import { matchSections, normalizeQuery, SECTIONS } from "../lib/sections.ts";
 
 const ids = (sections) => sections.map((s) => s.id);
+const byId = (id) => SECTIONS.find((s) => s.id === id);
 
 test("an empty query offers the live workspace shortcuts in registry order", () => {
-  assert.deepEqual(ids(matchSections("")), ["map", "members", "bills", "laws", "votes"]);
+  assert.deepEqual(ids(matchSections("")), ["overview", "map", "members", "bills", "laws"]);
+  // The search box shows six, so Votes is reachable without typing.
+  assert.deepEqual(ids(matchSections("", 6)), ["overview", "map", "members", "bills", "laws", "votes"]);
   assert.deepEqual(ids(matchSections("   ")), ids(matchSections("")));
   assert.ok(matchSections("").every((s) => s.availability === "live"));
+});
+
+test("the overview is home and the map has its own route", () => {
+  assert.equal(byId("overview").href, "/");
+  assert.equal(byId("map").href, "/map");
+  assert.equal(matchSections("home")[0].id, "overview");
+  assert.equal(matchSections("dashboard")[0].id, "overview");
+  assert.equal(matchSections("map")[0].id, "map");
 });
 
 test("queries are case- and whitespace-insensitive", () => {
@@ -41,9 +52,9 @@ test("planned sections are findable and stay labelled as planned", () => {
 
 test("live sections come before planned ones, even on a weaker match", () => {
   const custom = [
-    { ...SECTIONS[5], id: "planned-x", label: "Data", availability: "planned" },
+    { ...byId("elections"), id: "planned-x", label: "Data", availability: "planned" },
     {
-      ...SECTIONS[0],
+      ...byId("map"),
       id: "live-x",
       label: "Other",
       keywords: ["other"],

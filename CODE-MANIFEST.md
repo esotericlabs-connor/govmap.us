@@ -4,7 +4,66 @@ What's been built, in what order, and what's next. This is a living log — add 
 
 ## Build log
 
-**2026-11-12 — Persistent header, centered command search, enacted-laws view (awaiting CI/dev validation)**
+**2026-11-12 — Visual foundation: Light/Dark themes, dashboard kit, federal overview at `/` (awaiting CI/dev validation)**
+First design-system slice of the dashboard plan (Group 1). `/` becomes a
+three-branch Federal overview built only from data GovMap already loads; the
+map moves to its own route. No new upstream sources, npm packages or LLM text.
+
+- Map **Reset** keeps its animated zoom-out to the default view.
+- **Themes:** System (default), Light or Dark from a header sun/moon toggle or
+  the menu. Every themeable color is an `r g b` CSS variable
+  (`tailwind.config.ts`), so existing classes follow the theme and semantic
+  tokens (`canvas`, `panel`, `sunken`, `line`, `ink`, `series-*`) serve new
+  surfaces. An inline script from `lib/theme.mjs` sets `data-theme` before first
+  paint, so there is no flash and the CSP is unchanged. The choice is kept in
+  localStorage (now listed on the Privacy page) and syncs across tabs. Surfaces
+  marked `.chrome` (header, menu, banners, footer, map status bar) stay
+  navy-and-white in both themes.
+- **`GET /api/overview`** (`app/routers/overview.py`, read-only, no upstream
+  calls): chamber balance (shared `chamber_balance` with `/api/summary`), roll
+  calls per chamber per week, current-Congress measures introduced per week,
+  measures on file, laws enacted, the next six committee meetings (a meeting
+  stored under a committee and its subcommittee is listed once), and each
+  registered source's title, publisher and last success. Run status and error
+  detail stay on the authenticated `/internal` endpoints. `weeks` is 4–52
+  (default 12); anything else is a 422. A week that ended before a chamber's
+  first stored roll call is `null` ("not collected"), never zero.
+- **Dashboard kit** (`frontend/components/dashboard/`): `Panel`, `Metric`,
+  `PanelLink`; `DataState` for none recorded / not collected / partial / stale /
+  source unavailable / not yet integrated, plus `FreshnessBadge` and
+  `LoadingBlock`; `ChartFigure`, which gives every chart a period, a one-line
+  reading, legend, source, coverage and its numbers as a table; `WeeklyBars`
+  (CSS bars, dashed stub for uncollected weeks); and `Hemicycle`. Pure helpers
+  `lib/chart-scales.mjs`, `lib/freshness.mjs` (refresh cadences mirror
+  `app/scheduler.py`; update both together) and `lib/hemicycle.mjs` (the seat
+  geometry the map's status bar and cartogram already used). The plan's d3
+  packages are deferred until a chart needs more than CSS/SVG.
+- **Overview page** (`app/page.tsx`): a Capitol-banner header with the motto, a
+  Federal/State/Local switcher (State and Local are Planned) and jump links to
+  the three branches. Congress: members in office, laws enacted, measures on
+  file and recent roll calls (each links to its list), House and Senate party
+  balance, weekly roll-call and measures-introduced charts, and upcoming
+  committee meetings. Executive and Judicial are explicit "Not yet integrated"
+  panels naming the official sources planned for them. A pipeline panel shows
+  each source's publisher and whether it is current against its schedule.
+  **Coverage caveat:** measures and laws count the bills GovMap holds (those
+  sponsored by current members plus recently updated ones), so the page says
+  "on file" and never presents them as official totals.
+- **Routing:** the map is now `/map` (`/congress` redirects there; Back links on
+  member and committee pages return to it, and the saved map view belongs to
+  `/map` history entries). The section registry adds "Federal overview" at `/`,
+  an empty search offers six shortcuts, and choosing a ZIP on the overview opens
+  the map and flies to the area.
+- Tests: backend `test_overview.py` (week boundaries; balance, activity,
+  meeting de-duplication and freshness; uncollected weeks) and `weeks` 422s in
+  `test_asgi_stack.py`. Frontend `theme`, `hemicycle`, `chart-scales` and
+  `freshness` node tests join CI, and `sections.test.mjs` covers the new routes.
+  Nothing was run in this static checkout. Still to confirm on dev: no theme
+  flash in any mode, toggle/menu/tab sync, dark-mode contrast, Reset animation,
+  map restore on Back, ZIP from the overview, and the overview at phone, tablet
+  and desktop widths.
+
+**2026-11-12 — Persistent header, centered command search, enacted-laws view (CI passed; deployed to dev)**
 Second navigation slice: make every live part of the app reachable from one
 centered search box, and give "what recently became law" a truthful view.
 Nothing planned is presented as available.
@@ -1382,19 +1441,19 @@ govmap.us/
 │   │   └── main.py
 │   ├── migrations/     # Alembic
 │   └── data/staging/   # raw pipeline output, gitignored
-├── frontend/           # Next.js app -- two zones, one deployment
+├── frontend/           # Next.js app, one host, relative routes
 │   ├── Dockerfile      # multi-stage, Next standalone output, non-root
-│   ├── middleware.ts   # hostname routing: govmap.us vs app.govmap.us
-│   ├── lib/
-│   │   └── site-config.ts  # cross-zone URLs, GitHub, social/support links
-│   ├── public/         # logo-dark.png, logo-light.png
+│   ├── lib/            # API types, site-config, section registry, theme,
+│   │                   # map workspace state, pure .mjs helpers (unit-tested)
+│   ├── components/     # shared UI; dashboard/ holds panels, data states, charts
+│   ├── tests/          # node --test suites for the lib/ helpers
+│   ├── public/         # logo-dark.png, logo-light.png, capitol-hero.jpg
 │   └── app/
-│       ├── page.tsx    # marketing site (govmap.us root)
-│       ├── icon.png    # favicon (cropped Capitol mark)
-│       └── app/        # the platform (app.govmap.us root, via rewrite)
-│           ├── layout.tsx
-│           ├── page.tsx
-│           └── members/page.tsx
+│       ├── page.tsx    # Federal overview (/)
+│       ├── map/        # the Congress map (/map)
+│       ├── members/ bills/ votes/ committees/   # record lists and detail pages
+│       ├── about/ security/ privacy/ support/   # project pages
+│       └── icon.png    # favicon (cropped Capitol mark)
 ├── docker-compose.yml  # full stack: postgres + backend + frontend, loopback-bound
 └── .github/workflows/  # CI (lint now, deploy once the runner exists)
 ```

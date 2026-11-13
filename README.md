@@ -85,16 +85,16 @@ Self-hosting is the current low-cost deployment choice. Application containers a
 
 GovMap serves the whole app on one host:
 
-- **govmap.us** — the app itself: the Congress map at `/` (`frontend/app/page.tsx`), with members, bills and votes alongside. The old `/congress` path permanently redirects to `/`.
+- **govmap.us** — the app itself: the Federal overview at `/` (`frontend/app/page.tsx`), a three-branch dashboard of Congress today with the executive and judicial branches marked as planned; the Congress map at `/map` (`frontend/app/map/page.tsx`); and members, bills and votes alongside. The old `/congress` path permanently redirects to `/map`.
 - **govmap.us/about**, **/support**, **/security**, **/privacy** — the project pages: mission and coverage, donations, security and transparency, and privacy.
 - **dev.govmap.us** — the separate test environment, protected by Cloudflare Access and seeded from a production snapshot.
 
 Navigation uses relative paths defined in `frontend/lib/site-config.ts`. Separate `app.govmap.us` and `api.govmap.us` hosts are not part of the current deployment. Browser `/api/*` requests are forwarded by Next.js to the private backend.
 
-The visual signature — the Capitol photo under a navy scrim with white text — lives in `frontend/components/PageBanner.tsx` and is shared by the footer and page banners.
+The visual signature — the Capitol photo under a navy scrim with white text — lives in `frontend/components/PageBanner.tsx` and is shared by the footer and page banners. Pages follow the system Light/Dark setting unless a theme is chosen from the header toggle or the menu; the header, menu, banners, footer and map status bar keep that navy-and-white look in both themes. Dashboard panels, data states and charts live in `frontend/components/dashboard/`.
 
 The map remembers its chamber, position and selected seat in this browser.
-**Reset** returns to the national House view without clearing the saved home ZIP.
+**Reset** zooms back out to the national House view without clearing the saved home ZIP.
 Member details expand in place; **Back** retraces a detail step and **Close**
 returns to the originating view. Direct member-page links still work independently.
 See the [Privacy page](https://govmap.us/privacy) for local-storage behavior.

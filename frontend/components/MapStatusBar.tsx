@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import type { ChamberBalance, ChamberSummary } from "@/lib/api";
+import { hemicycleSeats, seatRows } from "@/lib/hemicycle.mjs";
 
 function timeIn(d: Date, tz?: string): string {
   return d.toLocaleTimeString("en-US", {
@@ -20,45 +21,7 @@ const HATCH_STYLE = {
     "repeating-linear-gradient(45deg, #cbd5e1 0, #cbd5e1 1px, #f1f5f9 1px, #f1f5f9 3px)",
 } as const;
 
-// --- Hemicycle geometry -----------------------------------------------------
-
-// Rows scale with the seat count so the House (~435) and Senate (100) both read
-// as a proper filled arc without being too sparse or too dense.
-function seatRows(total: number): number {
-  return Math.max(3, Math.min(14, Math.round(Math.sqrt(total / 2.4))));
-}
-
-// Seat centers for a parliament-style hemicycle, in a normalized space where the
-// flat side sits on y=0 and the dome rises to y=-1, x in [-1, 1]. Seats are
-// returned ordered left-to-right so callers can color them D → I → R by slicing.
-function hemicycleSeats(total: number, rows: number): { x: number; y: number }[] {
-  if (total <= 0) return [];
-  const r0 = 0.42; // innermost row radius (fraction of the outer radius)
-  const radii = Array.from({ length: rows }, (_, i) =>
-    rows === 1 ? 1 : r0 + (1 - r0) * (i / (rows - 1)),
-  );
-  const radSum = radii.reduce((a, b) => a + b, 0);
-  // Seats per row ∝ its radius (outer rows are longer, so they hold more).
-  const exact = radii.map((r) => (total * r) / radSum);
-  const counts = exact.map((v) => Math.floor(v));
-  let rem = total - counts.reduce((a, b) => a + b, 0);
-  const byFrac = exact
-    .map((v, i) => ({ i, f: v - Math.floor(v) }))
-    .sort((a, b) => b.f - a.f);
-  for (let k = 0; rem > 0; k++, rem--) counts[byFrac[k % rows].i]++;
-
-  const seats: { x: number; y: number; t: number; r: number }[] = [];
-  for (let i = 0; i < rows; i++) {
-    const n = counts[i];
-    for (let j = 0; j < n; j++) {
-      const t = n === 1 ? 0.5 : j / (n - 1); // 0 = left, 1 = right
-      const a = Math.PI * (1 - t);
-      seats.push({ x: radii[i] * Math.cos(a), y: -radii[i] * Math.sin(a), t, r: radii[i] });
-    }
-  }
-  seats.sort((a, b) => a.t - b.t || a.r - b.r);
-  return seats.map(({ x, y }) => ({ x, y }));
-}
+// --- Hemicycle ---------------------------------------------------------------
 
 function ChamberDiagram({ D, I, R }: { D: number; I: number; R: number }) {
   const total = D + I + R;
@@ -239,7 +202,7 @@ export function MapStatusBar({ summary }: { summary: ChamberSummary | null }) {
     mobileView === "House" ? summary?.house : mobileView === "Senate" ? summary?.senate : null;
 
   return (
-    <div className="fixed inset-x-0 bottom-0 z-30 flex h-9 items-center justify-between gap-4 border-t border-white/10 bg-govnavy-800/95 px-4 text-xs text-white/70 backdrop-blur">
+    <div className="chrome fixed inset-x-0 bottom-0 z-30 flex h-9 items-center justify-between gap-4 border-t border-white/10 bg-govnavy-800/95 px-4 text-xs text-white/70 backdrop-blur">
       <div ref={statsRef} className="flex min-w-0 items-center gap-4">
         {/* Mobile: a single Legend button (the inline legend gets cut off here). */}
         <button
@@ -293,7 +256,7 @@ export function MapStatusBar({ summary }: { summary: ChamberSummary | null }) {
           so it can slide. */}
       {typeof document !== "undefined" &&
         createPortal(
-          <div className="md:hidden">
+          <div className="chrome md:hidden">
             <div
               className={`fixed inset-0 z-[45] bg-black/60 transition-opacity duration-300 ${
                 legendOpen ? "opacity-100" : "pointer-events-none opacity-0"

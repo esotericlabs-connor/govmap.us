@@ -37,6 +37,9 @@ type MapWorkspaceValue = {
 
 const MapWorkspaceContext = createContext<MapWorkspaceValue | null>(null);
 
+/** The map's route; the saved view belongs to history entries on this path only. */
+const MAP_PATH = "/map";
+
 export function MapWorkspaceProvider({ children }: { children: ReactNode }) {
   const [view, setView] = useState<MapView>(defaultMapView);
   const [ready, setReady] = useState(false);
@@ -58,7 +61,7 @@ export function MapWorkspaceProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (pathname === "/") visitedMap.current = true;
+    if (pathname === MAP_PATH) visitedMap.current = true;
     else if (visitedMap.current) setRestored(true);
   }, [pathname]);
 
@@ -72,7 +75,7 @@ export function MapWorkspaceProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const save = useCallback(() => {
-    if (!canSave.current || window.location.pathname !== "/") return;
+    if (!canSave.current || window.location.pathname !== MAP_PATH) return;
     try {
       // Keep Next.js's history metadata and any open detail's history entry.
       window.history.replaceState(withMapView(window.history.state, current.current), "");
@@ -148,12 +151,13 @@ export function MapWorkspaceProvider({ children }: { children: ReactNode }) {
     return () => window.clearTimeout(timer);
   }, [view, ready, save]);
 
+  // Restores chamber and selection only. The map eases the zoom home itself; bumping
+  // `revision` here would cancel that animation (it is reserved for history restores).
   const reset = useCallback(() => {
-    const next = defaultMapView();
+    const next = { ...defaultMapView(), zoom: current.current.zoom };
     current.current = next;
     setView(next);
     setRestored(true);
-    setRevision((value) => value + 1);
   }, []);
 
   const value = useMemo(

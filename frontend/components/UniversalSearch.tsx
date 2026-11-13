@@ -255,7 +255,7 @@ export function UniversalSearch({
   const options: Option[] = [];
   if (zipQuery) options.push({ kind: "zip", group: "zip", key: `zip:${zipQuery}`, zip: zipQuery });
   if (!zipQuery) {
-    for (const s of matchSections(term, term ? 4 : 5)) {
+    for (const s of matchSections(term, term ? 4 : 6)) {
       options.push({
         kind: "link",
         group: "sections",
@@ -311,7 +311,10 @@ export function UniversalSearch({
   }
 
   async function applyZip(zip: string) {
-    if (await setHomeZip(zip)) finish();
+    if (!(await setHomeZip(zip))) return;
+    // The overview has no map to fly to the new area, so show it on the map.
+    if (pathname === "/") router.push("/map");
+    finish();
   }
 
   function activate(option: Option) {

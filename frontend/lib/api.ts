@@ -342,6 +342,51 @@ export interface ChamberSummary {
   senate: ChamberBalance;
 }
 
+// --- Federal overview (/api/overview, the dashboard at /) ---
+
+/** One upcoming committee meeting. `chamber` is as published ("House"). */
+export interface OverviewMeeting {
+  event_id: string;
+  committee_id: string;
+  committee_name: string;
+  chamber: string | null;
+  title: string | null;
+  meeting_type: string | null;
+  /** Scheduled, Canceled, Postponed or Rescheduled, as published. */
+  status: string | null;
+  starts_at: string;
+}
+
+export interface SourceFreshness {
+  name: string;
+  title: string;
+  publisher: string;
+  /** ISO timestamp of the last successful refresh; null = never succeeded. */
+  last_success: string | null;
+}
+
+export interface OverviewActivity {
+  /** ISO date (Monday) per week, oldest first; the last is week-to-date. */
+  weeks: string[];
+  /** Roll calls per week; null = the week predates the stored records. */
+  votes: { house: (number | null)[]; senate: (number | null)[] };
+  /** ISO date of each chamber's earliest stored roll call (null = none). */
+  votes_covered_from: { house: string | null; senate: string | null };
+  /** Current-Congress bills GovMap holds, by introduced week. */
+  bills_introduced: number[];
+}
+
+export interface Overview {
+  congress: number;
+  generated_at: string;
+  chambers: ChamberSummary;
+  activity: OverviewActivity;
+  bills_in_congress: number;
+  laws_enacted: number;
+  upcoming_meetings: OverviewMeeting[];
+  sources: SourceFreshness[];
+}
+
 /** Party/link index from /api/map. House keyed `STATE-DISTRICT` (district 0 =
  *  at-large); Senate keyed by state (its two seats). */
 export interface MapEntry {

@@ -264,7 +264,7 @@ export default function AboutPage() {
                   </p>
                 </div>
                 <Link
-                  href="/"
+                  href="/map"
                   className="shrink-0 self-start rounded-full bg-white px-6 py-3 font-semibold text-govnavy shadow-lg transition-transform duration-200 hover:-translate-y-0.5 sm:self-center"
                 >
                   Explore the map →

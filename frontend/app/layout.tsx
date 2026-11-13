@@ -6,6 +6,7 @@ import { MemberBlade } from "@/components/MemberBlade";
 import { SiteHeader } from "@/components/SiteHeader";
 import { MapWorkspaceProvider } from "@/lib/map-workspace";
 import { MemberBladeProvider } from "@/lib/member-blade";
+import { THEME_SCRIPT } from "@/lib/theme.mjs";
 import { ZipProvider } from "@/lib/zip-context";
 
 const inter = Inter({
@@ -59,7 +60,14 @@ export default function RootLayout({
       // Next 16 stopped disabling smooth scrolling during route changes by
       // default; this restores the instant scroll-to-top on navigation.
       data-scroll-behavior="smooth"
+      // The theme script sets data-theme before hydration.
+      suppressHydrationWarning
     >
+      <head>
+        {/* Applies a saved Light/Dark choice before first paint. Static text,
+            no user input; a future nonce-based CSP must allow it. */}
+        <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
+      </head>
       {/* Base background/text colors are now in globals.css */}
       <body>
         <MapWorkspaceProvider>

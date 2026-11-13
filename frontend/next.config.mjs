@@ -32,10 +32,11 @@ const nextConfig = {
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },
-  // The map moved from /congress to the root. Permanent so bookmarks and search
-  // results update; Next carries the query string (e.g. ?member=) through.
+  // The map lived at /congress, then at the root; the root is now the federal
+  // overview. Permanent so bookmarks and search results update; Next carries
+  // the query string (e.g. ?member=) through.
   async redirects() {
-    return [{ source: "/congress", destination: "/", permanent: true }];
+    return [{ source: "/congress", destination: "/map", permanent: true }];
   },
   // Lint is enforced in CI (.github/workflows/lint.yml) via the ESLint CLI;
   // Next 16 no longer lints during `next build`. Type checking still runs.

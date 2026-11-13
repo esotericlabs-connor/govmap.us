@@ -24,7 +24,7 @@ export function HomeZipChip() {
   return (
     <div className="flex items-center gap-1 rounded-full border border-white/15 bg-white/10 py-1 pl-3 pr-1 text-sm text-white/90">
       <Link
-        href="/"
+        href="/map"
         className="flex items-center gap-1.5 font-semibold transition-colors hover:text-white"
         title={`Your area · ZIP ${zip}`}
       >

@@ -20,6 +20,7 @@ import { formatDateLocal } from "@/lib/format";
 import { getPartyKey, PARTY_COLORS, type PartyKey } from "@/lib/party";
 import { useMapWorkspace } from "@/lib/map-workspace";
 import {
+  defaultMapView,
   MAP_WIDTH as WIDTH,
   MAP_HEIGHT as HEIGHT,
   MAP_MIN_ZOOM as MIN_K,
@@ -405,13 +406,16 @@ export function UsMap({ map, result = null }: { map: CongressMap; result?: Looku
     animateZoomTo(clampXY({ k, x: cx - px * k, y: cy - py * k }));
   }, [animateZoomTo, setPopover]);
 
-  // Reset the saved workspace, without clearing the separately saved home ZIP.
+  // Reset the saved workspace, without clearing the separately saved home ZIP,
+  // then ease back out to the whole country.
   const resetView = useCallback(() => {
     cancelAnim();
+    setHover(null);
     reset();
     flownHome.current = homeResult; // don't immediately re-fly home after a manual reset
     claimHomeSelection(selectionVersion);
-  }, [homeResult, selectionVersion, cancelAnim, reset, claimHomeSelection]);
+    animateZoomTo(defaultMapView().zoom);
+  }, [homeResult, selectionVersion, cancelAnim, reset, claimHomeSelection, animateZoomTo]);
 
   // When a home area is set (or hydrated from storage), fly to that district/
   // state once and open its info card. The ref keys off the result value so

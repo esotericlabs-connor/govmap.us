@@ -3,6 +3,7 @@
 import { useMemo, useState, useRef, type MouseEvent } from "react";
 
 import type { CongressMap } from "@/lib/api";
+import { hemicycleSeats } from "@/lib/hemicycle.mjs";
 import { useMemberBlade } from "@/lib/member-blade";
 import { getPartyKey, PARTY_COLORS, type PartyKey } from "@/lib/party";
 
@@ -12,9 +13,9 @@ import { getPartyKey, PARTY_COLORS, type PartyKey } from "@/lib/party";
 * third-party requests. Toggle House / Senate; hover a seat for who it is;
  * click to open their profile; a ZIP lookup rings "your" seats.
  *
- * The polygon geometry is computed here (concentric arcs, seats distributed
- * proportionally to each arc's length and swept left→right by party), so the
- * whole thing is a pile of <circle>s in one responsive <svg>.
+ * The arc geometry comes from lib/hemicycle.mjs (concentric rows, seats
+ * distributed proportionally to each row's length and swept left→right by
+ * party), so the whole thing is a pile of <circle>s in one responsive <svg>.
  */
 
 type Seat = { bioguide: string; label: string; name: string; party: string };
@@ -22,58 +23,24 @@ type Seat = { bioguide: string; label: string; name: string; party: string };
 // Order seats left→right: Democrats, Independents, Republicans.
 const PARTY_ORDER: Record<PartyKey, number> = { D: 0, I: 1, R: 2 };
 
-type Pt = { x: number; y: number; theta: number; r: number };
-
-/** Distribute `n` seats over `rows` concentric semicircles, returned in
- *  left→right (then inner→outer) fill order. Geometry is in arc-radius units
- *  centered on the origin, baseline at y=0, dome above (negative y). */
-function hemicycle(n: number, rows: number, innerR: number, outerR: number): Pt[] {
-  if (n <= 0) return [];
-  const radii: number[] = [];
-  for (let i = 0; i < rows; i++) {
-    const t = rows === 1 ? 1 : i / (rows - 1);
-    radii.push(innerR + (outerR - innerR) * t);
-  }
-  const totalR = radii.reduce((a, b) => a + b, 0);
-  const counts = radii.map((r) => Math.max(1, Math.floor((n * r) / totalR)));
-
-  // Reconcile rounded counts to exactly n (adjust outer rows first).
-  let assigned = counts.reduce((a, b) => a + b, 0);
-  let i = rows - 1;
-  let guard = 0;
-  while (assigned > n && guard++ < 10000) {
-    if (counts[i] > 1) {
-      counts[i]--;
-      assigned--;
-    }
-    i = i === 0 ? rows - 1 : i - 1;
-  }
-  i = rows - 1;
-  while (assigned < n && guard++ < 10000) {
-    counts[i]++;
-    assigned++;
-    i = i === 0 ? rows - 1 : i - 1;
-  }
-
-  const pts: Pt[] = [];
-  radii.forEach((r, ri) => {
-    const c = counts[ri];
-    for (let k = 0; k < c; k++) {
-      const theta = c === 1 ? Math.PI / 2 : Math.PI - (Math.PI * k) / (c - 1);
-      pts.push({ r, theta, x: Math.cos(theta) * r, y: -Math.sin(theta) * r });
-    }
-  });
-  pts.sort((a, b) => b.theta - a.theta || a.r - b.r);
-  return pts;
-}
-
+// Seat rows and the innermost row's radius (as a fraction of OUTER_R).
 const CHART = {
-  house: { rows: 12, innerR: 48, outerR: 100, dot: 2.1, stroke: 1.2 },
-  senate: { rows: 5, innerR: 52, outerR: 100, dot: 4.5, stroke: 1.5 },
+  house: { rows: 12, innerRadius: 0.48, dot: 2.1, stroke: 1.2 },
+  senate: { rows: 5, innerRadius: 0.52, dot: 4.5, stroke: 1.5 },
 } as const;
 
+const OUTER_R = 100;
 const CX = 110;
 const CY = 108;
+
+/** Seat offsets from (CX, CY) in SVG units, left→right (then inner→outer). */
+function seatPositions(n: number, chamber: "house" | "senate"): { x: number; y: number }[] {
+  const { rows, innerRadius } = CHART[chamber];
+  return hemicycleSeats(n, rows, innerRadius).map(({ x, y }) => ({
+    x: x * OUTER_R,
+    y: y * OUTER_R,
+  }));
+}
 
 function seatsFor(map: CongressMap, chamber: "house" | "senate"): Seat[] {
   const seats: Seat[] =
@@ -104,11 +71,11 @@ function CartogramSkeleton() {
     <svg viewBox="0 0 220 120" className="mt-4 w-full animate-pulse" role="presentation">
       <defs>
         <radialGradient id="skeleton-gradient">
-          <stop offset="0%" stopColor="#f1f0ee" />
-          <stop offset="100%" stopColor="#e4e2de" />
+          <stop offset="0%" style={{ stopColor: "rgb(var(--gm-slate-warm-100))" }} />
+          <stop offset="100%" style={{ stopColor: "rgb(var(--gm-slate-warm-200))" }} />
         </radialGradient>
       </defs>
-      {hemicycle(435, 12, 48, 100).map((p, i) => (
+      {seatPositions(435, "house").map((p, i) => (
         <circle
           key={i}
           cx={CX + p.x}
@@ -152,10 +119,7 @@ export function CongressCartogram({
 
   const seats = useMemo(() => seatsFor(map, chamber), [map, chamber]);
   const cfg = CHART[chamber];
-  const positions = useMemo(
-    () => hemicycle(seats.length, cfg.rows, cfg.innerR, cfg.outerR),
-    [seats.length, cfg],
-  );
+  const positions = useMemo(() => seatPositions(seats.length, chamber), [seats.length, chamber]);
 
   const hasSeats = seats.length > 0;
 

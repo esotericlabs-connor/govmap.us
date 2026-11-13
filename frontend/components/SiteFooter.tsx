@@ -9,7 +9,8 @@ import { siteConfig } from "@/lib/site-config";
 type FooterLink = { label: string; href: string; external?: boolean };
 
 const EXPLORE: FooterLink[] = [
-  { label: "Map", href: "/" },
+  { label: "Overview", href: "/" },
+  { label: "Map", href: "/map" },
   { label: "Members", href: "/members" },
   { label: "Bills", href: "/bills" },
   { label: "Votes", href: "/votes" },
@@ -51,7 +52,7 @@ function FooterCol({ title, links }: { title: string; links: FooterLink[] }) {
 
 export function SiteFooter() {
   return (
-    <footer className="relative isolate overflow-hidden bg-govnavy-800 text-sm">
+    <footer className="chrome relative isolate overflow-hidden bg-govnavy-800 text-sm">
       <CapitolBackdrop />
 
       <div className="mx-auto max-w-6xl px-6 pb-10 pt-20">

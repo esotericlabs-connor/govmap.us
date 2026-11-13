@@ -50,6 +50,11 @@ export default function PrivacyPage() {
         to our district-lookup service when you set or restore your home area.
       </p>
       <p>
+        If you choose the Light or Dark theme, that choice is saved in local
+        storage too and never leaves your browser. Choosing System in the menu
+        removes it, and the site follows your device setting again.
+      </p>
+      <p>
         Reset on the map replaces the saved map view with the national House
         view; it does not clear your home ZIP. Clear your home area separately,
         or clear this site&apos;s browser storage to remove both. Navigation
