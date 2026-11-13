@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
 
+import { BillProgress, OutcomePill } from "@/components/BillProgress";
 import {
   BackLink,
   chamberLabel,
@@ -16,6 +17,7 @@ import { MemberLink } from "@/components/MemberLink";
 import { PageSkeleton } from "@/components/PageSkeleton";
 import { Reveal } from "@/components/Reveal";
 import { apiGet, HttpError, type BillDetail, type BillText } from "@/lib/api";
+import { billProgress, ordinal } from "@/lib/bill-progress.mjs";
 import { externalHref } from "@/lib/safe-url.mjs";
 
 export const dynamic = "force-dynamic";
@@ -109,30 +111,13 @@ export async function generateMetadata({ params }: { params: Promise<{ billId: s
   return { title: bill?.title ?? label };
 }
 
-function StatusPill({ status }: { status: string | null }) {
-  if (!status) return null;
-  // A simple heuristic for status color. Could be expanded.
-  const norm = status.toLowerCase();
-  const isGood = norm.includes("law") || norm.includes("agreed to");
-  const color = isGood
-    ? "bg-green-100/80 text-green-800 ring-green-600/30"
-    : "bg-slate-warm-100 text-slate-warm-700 ring-slate-600/20";
-
-  return (
-    <p
-      className={`inline-block rounded-full px-3 py-1 text-xs font-bold ring-1 ring-inset ${color}`}
-    >
-      {status}
-    </p>
-  );
-}
-
 async function BillDetailContent({ billId }: { billId: string }) {
   const bill = await getBill(billId);
   if (!bill) notFound();
 
   const label = `${bill.bill_type.toUpperCase()} ${bill.number}`;
   const textHref = externalHref(bill.text_url);
+  const progress = billProgress(bill);
 
   return (
     <Reveal>
@@ -140,13 +125,16 @@ async function BillDetailContent({ billId }: { billId: string }) {
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           <CodePill>{label}</CodePill>
           {bill.congress && (
-            <p className="text-sm font-medium text-slate-warm-500">{bill.congress}th Congress</p>
+            <p className="text-sm font-medium text-slate-warm-500">{ordinal(bill.congress)} Congress</p>
           )}
-          <StatusPill status={bill.status} />
+          <OutcomePill progress={progress} />
         </div>
         <h1 className="mt-3 font-display text-4xl font-bold tracking-tight text-govnavy sm:text-5xl">
           {bill.title ?? label}
         </h1>
+        <div className="mt-6">
+          <BillProgress progress={progress} />
+        </div>
         {bill.latest_action && (
           <div className="mt-6 rounded-lg border border-slate-warm-200 bg-slate-warm-100/70 p-4">
             <p className="font-semibold text-slate-warm-600">

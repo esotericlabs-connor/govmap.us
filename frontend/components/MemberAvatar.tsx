@@ -53,8 +53,10 @@ export function MemberAvatar({
       src={src}
       alt={name}
       loading="lazy"
+      decoding="async"
       onError={() => setFailed(true)}
-      className={`shrink-0 rounded-full object-cover ring-2 ring-white/50 ${dim}`}
+      // The tinted circle holds the space while the portrait downloads.
+      className={`shrink-0 rounded-full bg-slate-warm-200 object-cover ring-2 ring-white/50 ${dim}`}
     />
   );
 }

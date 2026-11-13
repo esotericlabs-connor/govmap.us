@@ -4,7 +4,68 @@ What's been built, in what order, and what's next. This is a living log — add 
 
 ## Build log
 
-**2026-11-12 — Visual foundation: Light/Dark themes, dashboard kit, federal overview at `/` (awaiting CI/dev validation)**
+**2026-11-12 — Source and coverage register: initial Group 2 inventory**
+Added [the register](docs/source-coverage-register.md) covering existing runtime
+sources and lazy upstream callers, Congress.gov endpoint families, OpenFEC
+families, roster files, HUD and proposed GovInfo access. It distinguishes stored
+fields from discarded metadata, bounded acquisition from verified completeness,
+and public documentation limits from unverified account quotas. Rights,
+identity, date-precision, storage and backup gates remain explicit; no credentials,
+new pipelines, quota changes or infrastructure are introduced. Next priorities:
+explicit partial bill subresources, correction refresh/checkpoints and measured
+coverage. The register is a baseline, not a claim that all access is exhausted.
+
+**2026-11-12 — Bill progress stepper, white light-mode header, smaller search, no scroll blanking (awaiting CI/dev validation)**
+Fixes from the visual-foundation review on dev, plus a status timeline on every
+bill page. No new upstream sources, npm packages or LLM text.
+
+- **"Where it stands"** (`components/BillProgress.tsx`, pure helper
+  `lib/bill-progress.mjs`): every bill page shows a stepper for its path to law
+  — introduced, committee, each chamber, the President, law — or the shorter
+  path for concurrent and simple resolutions (a constitutional-amendment joint resolution
+  ends at "Passed Congress", since ratification is up to the states). It shows
+  a headline, what has to happen next, a progress bar and an outcome pill
+  (Became law, Agreed to, Stopped, Ended, In progress) in place of the old
+  status pill. Each state is read from the bill's Congress.gov action log, and
+  "How this was determined" quotes the action behind every step. Nothing is
+  predicted. The helper handles veto, pocket veto, veto override (passed or
+  failed), a measure failing in its first chamber, House/Senate differences,
+  and rule resolutions that only *mention* the bill (those aren't counted as
+  its passage). A bill from an earlier Congress that never finished reads
+  "Ended". For that, `GET /api/bills/{id}` now includes `current_congress`
+  (`settings.congress_number`, which must move to 120 in January 2027).
+  Unresolved differences have their own incomplete milestone, including for
+  concurrent resolutions. An official signature establishes enactment even if
+  the law number has not arrived. The visible caption distinguishes milestones
+  from odds, and failed votes are not described as irreversible.
+- **Header:** white with the light logo in Light mode, the dark panel color
+  with the transparent logo in Dark mode (the two logos swap in CSS with a fixed
+  box, so there is no flash or height change). It is no longer translucent
+  navy, so About and every other page get the same bar. The menu blade stays
+  navy.
+- **Search:** the centered column is 32rem (was 36rem) with less vertical
+  padding, closer to a normal search-engine bar. `UniversalSearch` and
+  `HomeZipChip` take a `tone` — `bar` (theme-aware, for the header) or `chrome`
+  (navy, for the menu blade) — so the dropdown follows the page theme.
+- **No more blank space while scrolling:** `Reveal` used to hold content
+  invisible until JavaScript loaded and an IntersectionObserver saw it, so
+  long lists (about 540 member cards) showed blank space on fast scrolls. It is
+  now a CSS lift with no opacity gate, so content is visible from server render,
+  including immediate deep scrolls and restored positions. Stagger is capped at 300 ms
+  everywhere (the members list was uncapped at 20 ms per card). Reduced-motion
+  users get everything immediately. Portraits keep a tinted circle while they
+  download.
+- Tests: `tests/bill-progress.test.mjs` (abridged real logs and synthetic regression cases:
+  enacted, vetoed with failed and passed overrides, pocket veto, failed in the
+  first chamber, resolutions, a constitutional amendment, differences, ended,
+  no history, status-only law, signature-only enactment, concurrence, unresolved
+  resolutions, reconsidered passage and ordinals) joins the CI node test list. Nothing
+  was run in this static checkout. Still to confirm on dev: the header in both
+  themes, the logo swap, search size and dropdown, the blade search, scrolling
+  the members list, and the stepper on an enacted law, a vetoed bill, a
+  resolution, a bill in committee and a 118th-Congress bill.
+
+**2026-11-12 — Visual foundation: Light/Dark themes, dashboard kit, federal overview at `/` (CI passed; deployed to dev)**
 First design-system slice of the dashboard plan (Group 1). `/` becomes a
 three-branch Federal overview built only from data GovMap already loads; the
 map moves to its own route. No new upstream sources, npm packages or LLM text.
@@ -1486,7 +1547,7 @@ Adapted from the original end-to-end plan, reordered to prove the pipeline contr
 - **PACER costs money per page**, not a flat quarterly fee — the pipeline needs to scope queries tightly and track spend, not just cap at "$30/qtr" and assume it holds.
 - **OPM PLUM and White House scrapers are fragile by nature** (HTML scrapes with no API). They need to fail loudly on structural change, not silently return stale data — flagged in the original plan and still true.
 - **Pipeline status is persisted in Postgres** (the `pipeline_status` table / `PipelineStatusRow`), written by `record_run()` and read by `/internal/pipeline-status`, so it survives restarts and redeploys. This supersedes the old ephemeral `pipeline_status.json` (promoted to a table in schema 0002) — no volume/permission concern remains. A fresh DB simply shows no rows until each source's first run.
-- **2027 rollover: the tracked Congress/session/cycle are time-coupled and must be bumped together in January 2027.** All three are env-overridable (change the deploy `.env` + `docker-compose.yml` defaults, not code): `CONGRESS_NUMBER` 119 → 120, `CONGRESS_SESSION` 2 → 1 (120th's first session = 2027), and `FEC_CYCLE` 2026 → 2028. Defaults live in `backend/app/config.py`; the runtime values are wired in the backend and worker `environment:` blocks of `docker-compose.PaaS.yml` (backend only in the legacy `docker-compose.yml`). Roll all three at once — a mismatch (e.g. new Congress but old cycle) silently pulls the wrong session's bills/votes or the wrong finance cycle. The per-run coverage caps (`CONGRESS_GOV_BILL_LIMIT`, `VOTES_LIMIT`) don't need touching; only these three values. The first members refresh of the new Congress will be withheld by the departure guard (more than 3 members leave); confirm it with `python -m app.pipelines.refresh members --allow-roster-turnover`.
+- **2027 rollover: the tracked Congress/session/cycle are time-coupled and must be bumped together in January 2027.** All three are env-overridable (change the deploy `.env` + `docker-compose.yml` defaults, not code): `CONGRESS_NUMBER` 119 → 120, `CONGRESS_SESSION` 2 → 1 (120th's first session = 2027), and `FEC_CYCLE` 2026 → 2028. Defaults live in `backend/app/config.py`; the runtime values are wired in the backend and worker `environment:` blocks of `docker-compose.PaaS.yml` (backend only in the legacy `docker-compose.yml`). Roll all three at once — a mismatch (e.g. new Congress but old cycle) silently pulls the wrong session's bills/votes or the wrong finance cycle. `CONGRESS_NUMBER` also drives the bill page's "Ended" state (via `current_congress`): until it moves to 120, unfinished 119th-Congress bills keep reading "In progress". The per-run coverage caps (`CONGRESS_GOV_BILL_LIMIT`, `VOTES_LIMIT`) don't need touching; only these three values. The first members refresh of the new Congress will be withheld by the departure guard (more than 3 members leave); confirm it with `python -m app.pipelines.refresh members --allow-roster-turnover`.
 - **Social handles and support links are live.** `frontend/lib/site-config.ts` lists the operator-confirmed `@govmapus` accounts, `support@govmap.us` and three donation platforms. Only real, owned accounts belong there.
 - **Favicon is a stopgap crop**, not a designed icon mark — see README → *Sites & branding*. Fine for now, worth revisiting once there's a proper icon-only asset.
 - **DNS not yet configured** for the `app.` subdomain split. `frontend/middleware.ts` assumes `app.govmap.us` resolves to the same deployment as `govmap.us` — that DNS record (and matching `cloudflared` routing) needs to exist before the split works in production.

@@ -51,7 +51,7 @@ export function ThemeToggle() {
       onClick={() => setThemeChoice(next)}
       aria-label={`Switch to ${next} theme`}
       title={`Switch to ${next} theme`}
-      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white/75 transition-colors hover:bg-white/10 hover:text-white"
+      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-slate-warm-600 transition-colors hover:bg-slate-warm-100 hover:text-govnavy"
     >
       {state.theme === "dark" ? <SunIcon /> : <MoonIcon />}
     </button>

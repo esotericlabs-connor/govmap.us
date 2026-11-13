@@ -158,21 +158,27 @@ export function SiteHeader() {
   }, [menuOpen]);
 
   return (
-    <header className="chrome fixed inset-x-0 top-0 z-50 border-b border-white/10 bg-govnavy/80 backdrop-blur-lg">
-      <div className="flex w-full items-center justify-between gap-4 px-6 py-3.5 md:grid md:grid-cols-[minmax(12rem,1fr)_minmax(0,36rem)_minmax(12rem,1fr)]">
+    <header className="fixed inset-x-0 top-0 z-50 border-b border-slate-warm-200 bg-white">
+      <div className="flex w-full items-center justify-between gap-4 px-6 py-3.5 md:grid md:grid-cols-[minmax(12rem,1fr)_minmax(0,32rem)_minmax(12rem,1fr)]">
         <Link
           href={siteConfig.appUrl}
-          className="shrink-0 justify-self-start"
+          className="relative block h-[41px] w-32 shrink-0 justify-self-start sm:h-[51px] sm:w-40"
           aria-label="GovMap.us home"
           onClick={close}
         >
           <Image
+            src="/logo-light.png"
+            alt="GovMap.us"
+            fill
+            sizes="160px"
+            className="object-contain object-left dark:hidden"
+          />
+          <Image
             src="/logo-dark-transparent.png"
             alt="GovMap.us"
-            width={160}
-            height={50}
-            priority
-            className="h-auto w-32 sm:w-40"
+            fill
+            sizes="160px"
+            className="hidden object-contain object-left dark:block"
           />
         </Link>
 
@@ -187,7 +193,7 @@ export function SiteHeader() {
           <ThemeToggle />
           <button
             type="button"
-            className="shrink-0 text-white"
+            className="shrink-0 text-govnavy"
             aria-label={menuOpen ? "Close menu" : "Open menu"}
             aria-expanded={menuOpen}
             onClick={() => setOpenOn(menuOpen ? null : pathname)}
@@ -209,9 +215,9 @@ export function SiteHeader() {
               onClick={close}
               aria-hidden={true}
             />
-            {/* Right-side blade. Portaled to <body> so the header's backdrop-blur
-                (a containing block for `fixed`) can't clip it; always mounted so
-                the slide transition actually animates. */}
+            {/* Right-side blade. Portaled to <body> so no header styling (a
+                filter or transform makes a containing block for `fixed`) can
+                clip it; always mounted so the slide transition actually animates. */}
             <div
               className={`chrome fixed inset-y-0 right-0 z-[60] flex w-full max-w-[340px] transform flex-col border-l border-white/10 bg-govnavy/95 shadow-2xl transition-transform duration-300 ease-out ${
                 menuOpen ? "translate-x-0" : "translate-x-full"
@@ -238,7 +244,7 @@ export function SiteHeader() {
               >
                 {/* Search here only where the centered bar is hidden (mobile). */}
                 <div className="mb-3 md:hidden">
-                  <UniversalSearch onNavigate={close} />
+                  <UniversalSearch tone="chrome" onNavigate={close} />
                 </div>
                 <MenuSections sections={APP_NAV} onNavigate={close} />
 
@@ -280,7 +286,7 @@ export function SiteHeader() {
                 {/* Home-area chip lives in the bar on desktop; surface it here
                     for mobile, where it's part of the app experience. */}
                 <div className="mt-4 border-t border-white/10 pt-4 sm:hidden">
-                  <HomeZipChip />
+                  <HomeZipChip tone="chrome" />
                 </div>
 
                 {/* Project links pinned to the bottom of the blade. */}

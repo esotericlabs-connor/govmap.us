@@ -168,9 +168,9 @@ export default function AboutPage() {
       <main className="bg-white">
         <PageBanner eyebrow="About GovMap" title={siteConfig.tagline}>
           <p>
-            GovMap is a free, nonpartisan map of who governs you — every branch,
-            every level, in one place. Real public records, always sourced. No
-            ads, no spin, no AI-written summaries.
+            GovMap is a free, nonpartisan civic tool to understand who governs you — every branch,
+            every level, in one place. Real public records, always sourced and verified. No
+            ads, no bias, no spin.
           </p>
         </PageBanner>
 
@@ -178,12 +178,12 @@ export default function AboutPage() {
         <section className="mx-auto max-w-6xl px-6 py-20 sm:py-24">
           <div className="grid gap-12 lg:grid-cols-5">
             <div className="lg:col-span-3">
-              <SectionHeading eyebrow="Why we built it" title="Apathy is largely a UX problem.">
+              <SectionHeading eyebrow="Why we built it" title="Everyone deserves a clear look into their government.">
                 <p>
                   The information about who represents you, and what they do with
                   that power, is public — but it&apos;s scattered across dozens of
-                  government websites, each with its own jargon, formats and dead
-                  ends. Most people never find it, so most people never look.
+                  government websites, each with its own formats, rough UI, jargon and dead
+                  ends. Most people never find it, so most people never care to look.
                 </p>
                 <p className="mt-4">
                   GovMap pulls those official records together, connects them, and
@@ -214,7 +214,7 @@ export default function AboutPage() {
           <div className="mx-auto max-w-6xl px-6 py-20 sm:py-24">
             <SectionHeading
               eyebrow="How GovMap covers government"
-              title="All three branches, then every level."
+              title="All three branches, at every level."
             >
               <p>
                 We&apos;re building GovMap one layer at a time and only publish a

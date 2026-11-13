@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import nullslast, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.db import get_db
 from app.models.bill import Bill, BillAction, Cosponsor
 from app.models.member import Member
@@ -166,6 +167,7 @@ async def bill_detail(bill_id: BillId, db: AsyncSession = Depends(get_db)) -> di
             }
             for r in cosponsor_rows
         ],
+        "current_congress": settings.congress_number,
     }
 
 

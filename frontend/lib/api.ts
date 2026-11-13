@@ -206,6 +206,8 @@ export interface BillDetail {
   } | null;
   actions: BillAction[];
   cosponsors: BillCosponsor[];
+  /** The Congress GovMap tracks now, so an older unfinished bill reads as ended. */
+  current_congress?: number | null;
 }
 
 /** Full legislative text (plain, indentation preserved) from /api/bills/{id}/text.

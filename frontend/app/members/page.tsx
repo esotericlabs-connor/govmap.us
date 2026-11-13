@@ -63,7 +63,7 @@ async function MemberGrid({ chamber }: { chamber: Chamber | null }) {
   return (
     <div className="mt-10 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
       {members.map((member, i) => (
-        <Reveal key={member.bioguide_id} delay={i * 20}>
+        <Reveal key={member.bioguide_id} delay={Math.min(i, 12) * 25}>
           <MemberLink
             bioguide={member.bioguide_id}
             className="group block rounded-xl border border-slate-warm-200 bg-white p-4 shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-card-hover"

@@ -5,7 +5,7 @@ import plugin from "tailwindcss/plugin";
 // Light/Dark theming. Every themeable color is an "r g b" CSS variable, so the
 // same class (bg-white, text-govnavy, border-slate-warm-200, …) renders the
 // right value in either theme and opacity modifiers like bg-govnavy/80 still
-// work. Elements marked `.chrome` (header, menu, banners, footer, map status
+// work. Elements marked `.chrome` (menu, banners, footer, map status
 // bar) always use the light values on their own dark navy backgrounds.
 
 const SHADES = ["50", "100", "200", "300", "400", "500", "600", "700", "800", "900", "950"] as const;
@@ -186,6 +186,9 @@ const config: Config = {
         // `both` fill-mode holds the 0% state through any animation-delay, so
         // staggered elements don't flash before their turn.
         "fade-up": "fade-up 0.7s cubic-bezier(0.22, 1, 0.36, 1) both",
+        // Keep content visible even during the delay or a restored scroll.
+        // Drop the transform afterwards so fixed descendants stay viewport-bound.
+        reveal: "rise 0.6s cubic-bezier(0.22, 1, 0.36, 1) backwards",
         rise: "rise 0.7s cubic-bezier(0.22, 1, 0.36, 1) both",
         "hero-in": "hero-in 1s cubic-bezier(0.22, 1, 0.36, 1) both",
         "fade-in": "fade-in 0.9s ease-out both",

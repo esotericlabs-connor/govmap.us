@@ -91,7 +91,7 @@ GovMap serves the whole app on one host:
 
 Navigation uses relative paths defined in `frontend/lib/site-config.ts`. Separate `app.govmap.us` and `api.govmap.us` hosts are not part of the current deployment. Browser `/api/*` requests are forwarded by Next.js to the private backend.
 
-The visual signature — the Capitol photo under a navy scrim with white text — lives in `frontend/components/PageBanner.tsx` and is shared by the footer and page banners. Pages follow the system Light/Dark setting unless a theme is chosen from the header toggle or the menu; the header, menu, banners, footer and map status bar keep that navy-and-white look in both themes. Dashboard panels, data states and charts live in `frontend/components/dashboard/`.
+The visual signature — the Capitol photo under a navy scrim with white text — lives in `frontend/components/PageBanner.tsx` and is shared by the footer and page banners. Pages follow the system Light/Dark setting unless a theme is chosen from the header toggle or the menu. The top bar is white in Light mode and a dark panel in Dark mode; the menu, banners, footer and map status bar keep the navy-and-white look. Dashboard panels, data states and charts live in `frontend/components/dashboard/`.
 
 The map remembers its chamber, position and selected seat in this browser.
 **Reset** zooms back out to the national House view without clearing the saved home ZIP.
@@ -632,6 +632,8 @@ Core project documents:
 - **[AGENTS.md](AGENTS.md)** — the rules coding agents (human or AI) follow when working in this repo.
 - **[Platform roadmap](docs/platform-roadmap.md)** — proposed engineering and
   source-coverage milestones; planning targets are not deployed capabilities.
+- **[Source and coverage register](docs/source-coverage-register.md)** — current
+  acquisition limits, endpoint-family decisions and gates for expanding existing access.
 
 ## License
 

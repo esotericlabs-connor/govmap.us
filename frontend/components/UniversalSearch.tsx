@@ -48,6 +48,44 @@ const GROUP_LABELS: Record<OptionGroup, string> = {
 
 const ZIP_PATTERN = /^\d{5}$/;
 
+type Tone = "bar" | "chrome";
+type ToneClasses = Record<
+  "icon" | "input" | "kbd" | "panel" | "divider" | "strong" | "muted" | "faint" | "badge" | "active" | "idle",
+  string
+>;
+
+/** "bar" sits on the themed header; "chrome" sits on the always-navy menu blade. */
+const TONES: Record<Tone, ToneClasses> = {
+  bar: {
+    icon: "text-slate-warm-500",
+    input:
+      "border-slate-warm-300 bg-slate-warm-50 text-govnavy placeholder:text-slate-warm-500 hover:border-slate-warm-400 focus:border-govblue focus:bg-white",
+    kbd: "border-slate-warm-300 text-slate-warm-500",
+    panel: "border-slate-warm-200 bg-white text-slate-warm-700 shadow-card-hover",
+    divider: "border-slate-warm-200",
+    strong: "text-govnavy",
+    muted: "text-slate-warm-500",
+    faint: "text-slate-warm-400",
+    badge: "border-slate-warm-300 text-slate-warm-500",
+    active: "bg-slate-warm-100",
+    idle: "hover:bg-slate-warm-50",
+  },
+  chrome: {
+    icon: "text-white/70",
+    input:
+      "border-white/20 bg-white/10 text-white/90 placeholder:text-white/60 focus:border-white/50 focus:bg-white/20",
+    kbd: "border-white/20 text-white/60",
+    panel: "border-white/10 bg-govnavy-800/95 text-slate-200 shadow-2xl shadow-black/40 backdrop-blur-xl",
+    divider: "border-white/10",
+    strong: "text-white",
+    muted: "text-slate-400",
+    faint: "text-slate-500",
+    badge: "border-white/15 text-white/50",
+    active: "bg-white/10",
+    idle: "hover:bg-white/5",
+  },
+};
+
 function recordOptions(results: SearchResults): Option[] {
   return [
     ...results.members.map(
@@ -129,7 +167,7 @@ function SearchIcon() {
 
 function Spinner() {
   return (
-    <svg className="h-4 w-4 animate-spin text-slate-400" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+    <svg className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24" aria-hidden="true">
       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
       <path
         className="opacity-75"
@@ -140,13 +178,13 @@ function Spinner() {
   );
 }
 
-function OptionBody({ option }: { option: Option }) {
+function OptionBody({ option, t }: { option: Option; t: ToneClasses }) {
   if (option.kind === "zip") {
     return (
       <>
         <span aria-hidden="true">📍</span>
-        <span className="font-semibold text-white">Set {option.zip} as your area</span>
-        <span className="ml-auto shrink-0 text-xs text-slate-400">find your reps →</span>
+        <span className={`font-semibold ${t.strong}`}>Set {option.zip} as your area</span>
+        <span className={`ml-auto shrink-0 text-xs ${t.muted}`}>find your reps →</span>
       </>
     );
   }
@@ -154,17 +192,19 @@ function OptionBody({ option }: { option: Option }) {
     return (
       <>
         <span className="min-w-0 flex-1">
-          <span className="block truncate font-semibold text-white">{option.label}</span>
+          <span className={`block truncate font-semibold ${t.strong}`}>{option.label}</span>
           {option.description && (
-            <span className="block truncate text-xs text-slate-400">{option.description}</span>
+            <span className={`block truncate text-xs ${t.muted}`}>{option.description}</span>
           )}
         </span>
         {option.planned ? (
-          <span className="shrink-0 rounded-full border border-white/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white/50">
+          <span
+            className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${t.badge}`}
+          >
             Planned
           </span>
         ) : (
-          <span className="shrink-0 text-xs text-slate-500" aria-hidden="true">
+          <span className={`shrink-0 text-xs ${t.faint}`} aria-hidden="true">
             →
           </span>
         )}
@@ -176,7 +216,7 @@ function OptionBody({ option }: { option: Option }) {
       <span className={`truncate ${option.kind === "member" ? "font-semibold" : ""}`}>{option.label}</span>
       {option.meta && (
         <span
-          className={`ml-auto shrink-0 text-xs text-slate-400 ${
+          className={`ml-auto shrink-0 text-xs ${t.muted} ${
             option.kind === "link" && option.mono ? "font-mono" : ""
           }`}
         >
@@ -193,12 +233,15 @@ export function UniversalSearch({
   className = "",
   onNavigate,
   shortcut = false,
+  tone = "bar",
 }: {
   className?: string;
   onNavigate?: () => void;
   /** Focus this box on "/" or Ctrl/⌘+K. Give it to one instance only. */
   shortcut?: boolean;
+  tone?: Tone;
 }) {
+  const t = TONES[tone];
   const router = useRouter();
   const pathname = usePathname();
   const { open: openMember } = useMemberBlade();
@@ -352,7 +395,7 @@ export function UniversalSearch({
       "aria-selected": active,
       tabIndex: -1,
       onMouseMove: () => setActiveKey(option.key),
-      className: `${ROW_CLASS} ${active ? "bg-white/10" : "hover:bg-white/5"}`,
+      className: `${ROW_CLASS} ${active ? t.active : t.idle}`,
     };
     if (option.kind === "zip") {
       const { zip } = option;
@@ -363,20 +406,20 @@ export function UniversalSearch({
           onClick={() => void applyZip(zip)}
           className={`${shared.className} cursor-pointer`}
         >
-          <OptionBody option={option} />
+          <OptionBody option={option} t={t} />
         </div>
       );
     }
     if (option.kind === "member") {
       return (
         <MemberLink key={option.key} bioguide={option.bioguide} onClick={finish} {...shared}>
-          <OptionBody option={option} />
+          <OptionBody option={option} t={t} />
         </MemberLink>
       );
     }
     return (
       <Link key={option.key} href={option.href} onClick={finish} {...shared}>
-        <OptionBody option={option} />
+        <OptionBody option={option} t={t} />
       </Link>
     );
   }
@@ -400,7 +443,7 @@ export function UniversalSearch({
           else if (zipQuery) void applyZip(zipQuery);
         }}
       >
-        <span className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-4 text-white/70">
+        <span className={`pointer-events-none absolute inset-y-0 left-0 flex items-center pl-4 ${t.icon}`}>
           <SearchIcon />
         </span>
         <input
@@ -445,14 +488,14 @@ export function UniversalSearch({
             }
           }}
           placeholder="Search or enter a ZIP…"
-          className={`w-full rounded-full border border-white/20 bg-white/10 py-2.5 pl-11 text-white/90 placeholder:text-white/60 transition-colors focus:border-white/50 focus:bg-white/20 focus:outline-none focus:ring-2 focus:ring-govblue/70 ${
+          className={`w-full rounded-full border py-2 pl-11 transition-colors focus:outline-none focus:ring-2 focus:ring-govblue/70 ${t.input} ${
             shortcut ? "pr-4 md:pr-12" : "pr-4"
           } ${homeZip ? "" : "ring-2 ring-govblue/50"}`}
         />
         {shortcut && !query && (
           <kbd
             aria-hidden="true"
-            className="pointer-events-none absolute inset-y-0 right-3 my-auto hidden h-6 items-center rounded-md border border-white/20 px-2 font-mono text-xs text-white/60 md:flex"
+            className={`pointer-events-none absolute inset-y-0 right-3 my-auto hidden h-6 items-center rounded-md border px-2 font-mono text-xs md:flex ${t.kbd}`}
           >
             /
           </kbd>
@@ -464,7 +507,7 @@ export function UniversalSearch({
           // Keeps focus in the input while an option is pressed, so the panel
           // can't close (on blur) before the click lands.
           onMouseDown={(e) => e.preventDefault()}
-          className="absolute left-0 right-0 top-full z-50 mt-2 max-h-[70vh] overflow-y-auto rounded-xl border border-white/10 bg-govnavy-800/95 text-slate-200 shadow-2xl shadow-black/40 backdrop-blur-xl animate-slide-down-and-fade"
+          className={`absolute left-0 right-0 top-full z-50 mt-2 max-h-[70vh] overflow-y-auto rounded-xl border animate-slide-down-and-fade ${t.panel}`}
         >
           <div id={listId} role="listbox" aria-label="Search suggestions" className="py-1">
             {groupOptions(options).map(({ group, items }) => (
@@ -472,6 +515,7 @@ export function UniversalSearch({
                 key={group}
                 id={`${baseId}-group-${group}`}
                 label={group === "sections" && !term ? "Jump to" : GROUP_LABELS[group]}
+                t={t}
               >
                 {items.map(({ option, index }) => renderOption(option, index))}
               </SuggestionGroup>
@@ -481,13 +525,13 @@ export function UniversalSearch({
           {stale && (
             <div inert aria-hidden="true" className="opacity-40">
               {groupOptions(recordOptions(stale)).map(({ group, items }) => (
-                <div key={group} className="border-t border-white/10 py-1">
-                  <p className="px-4 pb-1 pt-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
+                <div key={group} className={`border-t py-1 ${t.divider}`}>
+                  <p className={`px-4 pb-1 pt-2 text-xs font-semibold uppercase tracking-wider ${t.muted}`}>
                     {GROUP_LABELS[group]}
                   </p>
                   {items.map(({ option }) => (
                     <div key={option.key} className={ROW_CLASS}>
-                      <OptionBody option={option} />
+                      <OptionBody option={option} t={t} />
                     </div>
                   ))}
                 </div>
@@ -497,7 +541,7 @@ export function UniversalSearch({
 
           <p
             role="status"
-            className={`flex items-center gap-2 px-4 text-sm text-slate-400 ${status ? "border-t border-white/10 py-3" : "sr-only"}`}
+            className={`flex items-center gap-2 px-4 text-sm ${t.muted} ${status ? `border-t py-3 ${t.divider}` : "sr-only"}`}
           >
             {loading && <Spinner />}
             {status || (recordCount > 0 ? `${recordCount} matching records` : "")}
@@ -505,7 +549,7 @@ export function UniversalSearch({
 
           <p
             aria-hidden="true"
-            className="hidden items-center gap-3 border-t border-white/10 px-4 py-2 text-[11px] text-slate-500 md:flex"
+            className={`hidden items-center gap-3 border-t px-4 py-2 text-[11px] md:flex ${t.divider} ${t.faint}`}
           >
             <span>↑↓ to move</span>
             <span>↵ to open</span>
@@ -517,10 +561,24 @@ export function UniversalSearch({
   );
 }
 
-function SuggestionGroup({ id, label, children }: { id: string; label: string; children: ReactNode }) {
+function SuggestionGroup({
+  id,
+  label,
+  t,
+  children,
+}: {
+  id: string;
+  label: string;
+  t: ToneClasses;
+  children: ReactNode;
+}) {
   return (
-    <div role="group" aria-labelledby={id} className="border-b border-white/10 py-1 last:border-b-0">
-      <div id={id} role="presentation" className="px-4 pb-1 pt-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
+    <div role="group" aria-labelledby={id} className={`border-b py-1 last:border-b-0 ${t.divider}`}>
+      <div
+        id={id}
+        role="presentation"
+        className={`px-4 pb-1 pt-2 text-xs font-semibold uppercase tracking-wider ${t.muted}`}
+      >
         {label}
       </div>
       {children}
