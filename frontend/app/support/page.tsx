@@ -24,7 +24,7 @@ export default function SupportPage() {
           <p>
             GovMap takes no advertising and no political money. 
             The core of our platform will always remain free to the public. 
-            We wouldn't be able to do this without your support.
+            We wouldn&apos;t be able to do this without your support.
           </p>
         </PageBanner>
 
