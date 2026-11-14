@@ -5,7 +5,7 @@ import plugin from "tailwindcss/plugin";
 // Light/Dark theming. Every themeable color is an "r g b" CSS variable, so the
 // same class (bg-white, text-govnavy, border-slate-warm-200, …) renders the
 // right value in either theme and opacity modifiers like bg-govnavy/80 still
-// work. Elements marked `.chrome` (menu, banners, footer, map status
+// work. Elements marked `.chrome` (banners, footer, map status
 // bar) always use the light values on their own dark navy backgrounds.
 
 const SHADES = ["50", "100", "200", "300", "400", "500", "600", "700", "800", "900", "950"] as const;

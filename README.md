@@ -132,7 +132,7 @@ and crosswalk FEC IDs, and retains bill-ID and state-code lookup.
 
 Navigation uses relative paths defined in `frontend/lib/site-config.ts`. Separate `app.govmap.us` and `api.govmap.us` hosts are not part of the current deployment. Browser `/api/*` requests are forwarded by Next.js to the private backend.
 
-The visual signature — the Capitol photo under a navy scrim with white text — lives in `frontend/components/PageBanner.tsx` and is shared by the footer and page banners. Pages follow the system Light/Dark setting unless a theme is chosen from **Settings** in the header. The top bar is white in Light mode and a dark panel in Dark mode; navigation, banners, the footer and the workspace status bar keep the navy-and-white look. Dashboard panels, data states and charts live in `frontend/components/dashboard/`.
+The visual signature — the Capitol photo under a navy scrim with white text — lives in `frontend/components/PageBanner.tsx` and is shared by the footer and page banners. Pages follow the system Light/Dark setting unless a theme is chosen from **Settings** in the header. The top bar and navigation blade, including its mobile search, use light surfaces in Light mode and dark surfaces in Dark mode; banners, the footer and the workspace status bar keep the navy-and-white look. Dashboard panels, data states and charts live in `frontend/components/dashboard/`.
 
 The universal navigation groups destinations into Explore government,
 Congress & legislation, Elections & campaign money, and Sources & GovMap.

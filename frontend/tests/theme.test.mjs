@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 import vm from "node:vm";
 
@@ -23,6 +24,22 @@ test("system resolves from the OS preference and an explicit choice overrides it
   assert.equal(resolveTheme("system", false), "light");
   assert.equal(resolveTheme("light", true), "light");
   assert.equal(resolveTheme("dark", false), "dark");
+});
+
+test("navigation blade and mobile search use the shared theme", async () => {
+  const header = await readFile(new URL("../components/SiteHeader.tsx", import.meta.url), "utf8");
+  const dialog = header.match(/<dialog\b[\s\S]*?<\/dialog>/)?.[0];
+  assert.ok(dialog, "navigation dialog exists");
+  const classes = dialog.match(/className="([^"]*\bnavigation-dialog\b[^"]*)"/)?.[1]?.split(/\s+/);
+  assert.ok(classes, "navigation dialog has classes");
+  for (const name of ["bg-panel", "text-ink", "border-line", "dark:bg-[#070b1a]"]) {
+    assert.ok(classes.includes(name), `navigation dialog needs ${name}`);
+  }
+  assert.ok(!classes.includes("chrome"), "navigation must not opt out of the selected theme");
+  assert.match(header, /active\s*\?\s*"bg-sunken text-ink dark:bg-ink\/10"/);
+  assert.match(dialog, /<UniversalSearch onNavigate=\{close\} \/>/);
+  assert.match(dialog, /\btext-ink-soft\b/);
+  assert.match(dialog, /\btext-ink-muted\b/);
 });
 
 /** Runs the first-paint script against a stand-in document and storage. */
