@@ -1,241 +1,547 @@
-import Image from "next/image";
-import type { ReactNode } from "react";
+import Link from "next/link";
+import { LocalList } from "@/components/LocalList";
+import { Suspense, type ReactNode } from "react";
 
-import { BrandIcon } from "@/components/BrandIcon";
-import { GovmapWord } from "@/components/GovmapWord";
-import { SiteFooter } from "@/components/SiteFooter";
-import { SiteHeader } from "@/components/SiteHeader";
-import { ThemedSection } from "@/components/ThemedSection";
-import { siteConfig } from "@/lib/site-config";
+import { ChartFigure, type LegendItem } from "@/components/dashboard/ChartFigure";
+import { DataState, LoadingBlock } from "@/components/dashboard/DataState";
+import { Hemicycle } from "@/components/dashboard/Hemicycle";
+import { Metric, Panel, PanelLink } from "@/components/dashboard/Panel";
+import { WeeklyBars } from "@/components/dashboard/WeeklyBars";
+import { CapitolBackdrop } from "@/components/PageBanner";
+import {
+  apiGet,
+  type Overview,
+  type OverviewActivity,
+  type OverviewMeeting,
+  type SourceFreshness,
+} from "@/lib/api";
+import { formatDateUTC, formatMeetingTime } from "@/lib/format";
+
+// Rendered on demand — the backend isn't reachable during the image build.
+export const dynamic = "force-dynamic";
+
+export const metadata = {
+  description:
+    "A sourced, nonpartisan overview of the federal government: who holds each seat in Congress, how often each chamber votes, the bills and laws on file, and what's next on the committee calendar.",
+};
+
+const NUMBER = new Intl.NumberFormat("en-US");
+
+const LEVELS = [
+  { label: "Federal", href: "/", live: true },
+  { label: "State", href: "/about#coverage", live: false },
+  { label: "Local", href: "/about#coverage", live: false },
+] as const;
 
 const BRANCHES = [
-  {
-    name: "Legislative",
-    covers: "535 members of Congress, bills, votes, committees, campaign finance, lobbying.",
-    cadence: "Every 30 min in session, daily otherwise",
-  },
-  {
-    name: "Executive",
-    covers: "President, VP, Cabinet, 15 departments, agency heads, executive orders.",
-    cadence: "Weekly sync + daily Federal Register feed",
-  },
-  {
-    name: "Judicial",
-    covers: "9 SCOTUS justices, 179 circuit judges, 677 district judges, opinions.",
-    cadence: "As opinions are published",
-  },
+  { id: "legislative", branch: "Legislative", name: "Congress", live: true },
+  { id: "executive", branch: "Executive", name: "The White House & agencies", live: false },
+  { id: "judicial", branch: "Judicial", name: "The federal courts", live: false },
+] as const;
+
+type PlannedSource = { what: string; from: string };
+
+const EXECUTIVE_SOURCES: PlannedSource[] = [
+  { what: "Presidential documents", from: "GovInfo, Compilation of Presidential Documents" },
+  { what: "Executive orders and agency rules", from: "Federal Register" },
+  { what: "Nominations", from: "Congress.gov" },
+  { what: "Agency budgets and spending", from: "USAspending.gov" },
 ];
 
-const PRINCIPLES = [
-  "Nonpartisan above all else",
-  "Data only — no editorializing, no spin",
-  "Plain English, no jargon",
-  "Mobile-first & accessible",
-  "Open methodology, publicly documented",
-  "All three branches, equal pillars",
+const JUDICIAL_SOURCES: PlannedSource[] = [
+  { what: "Article III judges and their service", from: "Federal Judicial Center" },
+  { what: "Supreme Court opinions", from: "Supreme Court of the United States" },
+  { what: "Federal court opinions", from: "GovInfo, United States Courts Opinions" },
+  { what: "Judicial nominations", from: "Congress.gov" },
 ];
 
-function CheckIcon() {
-  return (
-    <svg viewBox="0 0 20 20" fill="none" className="h-5 w-5 shrink-0 text-govblue" aria-hidden="true">
-      <path
-        d="M5 10.5L8.5 14L15 6.5"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
+function ordinal(n: number): string {
+  const lastTwo = n % 100;
+  const last = n % 10;
+  if (lastTwo >= 11 && lastTwo <= 13) return `${n}th`;
+  return `${n}${last === 1 ? "st" : last === 2 ? "nd" : last === 3 ? "rd" : "th"}`;
+}
+
+/** Total of the weeks that were collected; null when none were. */
+function sumCollected(values: (number | null)[]): number | null {
+  const known = values.filter((v): v is number => v !== null);
+  return known.length === 0 ? null : known.reduce((a, b) => a + b, 0);
+}
+
+function countOrMissing(value: number | null): string {
+  return value === null ? "Not collected" : NUMBER.format(value);
+}
+
+function weekLabel(weeks: string[], i: number): string {
+  return `${formatDateUTC(weeks[i])}${i === weeks.length - 1 ? " (so far)" : ""}`;
+}
+
+function weekRange(weeks: string[]): string {
+  if (weeks.length === 0) return "";
+  return `Weeks of ${formatDateUTC(weeks[0])} to ${formatDateUTC(weeks[weeks.length - 1])}`;
+}
+
+function sourceNamed(sources: SourceFreshness[], name: string): SourceFreshness | undefined {
+  return sources.find((s) => s.name === name);
+}
+
+// --- Header ---------------------------------------------------------------
+
+function StatusChip({ live }: { live: boolean }) {
+  return live ? (
+    <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-green-500/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-green-200">
+      <span className="h-1.5 w-1.5 rounded-full bg-green-400" aria-hidden="true" />
+      Live
+    </span>
+  ) : (
+    <span className="shrink-0 rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white/70">
+      Planned
+    </span>
   );
 }
 
-/**
- * Static passthrough — the marketing center sections render with no entrance
- * animation. Keeps the existing <Reveal> call sites unchanged; `delay` is
- * accepted but ignored. (The animated scroll-reveal still lives in
- * components/Reveal.tsx for the detail pages.)
- */
-function Reveal({
-  className,
-  children,
-}: {
-  className?: string;
-  delay?: number;
-  children: ReactNode;
-}) {
-  return <div className={className}>{children}</div>;
+function OverviewHeader() {
+  return (
+    <section className="chrome relative isolate overflow-hidden bg-govnavy-800 text-white">
+      <CapitolBackdrop position="center" priority />
+      <div className="mx-auto max-w-7xl px-4 pb-8 pt-28 sm:px-6 sm:pt-32">
+        <div className="flex flex-wrap items-end justify-between gap-x-10 gap-y-5">
+          <div className="max-w-2xl">
+            <p className="text-xs font-semibold uppercase tracking-wider text-white/60">
+              From City Council to Congress
+            </p>
+            <h1 className="mt-2 font-display text-3xl font-bold tracking-tight sm:text-4xl">Federal overview</h1>
+            <p className="mt-2 leading-relaxed text-white/80">
+              The federal government at a glance, every figure taken from an official public source. Congress is
+              live today; the White House, the agencies and the federal courts are the next branches on the way.
+            </p>
+          </div>
+          <nav aria-label="Level of government">
+            <ul className="inline-flex rounded-full border border-white/15 bg-white/10 p-1 backdrop-blur">
+              {LEVELS.map((level) => (
+                <li key={level.label}>
+                  <Link
+                    href={level.href}
+                    aria-current={level.live ? "page" : undefined}
+                    className={`inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-sm font-semibold transition-colors ${
+                      level.live ? "bg-white text-govnavy shadow" : "text-white/75 hover:text-white"
+                    }`}
+                  >
+                    {level.label}
+                    {!level.live && (
+                      <span className="text-[10px] font-semibold uppercase tracking-wider text-white/50">
+                        Planned
+                      </span>
+                    )}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </nav>
+        </div>
+
+        <nav aria-label="Branches of government" className="mt-6">
+          <ul className="grid gap-3 sm:grid-cols-3">
+            {BRANCHES.map((b) => (
+              <li key={b.id}>
+                <a
+                  href={`#${b.id}`}
+                  className="flex h-full items-start justify-between gap-3 rounded-xl border border-white/15 bg-white/5 px-4 py-3 backdrop-blur transition-colors hover:border-white/30 hover:bg-white/10"
+                >
+                  <span className="min-w-0">
+                    <span className="block text-[11px] font-semibold uppercase tracking-wider text-white/60">
+                      {b.branch}
+                    </span>
+                    <span className="block font-semibold">{b.name}</span>
+                  </span>
+                  <StatusChip live={b.live} />
+                </a>
+              </li>
+            ))}
+          </ul>
+        </nav>
+      </div>
+    </section>
+  );
 }
 
-export default function MarketingHomePage() {
+// --- Legislative ----------------------------------------------------------
+
+/** A chart slot with nothing to draw: its title plus the reason why. */
+function ChartPlaceholder({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <>
-      <SiteHeader variant="marketing" />
+    <div className="min-w-0">
+      <h4 className="font-display text-sm font-bold text-ink">{title}</h4>
+      <div className="mt-3">{children}</div>
+    </div>
+  );
+}
 
-      <main className="bg-white">
-        {/* Hero */}
-        <section className="relative isolate overflow-hidden bg-govnavy">
-          <Image
-            src="/capitol-hero.jpg"
-            alt=""
-            fill
-            priority
-            sizes="100vw"
-            className="-z-10 object-cover object-center"
-          />
+function VotesChart({ activity, publisher }: { activity: OverviewActivity; publisher?: string }) {
+  const { weeks, votes, votes_covered_from: from } = activity;
+  const title = "Roll-call votes per week";
+  const house = sumCollected(votes.house);
+  const senate = sumCollected(votes.senate);
 
-          <div className="mx-auto w-full max-w-6xl px-6 pb-24 pt-36 sm:pb-32 sm:pt-48">
-            <div className="max-w-3xl">
-              <div className="animate-rise" style={{ animationDelay: "100ms" }}>
-                <h1 className="font-display text-4xl font-bold leading-[1.35] tracking-tight text-govnavy sm:text-6xl lg:text-7xl">
-                  See your{" "}
-                  {/* Solid, square-cornered highlight — like a text-selection block. */}
-                  <span className="highlight-sweep box-decoration-clone px-1.5 text-white [text-shadow:none]">
-                    government
-                  </span>{" "}
-                  <span className="text-govred">with clarity</span>
-                </h1>
-                <p className="mt-6 max-w-xl rounded-2xl bg-white/30 px-5 py-4 text-lg leading-relaxed text-black backdrop-blur-md sm:text-xl">
-                  Govmap.us is a nonpartisan, end-to-end live-synced view of the
-                  entire US federal government — who represents you, how they
-                  vote, who runs the agencies that govern you, where the money
-                  goes, and how a bill becomes law. Real data, always sourced. No
-                  press. No spin.
-                </p>
-              </div>
-            <div
-              className="mt-10 flex flex-wrap items-center gap-4 animate-rise"
-              style={{ animationDelay: "250ms" }}
-            >
-              <a
-                href={siteConfig.appUrl}
-                className="transform rounded-full bg-white px-7 py-3.5 font-semibold text-govnavy shadow-lg shadow-black/10 transition-transform duration-200 hover:-translate-y-0.5 hover:bg-slate-warm-50 active:translate-y-0"
+  if (house === null && senate === null) {
+    return (
+      <ChartPlaceholder title={title}>
+        <DataState kind="missing">No roll calls are stored for these weeks yet, so there is nothing to count.</DataState>
+      </ChartPlaceholder>
+    );
+  }
+
+  const gaps = [...votes.house, ...votes.senate].some((v) => v === null);
+  const legend: LegendItem[] = [
+    { label: "House", swatch: "bg-series-house" },
+    { label: "Senate", swatch: "bg-series-senate" },
+    ...(gaps ? [{ label: "Not collected", dashed: true }] : []),
+  ];
+  const held = [
+    house === null ? null : `${NUMBER.format(house)} in the House`,
+    senate === null ? null : `${NUMBER.format(senate)} in the Senate`,
+  ].filter((part): part is string => part !== null);
+  const startsFrom = (chamber: string, iso: string | null) =>
+    `${chamber} ${iso ? `from ${formatDateUTC(iso)}` : "not collected"}`;
+
+  return (
+    <ChartFigure
+      title={title}
+      period={`${weekRange(weeks)} · roll calls held`}
+      summary={`${held.join(" and ")} over the last ${weeks.length} weeks, counting the current week so far.`}
+      legend={legend}
+      source={publisher ?? "Official House and Senate roll-call records"}
+      coverage={`Stored roll calls run ${startsFrom("House", from.house)}; ${startsFrom("Senate", from.senate)}.${
+        gaps ? " Weeks before a chamber’s first stored roll call show as not collected, not as zero." : ""
+      }`}
+      table={{
+        head: ["Week of", "House", "Senate"],
+        rows: weeks.map((_, i) => [
+          weekLabel(weeks, i),
+          countOrMissing(votes.house[i] ?? null),
+          countOrMissing(votes.senate[i] ?? null),
+        ]),
+      }}
+    >
+      <WeeklyBars
+        weeks={weeks}
+        series={[
+          { label: "House", values: votes.house, barClass: "bg-series-house" },
+          { label: "Senate", values: votes.senate, barClass: "bg-series-senate" },
+        ]}
+      />
+    </ChartFigure>
+  );
+}
+
+function BillsChart({
+  activity,
+  congress,
+  publisher,
+}: {
+  activity: OverviewActivity;
+  congress: number;
+  publisher?: string;
+}) {
+  const { weeks, bills_introduced: bills } = activity;
+  const title = "Measures introduced per week";
+  const total = bills.reduce((a, b) => a + b, 0);
+  const caveat =
+    "GovMap holds the measures sponsored by current members plus recently updated ones, so this is not the official count.";
+
+  if (total === 0) {
+    return (
+      <ChartPlaceholder title={title}>
+        <DataState kind="empty">
+          None of the measures on file were introduced in these weeks. {caveat}
+        </DataState>
+      </ChartPlaceholder>
+    );
+  }
+
+  return (
+    <ChartFigure
+      title={title}
+      period={`${weekRange(weeks)} · bills and resolutions`}
+      summary={`${NUMBER.format(total)} measures on file were introduced over the last ${weeks.length} weeks, counting the current week so far. ${caveat}`}
+      legend={[{ label: "Measures introduced", swatch: "bg-series-bills" }]}
+      source={publisher ?? "Congress.gov"}
+      coverage={`${ordinal(congress)} Congress measures GovMap holds, by introduced date.`}
+      table={{
+        head: ["Week of", "Introduced"],
+        rows: weeks.map((_, i) => [weekLabel(weeks, i), NUMBER.format(bills[i] ?? 0)]),
+      }}
+    >
+      <WeeklyBars weeks={weeks} series={[{ label: "Introduced", values: bills, barClass: "bg-series-bills" }]} />
+    </ChartFigure>
+  );
+}
+
+function statusTone(status: string): string {
+  return /cancel/i.test(status)
+    ? "border-red-200 bg-red-50 text-red-800"
+    : "border-amber-200 bg-amber-50 text-amber-900";
+}
+
+function MeetingsPanel({ meetings, source }: { meetings: OverviewMeeting[]; source?: SourceFreshness }) {
+  return (
+    <Panel eyebrow="On the calendar" title="Upcoming committee meetings">
+      {meetings.length === 0 ? (
+        source?.last_success ? (
+          <DataState kind="empty">No upcoming committee meetings are on file.</DataState>
+        ) : (
+          <DataState kind="missing">Committee schedules haven’t loaded yet.</DataState>
+        )
+      ) : (
+        <LocalList
+          id="overview-meetings"
+          label="Upcoming meetings"
+          scope="Searches the overview's loaded meeting subset"
+          groupLabel="chambers"
+          as="ol"
+          className="divide-y divide-line"
+          items={meetings.map((m) => {
+            const flagged = m.status && m.status !== "Scheduled" ? m.status : null;
+            return {
+              id: m.event_id,
+              name: m.title ?? m.committee_name,
+              date: m.starts_at,
+              group: m.chamber,
+              text: `${m.title ?? ""} ${m.committee_name} ${m.chamber ?? ""} ${m.meeting_type ?? ""} ${m.status ?? ""}`,
+              content: (
+              <li
+                key={m.event_id}
+                className="flex flex-col gap-1 py-3 first:pt-0 last:pb-0 sm:flex-row sm:items-start sm:gap-5"
               >
-                Enter <GovmapWord /> →
-              </a>
-              <a
-                href="#about"
-                className="rounded-full border border-white/30 bg-white/10 px-7 py-3.5 font-semibold text-white shadow-lg shadow-black/10 backdrop-blur-sm transition-all hover:-translate-y-0.5 hover:border-white/50 hover:bg-white/20"
-              >
-                How it works
-              </a>
-            </div>
-          </div>
-          </div>
-        </section>
-
-        {/* Center info — the ONLY part with a light/dark toggle (top-right of
-            this block). The Capitol-backed hero + footer sit outside it. */}
-        <ThemedSection>
-          {/* About */}
-          <section id="about" className="scroll-mt-24 bg-slate-warm-50 dark:bg-govnavy">
-            <div className="mx-auto max-w-6xl px-6 py-24 sm:py-32">
-              <Reveal>
-                <h2 className="font-display text-3xl font-bold text-govnavy dark:text-white sm:text-4xl">
-                  One nonpartisan view of all three branches
-                </h2>
-                <p className="mt-4 max-w-3xl text-lg text-slate-warm-600 dark:text-slate-300">
-                  Most civic tools stop at Congress. GovMap treats the
-                  Legislative, Executive, and Judicial branches as equal pillars
-                  and connects them: a bill&apos;s full journey from introduction,
-                  through signature or veto, to any judicial challenge, in a
-                  single timeline.
+                <p className="shrink-0 text-xs font-semibold tabular-nums text-ink-soft sm:w-48 sm:pt-0.5">
+                  <time dateTime={m.starts_at}>{formatMeetingTime(m.starts_at) ?? "Time not published"}</time>
                 </p>
-              </Reveal>
-
-              <div className="mt-14 grid gap-6 sm:grid-cols-3">
-                {BRANCHES.map((branch, i) => (
-                  <Reveal key={branch.name} delay={i * 100} className="h-full">
-                    <div className="h-full rounded-2xl border border-slate-warm-200 bg-white p-6 shadow-card transition-shadow duration-300 hover:shadow-card-hover dark:border-white/10 dark:bg-white/5">
-                      <h3 className="font-display text-lg font-bold text-govnavy dark:text-white">{branch.name}</h3>
-                      <p className="mt-2 text-slate-warm-600 dark:text-slate-300">{branch.covers}</p>
-                      <p className="mt-4 text-xs font-semibold uppercase tracking-wider text-govblue">
-                        {branch.cadence}
-                      </p>
-                    </div>
-                  </Reveal>
-                ))}
-              </div>
-
-              <Reveal className="mt-20">
-                <div className="rounded-2xl bg-white p-8 shadow-card dark:border dark:border-white/10 dark:bg-white/5">
-                  <h3 className="font-display text-xl font-bold text-govnavy dark:text-white">
-                    Built on a few rules we don&apos;t bend
-                  </h3>
-                  <ul className="mt-6 grid gap-x-6 gap-y-4 sm:grid-cols-2">
-                    {PRINCIPLES.map((principle) => (
-                      <li key={principle} className="flex items-start gap-3 text-slate-700 dark:text-slate-300">
-                        <CheckIcon />
-                        <span>{principle}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              </Reveal>
-            </div>
-          </section>
-
-          {/* Support */}
-          <section id="support" className="scroll-mt-24 bg-white dark:bg-govnavy">
-            <div className="mx-auto max-w-6xl px-6 py-24 sm:py-32">
-              <Reveal>
-                <h2 className="font-display text-3xl font-bold text-govnavy dark:text-white sm:text-4xl">
-                  Support GovMap
-                </h2>
-                <p className="mt-4 max-w-3xl text-lg text-slate-warm-600 dark:text-slate-300">
-                  GovMap is a nonprofit, nonpartisan civic tool — no advertising,
-                  no political funding. It runs on donations and the time of
-                  people who believe transparent government tooling should exist.
-                  If it&apos;s useful to you, chip in.
-                </p>
-              </Reveal>
-
-              <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {siteConfig.supportLinks.map((link, i) => (
-                  <Reveal key={link.href} delay={i * 80}>
-                    <a
-                      href={link.href}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="group flex items-center gap-4 rounded-xl border border-slate-warm-200 bg-white p-4 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-govblue-400 hover:shadow-card-hover dark:border-white/10 dark:bg-white/5 dark:hover:border-govblue"
-                    >
-                      <BrandIcon
-                        name={link.icon}
-                        className="h-7 w-7 shrink-0 text-slate-400 transition-colors group-hover:text-govblue"
-                      />
-                      <span className="font-medium text-govnavy dark:text-white">{link.label}</span>
-                    </a>
-                  </Reveal>
-                ))}
-              </div>
-
-              <Reveal className="mt-16">
-                <div className="rounded-2xl border border-dashed border-slate-300 p-6 dark:border-white/15 sm:p-8">
-                  <h3 className="font-display text-xl font-bold text-govnavy dark:text-white">
-                    Seeking Fiscal Sponsorship
-                  </h3>
-                  <p className="mt-2 max-w-2xl text-slate-warm-600 dark:text-slate-300">
-                    GovMap is also looking for a fiscal sponsor — a 501(c)(3) or
-                    civic-tech organization that can host a nonpartisan,
-                    open-source government-transparency project. If that&apos;s you
-                    (or someone you know), we&apos;d love to talk.
-                  </p>
-                  <a
-                    href={siteConfig.githubUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="group mt-6 inline-flex items-center gap-1.5 self-start rounded-full bg-govnavy px-5 py-2.5 text-sm font-semibold text-white transition-all duration-200 hover:-translate-y-px hover:bg-govnavy/90 dark:bg-govblue dark:text-govnavy dark:hover:bg-govblue-400"
+                <div className="min-w-0">
+                  <Link
+                    href={`/committees/${m.committee_id}`}
+                    className="font-semibold text-ink transition-colors hover:text-govblue-600"
                   >
-                    Get in touch on GitHub
-                    <span className="transition-transform group-hover:translate-x-0.5">→</span>
-                  </a>
+                    {m.committee_name}
+                  </Link>
+                  {m.title && <p className="mt-0.5 line-clamp-2 text-sm text-ink-soft">{m.title}</p>}
+                  {(m.chamber || m.meeting_type || flagged) && (
+                    <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-muted">
+                      {[m.chamber, m.meeting_type].filter(Boolean).join(" · ")}
+                      {flagged && (
+                        <span className={`rounded-full border px-2 py-0.5 font-semibold ${statusTone(flagged)}`}>
+                          {flagged}
+                        </span>
+                      )}
+                    </p>
+                  )}
                 </div>
-              </Reveal>
-            </div>
-          </section>
-        </ThemedSection>
-      </main>
+              </li>
+              ),
+            };
+          })}
+        />
+      )}
+      <p className="mt-4 text-xs text-ink-muted">
+        Eastern time, status as published. Source: {source?.publisher ?? "Congress.gov"}.
+      </p>
+    </Panel>
+  );
+}
 
-      <SiteFooter />
-    </>
+function Legislative({ data }: { data: Overview }) {
+  const { chambers, activity, sources } = data;
+  const house = sumCollected(activity.votes.house);
+  const senate = sumCollected(activity.votes.senate);
+  const rollCalls = house === null && senate === null ? null : (house ?? 0) + (senate ?? 0);
+  const asOf = formatMeetingTime(data.generated_at);
+
+  return (
+    <section id="legislative" aria-labelledby="legislative-heading" className="min-w-0 scroll-mt-24 space-y-6">
+      <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-2">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-ink-muted">Legislative branch</p>
+          <h2 id="legislative-heading" className="font-display text-2xl font-bold tracking-tight text-ink">
+            Congress
+          </h2>
+          <p className="text-sm text-ink-soft">
+            The {ordinal(data.congress)} Congress
+            {asOf && (
+              <>
+                {" "}
+                · as of <time dateTime={data.generated_at}>{asOf}</time>
+              </>
+            )}
+            {" · "}
+            <Link href="/status" className="font-semibold text-govblue-600 transition-colors hover:text-ink">
+              Data status
+            </Link>
+          </p>
+        </div>
+        <PanelLink href="/map">Open the Congress map</PanelLink>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <Metric
+          label="Members in office"
+          value={NUMBER.format(chambers.house.total + chambers.senate.total)}
+          detail={`House ${NUMBER.format(chambers.house.total)} · Senate ${NUMBER.format(chambers.senate.total)}, House delegates included`}
+          href="/members"
+        />
+        <Metric
+          label="Laws enacted"
+          value={NUMBER.format(data.laws_enacted)}
+          detail={`Measures on file that became law in the ${ordinal(data.congress)} Congress`}
+          href="/bills?status=became-law"
+        />
+        <Metric
+          label="Measures on file"
+          value={NUMBER.format(data.bills_in_congress)}
+          detail="Bills and resolutions GovMap holds for this Congress, not the official total"
+          href="/bills"
+        />
+        <Metric
+          label={`Roll calls · ${activity.weeks.length} weeks`}
+          value={rollCalls === null ? "—" : NUMBER.format(rollCalls)}
+          detail={`House ${countOrMissing(house)} · Senate ${countOrMissing(senate)}`}
+          href="/votes"
+        />
+      </div>
+
+      <Panel eyebrow="Seats held now" title="Party balance">
+        <div className="grid gap-8 sm:grid-cols-2">
+          <Hemicycle name="House" balance={chambers.house} />
+          <Hemicycle name="Senate" balance={chambers.senate} />
+        </div>
+        <p className="mt-4 text-xs leading-relaxed text-ink-muted">
+          Members in office today, including the House’s non-voting delegates; vacant seats are not drawn.
+          Independents and members of other parties are grouped together. Source:{" "}
+          {sourceNamed(sources, "congress_legislators")?.publisher ?? "the congress-legislators project"}.
+        </p>
+      </Panel>
+
+      <Panel eyebrow={`Last ${activity.weeks.length} weeks`} title="Weekly activity">
+        <div className="grid gap-10 lg:grid-cols-2">
+          <VotesChart activity={activity} publisher={sourceNamed(sources, "votes")?.publisher} />
+          <BillsChart
+            activity={activity}
+            congress={data.congress}
+            publisher={sourceNamed(sources, "congress_gov_bills")?.publisher}
+          />
+        </div>
+      </Panel>
+
+      <MeetingsPanel meetings={data.upcoming_meetings} source={sourceNamed(sources, "committee_meetings")} />
+    </section>
+  );
+}
+
+// --- Executive and Judicial (planned) -------------------------------------
+
+function PlannedBranch({
+  id,
+  eyebrow,
+  title,
+  sources,
+  children,
+}: {
+  id: string;
+  eyebrow: string;
+  title: string;
+  sources: PlannedSource[];
+  children: ReactNode;
+}) {
+  return (
+    <Panel id={id} level={2} eyebrow={eyebrow} title={title} className="scroll-mt-24">
+      <DataState kind="planned">{children}</DataState>
+      <h3 className="mt-4 text-[11px] font-semibold uppercase tracking-wider text-ink-muted">
+        Planned official sources
+      </h3>
+      <ul className="mt-2 space-y-2 text-sm">
+        {sources.map((s) => (
+          <li key={s.what} className="flex items-start gap-2.5">
+            <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full border border-govblue-600" aria-hidden="true" />
+            <span>
+              <span className="font-semibold text-ink">{s.what}</span>
+              <span className="block text-xs text-ink-muted">{s.from}</span>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </Panel>
+  );
+}
+
+// --- Page -----------------------------------------------------------------
+
+async function OverviewBody() {
+  let data: Overview | null = null;
+  try {
+    data = await apiGet<Overview>("/api/overview");
+  } catch (err) {
+    console.error(err);
+  }
+
+  if (!data) {
+    return (
+      <DataState kind="error" title="The federal overview couldn’t load">
+        GovMap’s data service didn’t respond. Please refresh in a moment.
+      </DataState>
+    );
+  }
+
+  return (
+    <div className="grid animate-subtle-fade-in gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
+      <Legislative data={data} />
+      <div className="grid content-start gap-6 md:grid-cols-2 xl:grid-cols-1">
+        <PlannedBranch
+          id="executive"
+          eyebrow="Executive branch"
+          title="The White House & agencies"
+          sources={EXECUTIVE_SOURCES}
+        >
+          Presidential actions, agency leadership, nominations and agency spending are next. Nothing appears here
+          until it comes straight from the official publisher.
+        </PlannedBranch>
+        <PlannedBranch id="judicial" eyebrow="Judicial branch" title="The federal courts" sources={JUDICIAL_SOURCES}>
+          Courts, judges, appointments, vacancies and new opinions, each linked to the original record. No legal
+          summaries or predicted outcomes.
+        </PlannedBranch>
+      </div>
+    </div>
+  );
+}
+
+function OverviewSkeleton() {
+  return (
+    <div role="status" className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
+      <span className="sr-only">Loading the federal overview…</span>
+      <div className="space-y-6">
+        <LoadingBlock className="h-16" />
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          {[0, 1, 2, 3].map((i) => (
+            <LoadingBlock key={i} className="h-28" />
+          ))}
+        </div>
+        <LoadingBlock className="h-72" />
+        <LoadingBlock className="h-96" />
+      </div>
+      <div className="grid content-start gap-6 md:grid-cols-2 xl:grid-cols-1">
+        <LoadingBlock className="h-64" />
+        <LoadingBlock className="h-64" />
+      </div>
+    </div>
+  );
+}
+
+export default function OverviewPage() {
+  return (
+    <main className="bg-canvas pb-20">
+      <OverviewHeader />
+      <div className="mx-auto max-w-7xl px-4 pt-8 sm:px-6">
+        <Suspense fallback={<OverviewSkeleton />}>
+          <OverviewBody />
+        </Suspense>
+      </div>
+    </main>
   );
 }

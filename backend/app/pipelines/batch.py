@@ -58,10 +58,15 @@ class BatchResult:
     succeeded: int
     failed: int
     stopped: str | None = None
+    incomplete: bool = False
 
     @property
     def degraded(self) -> bool:
-        return self.stopped is not None or self.failed > self.total * _MAX_OK_FAILURE_RATIO
+        return (
+            self.stopped is not None
+            or self.incomplete
+            or self.failed > self.total * _MAX_OK_FAILURE_RATIO
+        )
 
     def describe(self, noun: str) -> str | None:
         """Status detail for pipeline_status; None when nothing went wrong."""
@@ -71,4 +76,6 @@ class BatchResult:
         if self.stopped is not None:
             skipped = self.total - self.succeeded - self.failed
             text += f"; stopped early ({self.stopped}) with {skipped} not attempted"
+        if self.incomplete:
+            text += "; incomplete detail bundles were withheld"
         return text

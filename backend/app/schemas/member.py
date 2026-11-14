@@ -115,3 +115,16 @@ class MemberOut(BaseModel):
     photo_url: str | None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class CandidateMemberProfileOut(BaseModel):
+    bioguide_id: str = Field(pattern=r"^[A-Z][0-9]{6}$")
+    official_full_name: str
+    in_office: bool
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class CandidateMemberMatchOut(BaseModel):
+    status: Literal["matched", "unmatched", "ambiguous"]
+    profile: CandidateMemberProfileOut | None = None

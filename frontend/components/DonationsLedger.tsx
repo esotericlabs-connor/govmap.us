@@ -123,7 +123,7 @@ export function DonationsLedger({
       if (offset > 0) share.set("offset", String(offset));
       if (sort && sort !== "amount") share.set("sort", sort);
       if (q) share.set("q", q);
-      window.history.replaceState(null, "", `?${share.toString()}`);
+      window.history.replaceState(window.history.state, "", `?${share.toString()}`);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cycle, q, sort, offset]);
@@ -139,7 +139,7 @@ export function DonationsLedger({
   const cycleOptions = Array.from(new Set([cycle, ...cycles])).sort((a, b) => b - a);
 
   return (
-    <Section title="Contributions" count={total ?? undefined}>
+    <Section title="Reported receipt records">
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <input
           type="search"
@@ -147,7 +147,7 @@ export function DonationsLedger({
           onChange={(e) => setTerm(e.target.value)}
           placeholder="Search name, employer, or city…"
           aria-label="Search contributions"
-          className="w-full rounded-full border border-slate-warm-200 bg-white px-4 py-2.5 text-sm text-slate-800 outline-none focus:border-govblue focus:ring-2 focus:ring-govblue/30 sm:max-w-sm"
+          className="h-10 w-full rounded-lg border border-line bg-canvas px-3 text-sm text-ink outline-none focus:border-govblue-600 focus:ring-2 focus:ring-govblue-600/20 sm:max-w-sm"
         />
         <div className="flex flex-wrap items-center gap-3">
           {cycleOptions.length > 1 && (
@@ -160,7 +160,7 @@ export function DonationsLedger({
                   setCycle(Number(e.target.value));
                 }}
                 aria-label="Election cycle"
-                className="rounded-full border border-slate-warm-200 bg-white px-3 py-2 text-sm font-medium text-slate-800 outline-none focus:border-govblue"
+                className="h-10 rounded-lg border border-line bg-canvas px-3 text-sm font-medium text-ink outline-none focus:border-govblue-600"
               >
                 {cycleOptions.map((c) => (
                   <option key={c} value={c}>
@@ -178,7 +178,7 @@ export function DonationsLedger({
                 setOffset(0);
                 setSort(e.target.value);
               }}
-              className="rounded-full border border-slate-warm-200 bg-white px-3 py-2 text-sm font-medium text-slate-800 outline-none focus:border-govblue"
+              className="h-10 rounded-lg border border-line bg-canvas px-3 text-sm font-medium text-ink outline-none focus:border-govblue-600"
             >
               {SORTS.map((s) => (
                 <option key={s.value} value={s.value}>
@@ -187,6 +187,14 @@ export function DonationsLedger({
               ))}
             </select>
           </label>
+          {(term || sort !== "amount") && (
+            <button type="button" className="text-sm font-semibold text-govblue-600" onClick={() => {
+              setTerm("");
+              setQ("");
+              setSort("amount");
+              setOffset(0);
+            }}>Clear</button>
+          )}
         </div>
       </div>
 
@@ -202,8 +210,8 @@ export function DonationsLedger({
       {items.length === 0 ? (
         <EmptyState>
           {q
-            ? `No contributions match “${q}”.`
-            : `No itemized contributions found for this member in the ${cycle} cycle.`}
+            ? `No loaded receipt records match “${q}”.`
+            : `No receipt records are currently shown for the selected committee in the ${cycle} cycle. This does not establish zero contributions.`}
         </EmptyState>
       ) : (
         <div className={pending ? "pointer-events-none opacity-60 transition-opacity" : "transition-opacity"}>
@@ -239,7 +247,10 @@ export function DonationsLedger({
                 <>
                   Showing <strong>{shownFrom.toLocaleString()}</strong>–
                   <strong>{shownTo.toLocaleString()}</strong> of{" "}
-                  <strong>{total.toLocaleString()}</strong>
+                  <strong>{total.toLocaleString()}</strong>{" "}
+                  {q || sort !== "amount"
+                    ? "matching cached rows"
+                    : "FEC-reported rows (count may be approximate)"}
                 </>
               ) : (
                 <>
@@ -260,11 +271,13 @@ export function DonationsLedger({
       )}
 
       <p className="mt-8 border-t border-slate-warm-200 pt-6 text-xs leading-relaxed text-slate-warm-400">
-        Every disclosed contribution of <strong>$200 or more</strong> to this member&rsquo;s
-        principal campaign committee. Small-dollar gifts under $200 aren&rsquo;t itemized by the FEC
-        and so don&rsquo;t appear individually. Search and the alternate sorts cover the
-        contributions loaded so far — browse the default largest-first view to load more. Records are
-        pulled and cached on demand from the FEC. Source: Federal Election Commission.
+        These are cached FEC Schedule A records for one selected principal committee, not all
+        contributions to a candidate. Search and alternate sorts cover only rows loaded so far;
+        browse the default largest-first view to load more. Source-row IDs prevent replaying the
+        same row but do not reconcile amended filings, memo entries, transfers, or unique gifts.
+        Itemization is based on reporting thresholds and can include individual gifts below $200;
+        unitemized activity is not listed. Records are fetched on demand and may be stale.
+        Source: Federal Election Commission.
       </p>
     </Section>
   );

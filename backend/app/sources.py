@@ -15,11 +15,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from app.config import settings
 from app.pipelines import (
     congress_committee_meetings,
     congress_gov_bills,
     congress_legislators,
     congress_member_sponsored,
+    fec_candidates,
+    fec_candidate_totals,
+    fec_election_calendar,
     fec_finance,
     house_clerk_votes,
     senate_lis_votes,
@@ -98,12 +102,41 @@ SOURCES: dict[str, SourceSpec] = {
             staging_files=(congress_member_sponsored.STAGING_PATH,),
         ),
         SourceSpec(
+            name="fec_candidates",
+            title="FEC candidate registrations and contest metadata",
+            publisher="Federal Election Commission (OpenFEC API)",
+            endpoints=(Endpoint(fec_finance.FEC_BASE, official=True),),
+            auth_env="FEC_API_KEY",
+            staging_files=(fec_candidates.STAGING_PATH,),
+        ),
+        SourceSpec(
+            name="fec_election_calendar",
+            title="FEC-reported federal election dates",
+            publisher="Federal Election Commission (OpenFEC API)",
+            endpoints=(
+                Endpoint(f"{fec_finance.FEC_BASE}/calendar-dates/", official=True),
+            ),
+            auth_env="FEC_API_KEY",
+            staging_files=(fec_election_calendar.STAGING_PATH,),
+        ),
+        SourceSpec(
             name="fec_finance",
             title="Campaign-finance totals per member",
             publisher="Federal Election Commission (OpenFEC API)",
             endpoints=(Endpoint(fec_finance.FEC_BASE, official=True),),
             auth_env="FEC_API_KEY",
             staging_files=(fec_finance.STAGING_PATH,),
+        ),
+        SourceSpec(
+            name="fec_candidate_totals",
+            title="FEC candidate financial summaries and committee links",
+            publisher="Federal Election Commission (bulk data)",
+            endpoints=tuple(
+                Endpoint(url, official=True)
+                for url in fec_candidate_totals.source_urls(settings.fec_cycle)
+            ),
+            auth_env=None,
+            staging_files=(fec_candidate_totals.STAGING_PATH,),
         ),
         SourceSpec(
             name="committee_meetings",

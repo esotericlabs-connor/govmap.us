@@ -3,7 +3,11 @@ import { Inter, Space_Grotesk } from "next/font/google";
 import "./globals.css";
 
 import { MemberBlade } from "@/components/MemberBlade";
+import { SiteHeader } from "@/components/SiteHeader";
+import { WorkspaceChrome } from "@/components/WorkspaceChrome";
+import { MapWorkspaceProvider } from "@/lib/map-workspace";
 import { MemberBladeProvider } from "@/lib/member-blade";
+import { THEME_SCRIPT } from "@/lib/theme.mjs";
 import { ZipProvider } from "@/lib/zip-context";
 
 const inter = Inter({
@@ -20,7 +24,7 @@ const spaceGrotesk = Space_Grotesk({
 });
 
 const DESCRIPTION =
-  "A nonpartisan, plain-English view of the entire US federal government — who represents you, how they vote, who runs the agencies that govern you, where the money goes, and how a bill becomes law.";
+  "A nonpartisan view of your government, from city council to Congress — starting with who represents you in Congress, how they vote, the bills they write and where their campaign money comes from. Real public records, always sourced.";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://govmap.us"),
@@ -57,13 +61,27 @@ export default function RootLayout({
       // Next 16 stopped disabling smooth scrolling during route changes by
       // default; this restores the instant scroll-to-top on navigation.
       data-scroll-behavior="smooth"
+      // The theme script sets data-theme before hydration.
+      suppressHydrationWarning
     >
+      <head>
+        {/* Applies a saved Light/Dark choice before first paint. Static text,
+            no user input; a future nonce-based CSP must allow it. */}
+        <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
+      </head>
       {/* Base background/text colors are now in globals.css */}
       <body>
-        <MemberBladeProvider>
-          <ZipProvider>{children}</ZipProvider>
-          <MemberBlade />
-        </MemberBladeProvider>
+        <MapWorkspaceProvider>
+          <MemberBladeProvider>
+            <ZipProvider>
+              {/* Mounted once here so the header, its search and menu survive
+                  navigation instead of remounting with every page. */}
+              <SiteHeader />
+              <WorkspaceChrome>{children}</WorkspaceChrome>
+            </ZipProvider>
+            <MemberBlade />
+          </MemberBladeProvider>
+        </MapWorkspaceProvider>
       </body>
     </html>
   );

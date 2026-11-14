@@ -8,9 +8,10 @@ import base64
 import json
 from collections.abc import AsyncIterator, Iterator, Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
+from types import SimpleNamespace
 from typing import Any
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from fastapi import FastAPI
@@ -373,12 +374,24 @@ def test_source_runs_rejects_invalid_filters_before_querying(
         ("/api/bills", "limit=-1"),
         ("/api/bills", "congress=-1"),
         ("/api/bills", "congress=2147483648"),
+        ("/api/bills", "status=passed_house"),
+        ("/api/bills", "status=Became%20Law"),
         ("/api/votes", "offset=-1"),
         ("/api/votes", "limit=0"),
         ("/api/votes", "session=2147483648"),
         ("/api/members", "offset=-1"),
         ("/api/members", "limit=-1"),
         ("/api/members/A000360/donations", "offset=1000001"),
+        ("/api/overview", "weeks=3"),
+        ("/api/overview", "weeks=53"),
+        ("/api/overview", "weeks=ten"),
+        ("/api/bills", "sort=unknown"),
+        ("/api/votes", "sort=unknown"),
+        ("/api/elections/candidates", "sort=unknown"),
+        ("/api/money/candidates", "sort=unknown"),
+        ("/api/money/candidates/H0CA00001", "sort=unknown"),
+        ("/api/bills", "q=" + "x" * 101),
+        ("/api/votes", "q=" + "x" * 101),
     ],
 )
 def test_public_lists_reject_out_of_range_paging_before_querying(
@@ -399,6 +412,217 @@ def test_public_list_accepts_paging_bounds(run_store: _FakeRunStore) -> None:
     assert status == 200
     assert json.loads(payload) == []
     assert len(run_store.statements) == 1
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "cycle=2025",
+        "cycle=2100",
+        "office=X",
+        "state=California",
+        "office=S&state=CA&district=01",
+        "office=H&district=01",
+        "through=2026-02-30",
+        "offset=1000001",
+    ],
+)
+def test_money_filters_are_rejected_before_querying_data(query: str) -> None:
+    status, _, _ = asyncio.run(_call(main.app, "GET", "/api/money/candidates", query=query))
+    assert status == 422
+
+
+def test_money_candidate_identifier_is_validated() -> None:
+    status, _, _ = asyncio.run(_call(main.app, "GET", "/api/money/candidates/not-an-id"))
+    assert status == 422
+
+
+@pytest.mark.parametrize(("resource", "query"), [("calendar", "year=2026"), ("candidates", "cycle=2026")])
+@pytest.mark.parametrize("available", [False, True])
+def test_election_responses_include_utc_generation_time(
+    monkeypatch: pytest.MonkeyPatch, resource: str, query: str, available: bool
+) -> None:
+    fetched_at = datetime(2026, 1, 3, tzinfo=UTC)
+    coverage = (
+        SimpleNamespace(
+            complete=True,
+            event_count=1,
+            candidate_count=1,
+            expected_count=1,
+            fetched_at=fetched_at,
+        )
+        if available
+        else None
+    )
+    coverage_result = Mock()
+    coverage_result.scalar_one_or_none.return_value = coverage
+    results = [coverage_result]
+
+    if available and resource == "calendar":
+        events = Mock()
+        events.scalars.return_value.all.return_value = [
+            SimpleNamespace(
+                calendar_year=2026,
+                event_id=1,
+                category="Election Dates",
+                summary="General Election",
+                description=None,
+                location="California",
+                state=[],
+                start_date=date(2026, 11, 3),
+                end_date=None,
+                end_date_normalized=True,
+                url=None,
+            )
+        ]
+        results.append(events)
+    elif available:
+        count = Mock()
+        count.scalar_one.return_value = 1
+        groupings = Mock()
+        groupings.all.return_value = [
+            SimpleNamespace(
+                office="H",
+                office_full="House",
+                state="CA",
+                district="01",
+                candidate_count=1,
+            )
+        ]
+        candidates = Mock()
+        candidates.scalars.return_value.all.return_value = [
+            SimpleNamespace(
+                candidate_id="H0CA00001",
+                finance_cycle=2026,
+                name="Example Candidate",
+                office="H",
+                office_full="House",
+                state="CA",
+                district="01",
+                party="DEM",
+                party_full="Democratic Party",
+                candidate_status="C",
+                incumbent_challenge="C",
+                first_file_date=None,
+                last_file_date=None,
+                cycles=[2026],
+                election_years=[2026],
+                principal_committees=[],
+            )
+        ]
+        results.extend([count, groupings, candidates])
+        member_matches = Mock()
+        member_matches.all.return_value = [
+            (
+                SimpleNamespace(
+                    bioguide_id="A000001",
+                    official_full_name="Linked Profile",
+                    in_office=False,
+                ),
+                ["S0CA00001", "H0CA00001"],
+            )
+        ]
+        results.append(member_matches)
+
+    db = SimpleNamespace(
+        connection=AsyncMock(), execute=AsyncMock(side_effect=results)
+    )
+
+    async def fake_db() -> AsyncIterator[SimpleNamespace]:
+        yield db
+
+    monkeypatch.setitem(main.app.dependency_overrides, get_db, fake_db)
+    before = datetime.now(UTC)
+    status, _, body = asyncio.run(
+        _call(main.app, "GET", f"/api/elections/{resource}", query=query)
+    )
+    after = datetime.now(UTC)
+
+    assert status == 200
+    payload = json.loads(body)
+    generated_at = datetime.fromisoformat(payload["generated_at"].replace("Z", "+00:00"))
+    assert generated_at.utcoffset() == timedelta(0)
+    assert before <= generated_at <= after
+    assert payload["available"] is available
+    assert payload["complete"] is available
+    items = payload["events" if resource == "calendar" else "candidates"]
+    assert len(items) == int(available)
+    if available:
+        assert datetime.fromisoformat(payload["fetched_at"].replace("Z", "+00:00")) == fetched_at
+        assert items[0]["event_id" if resource == "calendar" else "candidate_id"] == (
+            1 if resource == "calendar" else "H0CA00001"
+        )
+        if resource == "candidates":
+            assert items[0]["member_match"] == {
+                "status": "matched",
+                "profile": {
+                    "bioguide_id": "A000001",
+                    "official_full_name": "Linked Profile",
+                    "in_office": False,
+                },
+            }
+    else:
+        assert payload["fetched_at"] is None
+    db.connection.assert_awaited_once_with(
+        execution_options={"isolation_level": "REPEATABLE READ"}
+    )
+    assert db.execute.await_count == len(results)
+
+
+@pytest.mark.parametrize("normalized", [False, True])
+def test_calendar_withholds_uninterpreted_stored_end_dates(
+    monkeypatch: pytest.MonkeyPatch, normalized: bool
+) -> None:
+    coverage = Mock()
+    coverage.scalar_one_or_none.return_value = SimpleNamespace(
+        complete=True,
+        event_count=1,
+        expected_count=1,
+        fetched_at=datetime(2026, 1, 3, tzinfo=UTC),
+    )
+    events = Mock()
+    events.scalars.return_value.all.return_value = [
+        SimpleNamespace(
+            calendar_year=2026,
+            event_id=1,
+            category="Election Dates",
+            summary="Election",
+            description=None,
+            location=None,
+            state=[],
+            start_date=date(2026, 11, 3),
+            end_date=date(2026, 11, 4),
+            end_date_normalized=normalized,
+            url=None,
+        )
+    ]
+    db = SimpleNamespace(
+        connection=AsyncMock(), execute=AsyncMock(side_effect=[coverage, events])
+    )
+
+    async def fake_db() -> AsyncIterator[SimpleNamespace]:
+        yield db
+
+    monkeypatch.setitem(main.app.dependency_overrides, get_db, fake_db)
+    status, _, body = asyncio.run(
+        _call(main.app, "GET", "/api/elections/calendar", query="year=2026")
+    )
+
+    assert status == 200
+    event = json.loads(body)["events"][0]
+    assert event["start_date"] == "2026-11-03"
+    assert event["end_date_normalized"] is normalized
+    assert event["end_date"] == ("2026-11-04" if normalized else None)
+
+
+def test_bill_list_applies_the_became_law_filter(run_store: _FakeRunStore) -> None:
+    status, _, payload = asyncio.run(
+        _call(main.app, "GET", "/api/bills", query="status=became_law")
+    )
+    assert status == 200
+    assert json.loads(payload) == []
+    (statement,) = run_store.statements
+    assert "bills.status = " in str(statement)
 
 
 def test_source_runs_returns_filtered_history_newest_first(run_store: _FakeRunStore) -> None:

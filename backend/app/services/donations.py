@@ -3,10 +3,11 @@
 Backs GET /api/members/{bioguide}/donations. The FEC Schedule A corpus is far
 too large to mirror (a single big committee reports 200k+ receipts/cycle), so
 this fetches receipts **lazily** as visitors page through a member's ledger and
-caches them in `contributions`, keyed by the FEC transaction sub_id (idempotent
-dedupe). `donation_fetch` holds the keyset cursor + progress per (member, cycle)
-so paging resumes where it left off; once the whole ledger is pulled, every view
-serves purely from our DB.
+caches them in `contributions`, keyed by the FEC source-row sub_id for
+idempotent replay. This does not reconcile amendments or establish distinct
+contributions. `donation_fetch` holds the keyset cursor + progress per
+(member, cycle) so paging resumes where it left off; reaching a terminal cursor
+does not establish complete or current economic-contribution coverage.
 
 The FEC key is sent as the X-Api-Key header, never a URL param. Without a key (or
 a resolvable committee) the endpoint degrades gracefully to whatever is cached

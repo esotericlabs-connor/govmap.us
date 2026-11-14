@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
 
+import { BillProgress, OutcomePill } from "@/components/BillProgress";
 import {
   BackLink,
   chamberLabel,
@@ -13,10 +14,11 @@ import {
 } from "@/components/DetailKit";
 import { MemberAvatar } from "@/components/MemberAvatar";
 import { MemberLink } from "@/components/MemberLink";
+import { LocalList } from "@/components/LocalList";
 import { PageSkeleton } from "@/components/PageSkeleton";
 import { Reveal } from "@/components/Reveal";
-import { SiteHeader } from "@/components/SiteHeader";
 import { apiGet, HttpError, type BillDetail, type BillText } from "@/lib/api";
+import { billProgress, ordinal } from "@/lib/bill-progress.mjs";
 import { externalHref } from "@/lib/safe-url.mjs";
 
 export const dynamic = "force-dynamic";
@@ -110,30 +112,13 @@ export async function generateMetadata({ params }: { params: Promise<{ billId: s
   return { title: bill?.title ?? label };
 }
 
-function StatusPill({ status }: { status: string | null }) {
-  if (!status) return null;
-  // A simple heuristic for status color. Could be expanded.
-  const norm = status.toLowerCase();
-  const isGood = norm.includes("law") || norm.includes("agreed to");
-  const color = isGood
-    ? "bg-green-100/80 text-green-800 ring-green-600/30"
-    : "bg-slate-warm-100 text-slate-warm-700 ring-slate-600/20";
-
-  return (
-    <p
-      className={`inline-block rounded-full px-3 py-1 text-xs font-bold ring-1 ring-inset ${color}`}
-    >
-      {status}
-    </p>
-  );
-}
-
 async function BillDetailContent({ billId }: { billId: string }) {
   const bill = await getBill(billId);
   if (!bill) notFound();
 
   const label = `${bill.bill_type.toUpperCase()} ${bill.number}`;
   const textHref = externalHref(bill.text_url);
+  const progress = billProgress(bill);
 
   return (
     <Reveal>
@@ -141,13 +126,16 @@ async function BillDetailContent({ billId }: { billId: string }) {
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           <CodePill>{label}</CodePill>
           {bill.congress && (
-            <p className="text-sm font-medium text-slate-warm-500">{bill.congress}th Congress</p>
+            <p className="text-sm font-medium text-slate-warm-500">{ordinal(bill.congress)} Congress</p>
           )}
-          <StatusPill status={bill.status} />
+          <OutcomePill progress={progress} />
         </div>
         <h1 className="mt-3 font-display text-4xl font-bold tracking-tight text-govnavy sm:text-5xl">
           {bill.title ?? label}
         </h1>
+        <div className="mt-6">
+          <BillProgress progress={progress} />
+        </div>
         {bill.latest_action && (
           <div className="mt-6 rounded-lg border border-slate-warm-200 bg-slate-warm-100/70 p-4">
             <p className="font-semibold text-slate-warm-600">
@@ -163,13 +151,16 @@ async function BillDetailContent({ billId }: { billId: string }) {
         <div className="lg:col-span-2">
           <div className="space-y-10">
             {(bill.summary || textHref) && (
-              <Section title="What this bill does">
+              <Section title="What this bill does (official CRS summary)">
                 {bill.summary ? (
                   <p className="whitespace-pre-line leading-relaxed text-slate-warm-700">
                     {bill.summary}
                   </p>
                 ) : (
-                  <EmptyState>No plain-English summary published yet for this bill.</EmptyState>
+                  <EmptyState>
+                    The Congressional Research Service hasn&apos;t published a summary of this
+                    bill yet.
+                  </EmptyState>
                 )}
                 {textHref && (
                   <a
@@ -195,8 +186,19 @@ async function BillDetailContent({ billId }: { billId: string }) {
               {bill.actions.length === 0 ? (
                 <EmptyState>No actions found for this bill.</EmptyState>
               ) : (
-                <ol className="relative -ml-1 border-l-2 border-slate-warm-200">
-                  {bill.actions.map((a, i) => (
+                <LocalList
+                  id="actions"
+                  label="Actions"
+                  groupLabel="chambers"
+                  as="ol"
+                  className="relative -ml-1 border-l-2 border-slate-warm-200"
+                  items={bill.actions.map((a, i) => ({
+                    id: a.seq,
+                    name: a.text,
+                    date: a.action_date,
+                    group: a.chamber,
+                    text: `${a.text} ${a.action_date ?? ""} ${a.chamber ?? ""}`,
+                    content: (
                     <li key={a.seq} className="mb-6 ml-6">
                       <span
                         className={`absolute -left-[9px] flex h-4 w-4 items-center justify-center rounded-full ring-8 ring-white ${
@@ -211,8 +213,9 @@ async function BillDetailContent({ billId }: { billId: string }) {
                         <p className="mt-1 text-slate-800">{a.text}</p>
                       </div>
                     </li>
-                  ))}
-                </ol>
+                    ),
+                  }))}
+                />
               )}
             </Section>
 
@@ -259,8 +262,19 @@ async function BillDetailContent({ billId }: { billId: string }) {
             {bill.cosponsors.length === 0 ? (
               <EmptyState>No cosponsors on this bill.</EmptyState>
             ) : (
-              <ul className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2 lg:grid-cols-1">
-                {bill.cosponsors.map((c) => (
+              <LocalList
+                id="cosponsors"
+                label="Cosponsors"
+                groupLabel="parties"
+                as="ul"
+                className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2 lg:grid-cols-1"
+                items={bill.cosponsors.map((c) => ({
+                  id: c.bioguide_id,
+                  name: c.official_full_name,
+                  date: c.sponsorship_date,
+                  group: c.party,
+                  text: `${c.official_full_name ?? ""} ${c.bioguide_id} ${c.party ?? ""} ${c.state ?? ""}`,
+                  content: (
                   <li key={c.bioguide_id}>
                     <MemberLink
                       bioguide={c.bioguide_id}
@@ -276,8 +290,9 @@ async function BillDetailContent({ billId }: { billId: string }) {
                       </span>
                     </MemberLink>
                   </li>
-                ))}
-              </ul>
+                  ),
+                }))}
+              />
             )}
           </Section>
         </aside>
@@ -290,7 +305,6 @@ export default async function BillDetailPage({ params }: { params: Promise<{ bil
   const { billId } = await params;
   return (
     <>
-      <SiteHeader variant="app" />
       <main className="bg-slate-warm-50 pb-20 pt-28">
         <div className="mx-auto max-w-6xl px-6">
           <BackLink href="/bills">All Bills</BackLink>

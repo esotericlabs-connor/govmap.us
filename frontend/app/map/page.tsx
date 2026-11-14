@@ -1,14 +1,14 @@
 import { CongressExplorer } from "@/components/CongressExplorer";
-import { SiteHeader } from "@/components/SiteHeader";
-import { serverApiBase, type ChamberSummary, type CongressMap } from "@/lib/api";
+import { serverApiBase, type CongressMap } from "@/lib/api";
 
 // Rendered on demand — the backend isn't reachable during the image build, so
 // prerendering would fetch a dead host.
 export const dynamic = "force-dynamic";
 
 export const metadata = {
-  title: "Congress",
-  description: "Find your representatives and explore every seat in the U.S. House and Senate.",
+  title: "Congress map",
+  description:
+    "Find your representatives and explore every seat in the U.S. House and Senate — from city council to Congress, starting with Congress.",
 };
 
 async function getJSON<T>(path: string): Promise<T | null> {
@@ -37,29 +37,20 @@ function LoadingSkeleton() {
   );
 }
 
-export default async function CongressPage() {
-  const [map, summary] = await Promise.all([
-    getJSON<CongressMap>("/api/map"),
-    getJSON<ChamberSummary>("/api/summary"),
-  ]);
+export default async function MapPage() {
+  const map = await getJSON<CongressMap>("/api/map");
 
   if (!map) {
     return (
-      <>
-        <SiteHeader variant="app" />
-        <main>
-          <LoadingSkeleton />
-        </main>
-      </>
+      <main>
+        <LoadingSkeleton />
+      </main>
     );
   }
 
   return (
-    <>
-      <SiteHeader variant="app" />
-      <main>
-        <CongressExplorer map={map} summary={summary} />
-      </main>
-    </>
+    <main>
+      <CongressExplorer map={map} />
+    </main>
   );
 }

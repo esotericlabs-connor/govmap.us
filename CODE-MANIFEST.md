@@ -4,6 +4,499 @@ What's been built, in what order, and what's next. This is a living log — add 
 
 ## Build log
 
+**Candidate receipt geography — on-demand FEC aggregate (awaiting CI/dev validation)**
+- Candidate finance detail can request FEC Schedule A aggregates grouped by
+  contributor-reported state. The view labels itemized-only coverage, excludes
+  unitemized amounts, reports source-record counts rather than unique people,
+  and does not claim state or district as verified residence.
+- This is a one-request, user-triggered adapter over the official FEC endpoint,
+  not a persisted dataset or scheduled national pipeline; amounts are parsed
+  directly as exact decimals and incomplete or conflicting pages fail visibly.
+  It does not retrieve donor identities. Local execution remains disabled;
+  CI and development checks are pending.
+
+**2026-11-13 — Candidate identities across finance cycles (awaiting CI/dev validation)**
+- Candidate-finance detail now enumerates the current FEC candidate ID and,
+  when the Bioguide match is unambiguous, other linked IDs. It links separately
+  loaded finance-cycle snapshots. The same snapshot read covers the crosswalk,
+  conflict checks and finance coverage. Missing summaries are not zero, and
+  crosswalk IDs are not proof of complete history, effective dates or ballot
+  status. Candidate totals are never added together.
+- Invalid or conflicting crosswalk IDs are withheld and counted; a missing or
+  ambiguous profile prevents related-ID matching but still shows loaded cycles
+  for the current candidate ID. This uses the existing
+  crosswalk and summary data, without a new source, schema migration or
+  expansion of individual-contributor data. API and PostgreSQL CI regressions
+  cover multiple IDs, loaded and unverified cycles, conflicts and invalid IDs.
+  Local execution remains disabled; CI and development checks are pending.
+
+**2026-11-13 — Compact list browsing (awaiting CI/dev validation)**
+- Replaced the large Elections and Campaign money filter forms with a compact
+  local search/sort bar and collapsed additional filters. Search is debounced;
+  select changes apply immediately. Criteria reset pagination without scrolling
+  to the page top, and remain in the URL for sharing and history navigation.
+  FEC candidate and committee-link pagination explicitly disables route-change
+  scroll resets; the selected sort and filters travel with each page.
+- Bills and Votes now search and sort the stored dataset before pagination,
+  rather than filtering a newest-250 preview. Queries require every literal
+  partial word in any order; sorting uses validated, fixed SQLAlchemy columns,
+  stable ID tie-breakers and missing-last ordering. Existing API response shapes
+  and default ordering remain compatible. Candidate-finance comparison still
+  requires the same finance cycle, office and report-through date.
+- Shared local controls cover the current member directory, election calendar
+  and office groupings, source status, overview meetings, member-profile lists
+  (including the map blade), bill actions/cosponsors, roll-call member groups,
+  committee rosters/subcommittees/meetings/referrals, and expandable chart data
+  tables. Each has local search, applicable sorting, counts and clear controls;
+  categorical filters appear where available. Local list state is namespaced
+  in the URL without a server navigation; updates retain member-panel Back/close
+  ownership and map snapshots while notifying Next's native-history bridge.
+  The existing donations ledger keeps
+  its in-place loading behavior and adopts compact controls with a clear action.
+- Bounded recent/detail subsets remain explicitly labeled as loaded-only;
+  searching them does not claim complete source history. Chart-table filtering
+  does not alter the chart or its coverage. No new sources, auth or migrations.
+- Added CI regressions for unordered search, literal metacharacters, sorting
+  before pagination, missing-last ordering, URL validation/state retention and
+  FEC scroll flags. No local app, tests or builds were run. CI and development
+  checks remain required for keyboard focus, rapid edits, mobile layout,
+  pagination scroll and browser Back/Forward.
+
+**2026-11-13 — Shared workspace chrome and universal navigation (awaiting CI/dev validation)**
+- The map's congressional legend, chamber diagrams and local/Washington clocks
+  now also appear on every data workspace and its record pages, including the
+  source-status page. The shared layout reserves space, including mobile safe
+  areas; the map retains its fixed viewport and reset behavior. The money
+  workspace no longer mounts the informational footer. About, Support,
+  Security and Privacy retain their existing branded footers.
+- The bar requests the existing summary endpoint on workspace navigation,
+  bounds request duration, validates seat counts, cancels obsolete requests
+  and offers an explicit unavailable/retry state. Missing data is not zero.
+  Informational routes do not mount the bar or make its summary request.
+- Universal navigation is grouped by purpose using the shared section registry,
+  not release history. Planned sections sit in a collapsed Coming next group;
+  active filters such as enacted laws still highlight the right destination.
+  A separate header Settings dropdown contains the existing System/Light/Dark
+  control, saved home area, clearly marked sign-in availability, problem
+  reporting and privacy. No account/authentication backend was added.
+- Navigation, the mobile legend and problem reporting use native modal dialogs
+  for focus containment, Escape dismissal and return focus. Reporting retains
+  the existing endpoint and verification flow; scroll locks are shared with
+  other overlays. Navigation/settings close on history navigation.
+- Added CI regressions for route coverage/exclusions, navigation grouping,
+  query-specific active links and summary validation. Local work remains
+  static only; CI and dev checks are required for responsive layouts, modal
+  focus, reporting, theme changes and the map's unchanged reset/return behavior.
+
+**2026-11-12 — Candidate profile links and unordered search (awaiting CI/dev validation)**
+- Campaign-money lists, comparisons and detail views, plus Elections candidate
+  rows, now resolve exact FEC IDs through the existing Bioguide crosswalk.
+  One batched lookup considers all stored IDs, including earlier office IDs
+  and former members. No name, office, district or finance-cycle inference
+  creates a person match. Unknown candidates remain unlinked; conflicting
+  crosswalk matches withhold the link and log a warning. A missing Elections
+  catalog does not prevent an independently evidenced member link.
+- Profile links reuse the existing slide-in member view, retaining the current
+  workspace and filters. Candidate finance records remain separate source
+  records; their names still link to finance details. No new member records,
+  migration or source refresh is required by this change.
+- Global member, bill, vote and committee search, plus campaign-money and
+  Elections candidate filters, now require each partial word in any order.
+  Commas and whitespace separate words; LIKE metacharacters stay escaped and
+  bound. Existing result caps, state lookup and compact bill-ID lookup remain;
+  exact Bioguide and crosswalk FEC-ID lookup are also supported.
+- Added CI regressions for reversed/partial names, literal metacharacters,
+  every-word matching, all global entity groups, historical-office IDs,
+  former members, conflicting matches, API serialization and workspace return
+  context. These tests have not run locally; CI and dev interaction checks
+  are still required. The separately reported FEC candidate-source HTTP 429
+  remains an upstream refresh issue, not a profile-matching dependency.
+
+**2026-11-12 — Candidate campaign-money foundation (awaiting CI/dev validation)**
+Added a bounded first `/money` view and a new FEC candidate-finance pipeline.
+This is a partial Step 2 release, not completion of the campaign-money plan.
+The source-qualified FEC candidate ID identifies a candidate registration or
+financial summary, not a federal legislative person: it never replaces
+Bioguide, creates a member, or implies a name-based identity match. The
+separately refreshed Elections catalog is joined only on the exact candidate ID
+and finance cycle; missing matches remain missing.
+
+- The unkeyed FEC [all-candidates financial summary](https://www.fec.gov/campaign-finance-data/all-candidates-file-description/)
+  and [candidate–committee linkage](https://www.fec.gov/campaign-finance-data/candidate-committee-linkage-file-description/)
+  bulk archives are size/row bounded, shape checked and atomically staged.
+  Their individual archive SHA-256 hashes, optional publisher `Last-Modified`,
+  fetch time and locally computed content revision are retained. The complete
+  parsed pair replaces only its own finance cycle in one transaction. File
+  parsing does not independently prove the publisher's coverage is complete.
+  The FEC publishes the two files independently, not as a verified simultaneous
+  publisher snapshot; their modification times may differ.
+  The source uses the existing FEC request budget, is tracked as
+  `fec_candidate_totals`, and is scheduled for 12:00 UTC when scheduling is
+  enabled. The FEC's observed archive redirect is restricted to its matching
+  HTTPS GovCloud object, with a separate request-budget reservation per hop;
+  an unexpected destination fails closed. Migration `0018` creates the new
+  tables. Some source linkage rows report four-digit candidate election years
+  outside the supported 1900–2100 range. Those publisher values are preserved
+  and flagged as unverified rather than treated as election evidence.
+- New candidate amounts use exact PostgreSQL decimals and JSON decimal strings;
+  chart and table labels use integer cents. The existing member-finance table
+  remains a separate floating-point source; no precision is recovered by
+  casting it. Its reader now accepts the publisher's `last_cash_on_hand_end_period`
+  and `last_debts_owed_by_committee` fields. Existing rows change on their next
+  successful finance refresh.
+- Candidate comparisons filter by office, two-year finance cycle and the same
+  latest reported coverage-end date. They show gross receipts, not unique
+  contributions. The FEC warns that transfers among authorized committees can
+  double-count activity; committee and candidate totals are never added
+  together. Candidate absence is not zero, reporting schedules can differ even
+  with the same end date, and a Senate finance cycle is not an election year.
+  Location filters use source-reported candidate state/district, not a
+  boundary-vintage or donor-residence geographic join.
+- Tables, exact amount labels, accessible chart data and a bounded pixel stack
+  share a stated per-block dollar scale for the candidates shown. Links from the
+  Elections catalog preserve the cycle and return filters. The explicit return
+  link targets the originating candidate row when it is still present; browser
+  scroll and focus behavior still require dev verification. A separate detail
+  chart compares selected source-reported contributions, loans and transfers
+  without adding potentially overlapping fields. The existing member
+  donation ledger now describes its one-committee, cached source rows as
+  incomplete/unreconciled rather than claiming every gift is represented.
+  The existing member card labels positive-category shares as a subset and
+  compares itemized/unitemized amounts only when both are reported and nonnegative.
+- Donor-area analytics, amendment-safe receipt reconciliation, contributor and
+  organization rankings, independent expenditures, historical parity and
+  publication-use approval are still outstanding. No new donor identity
+  dataset or donor export is introduced. FEC contributor information has
+  [solicitation and commercial-use restrictions](https://www.fec.gov/updates/sale-or-use-contributor-information/);
+  a disclaimer is not approval for expanded use on a donation-funded site.
+- Candidate and calendar pagination now request unique source-ID order, while
+  calendar output remains date ordered. Candidate pagination rejects mismatched
+  publisher counts when the FEC explicitly marks them exact.
+  Approximate counts still use the terminal boundary and duplicate-ID checks;
+  OpenFEC provides no verified consistent-snapshot token. Election source dates
+  use the shared date normalizer, with timed events reduced to FEC-local dates
+  and exclusive all-day ends converted to inclusive dates. The calendar's
+  upstream range includes the whole final day of the selected year. Migration `0019`
+  marks successfully normalized event rows; older ambiguous end dates are
+  withheld until refresh. The marker is per-row so even an older worker that
+  replaces a snapshot cannot accidentally certify its raw end dates.
+  Each election API response reads coverage and records from one database
+  snapshot. FEC calendar event IDs are not permanent identifiers. Regression
+  tests were added for CI. No local tests, builds or application processes were
+  run.
+
+**2026-11-12 — Election CI and bill-ingestion safety fixes (awaiting CI/dev validation)**
+Election responses now include a UTC generation time, so the page uses the
+shared source-freshness rules without reading the clock during React render.
+Election and status pages reject missing or invalid reference timestamps rather
+than labeling data fresh.
+Congress.gov cosponsor rows require a valid Bioguide ID; missing or malformed
+IDs withhold the bill bundle instead of silently dropping a cosponsor before
+replacement. No local tests or build were run.
+
+**2026-11-12 — Compact bill timeline (awaiting CI/dev validation)**
+Removed the repeated "How this was determined" disclosure from
+`frontend/components/BillProgress.tsx`. The compact milestones, dates, outcome
+notes, and no-probability caveat remain; a short Congress.gov source line points
+to the complete Action Timeline on the bill page. Milestone inference and its
+regression cases are unchanged. Static checkout only; no local tests or build.
+
+**2026-11-12 — Incomplete bill child bundles are withheld (awaiting CI/dev validation)**
+Congress.gov child pagination now fails explicitly at its page cap, and an
+invalid required child row rejects that bill's full detail bundle instead of
+silently staging a shortened action/cosponsor list. Complete bundles remain
+upsertable, while the run is recorded partial whenever a required bundle is
+withheld; existing stored rows are not replaced with incomplete data.
+
+**2026-11-12 — FEC candidate catalog (awaiting CI/dev validation)**
+Added a bounded, complete-snapshot OpenFEC candidate catalog for the configured
+two-year finance cycle, with separate publisher-reported election years, office,
+state, district, candidate IDs, and status. The candidate-list schema does not
+document principal committees; an empty passthrough array is not evidence that
+none exist. The page groups source records by office/state/district and supports
+validated filters. FEC registration is explicitly not treated as ballot access,
+a win, or members-elect; state election-office sources, official results, and
+the incoming Congress remain unintegrated. A full snapshot replaces only its
+own cycle in one transaction; capped, malformed, unstable, or interrupted
+pulls leave the last complete snapshot intact. Candidate refresh is tracked and
+scheduled after campaign-finance refresh. No local tests/builds were run.
+
+**2026-11-12 — FEC election-date calendar (awaiting CI/dev validation)**
+Added a daily, cycle-year snapshot of OpenFEC's explicit “Election Dates” calendar
+category, which includes primaries, general/special elections, runoffs, and party
+conventions, using exact-count pagination and atomic replacement. The Elections
+workspace labels these as FEC calendar events, not state ballot certification,
+results, or a complete state/local calendar. Events retain their FEC event IDs
+and source details; no identity match or member-elect inference is made. The
+official API describes nightly updates and a 100-result page limit; this source
+shares the existing FEC key and request budget. API terms and reuse rights remain
+unasserted in the source registry. The API supplies no event revision token, so
+the recorded revision hash is GovMap's local content hash and daily refresh is
+the correction mechanism. No local tests/builds were run.
+
+**2026-11-12 — Data pipeline status page at `/status` (awaiting CI/dev validation)**
+The source-freshness panel moves off the Federal overview to its own page, so
+the overview's side column is kept for branch data. No new upstream sources,
+pipelines, migrations or npm packages.
+
+- **`GET /api/sources`** (`app/routers/data_sources.py`, schema
+  `app/schemas/data_sources.py`, read-only, no upstream calls): every source in
+  `app/sources.py` with its title, publisher, public endpoint URLs (each marked
+  official or community-maintained), whether the publisher requires an access
+  key (never the key or its variable name), and its last successful refresh.
+  Like `/api/overview`, it reads only `pipeline_status.last_success`; run
+  outcomes, record counts and error detail stay on the authenticated
+  `/internal` endpoints. `/api/overview` now shares the same `last_successes()`
+  query and still returns `sources` for its chart attributions.
+- **`/status` page** (`frontend/app/status/page.tsx`): Capitol banner, counts of
+  current / stale / not-yet-loaded sources and of sources fetched only from
+  official publishers, then one card per source with its freshness badge,
+  plain-language schedule, exact last success, stale threshold and endpoints,
+  plus an explanation of what "current" means and links to coverage, the
+  source register and Security. The register link is pinned to the deployed
+  commit (`APP_COMMIT_SHA`, from the `SOURCE_COMMIT` build arg) so it resolves
+  on dev before `main` has the file; builds without a commit omit it. Reachable from the menu and search (`status`,
+  `pipeline`, `freshness`; registry entry in `lib/sections.ts`), the footer,
+  and a "Data status" link beside the overview's "as of" time.
+- `lib/freshness.mjs` gains `describeCadence()` and `formatHours()`, derived
+  from the same cadence table that drives staleness.
+- Tests: `backend/tests/test_data_sources.py` (registry order, last success
+  only, no internal fields or detail, no credential-bearing endpoint URL) and
+  new cases in `tests/freshness.test.mjs` and `tests/sections.test.mjs`, all
+  already in CI. Nothing was run in this static checkout. Still to confirm on
+  dev: the page in both themes and on mobile, the overview without the panel,
+  and the menu/search/footer links.
+
+**2026-11-12 — Source and coverage register: initial Group 2 inventory**
+Added [the register](docs/source-coverage-register.md) covering existing runtime
+sources and lazy upstream callers, Congress.gov endpoint families, OpenFEC
+families, roster files, HUD and proposed GovInfo access. It distinguishes stored
+fields from discarded metadata, bounded acquisition from verified completeness,
+and public documentation limits from unverified account quotas. Rights,
+identity, date-precision, storage and backup gates remain explicit; no credentials,
+new pipelines, quota changes or infrastructure are introduced. Next priorities:
+explicit partial bill subresources, correction refresh/checkpoints and measured
+coverage. The register is a baseline, not a claim that all access is exhausted.
+
+**2026-11-12 — Bill progress stepper, white light-mode header, smaller search, no scroll blanking (awaiting CI/dev validation)**
+Fixes from the visual-foundation review on dev, plus a status timeline on every
+bill page. No new upstream sources, npm packages or LLM text.
+
+- **"Where it stands"** (`components/BillProgress.tsx`, pure helper
+  `lib/bill-progress.mjs`): every bill page shows a stepper for its path to law
+  — introduced, committee, each chamber, the President, law — or the shorter
+  path for concurrent and simple resolutions (a constitutional-amendment joint resolution
+  ends at "Passed Congress", since ratification is up to the states). It shows
+  a headline, what has to happen next, a progress bar and an outcome pill
+  (Became law, Agreed to, Stopped, Ended, In progress) in place of the old
+  status pill. Each state is read from the bill's Congress.gov action log; the
+  short source note points to the full Action Timeline below the stepper. The
+  helper handles veto, pocket veto, veto override (passed or
+  failed), a measure failing in its first chamber, House/Senate differences,
+  and rule resolutions that only *mention* the bill (those aren't counted as
+  its passage). A bill from an earlier Congress that never finished reads
+  "Ended". For that, `GET /api/bills/{id}` now includes `current_congress`
+  (`settings.congress_number`, which must move to 120 in January 2027).
+  Unresolved differences have their own incomplete milestone, including for
+  concurrent resolutions. An official signature establishes enactment even if
+  the law number has not arrived. The visible caption distinguishes milestones
+  from odds, and failed votes are not described as irreversible.
+- **Header:** white with the light logo in Light mode, the dark panel color
+  with the transparent logo in Dark mode (the two logos swap in CSS with a fixed
+  box, so there is no flash or height change). It is no longer translucent
+  navy, so About and every other page get the same bar. The menu blade stays
+  navy.
+- **Search:** the centered column is 32rem (was 36rem) with less vertical
+  padding, closer to a normal search-engine bar. `UniversalSearch` and
+  `HomeZipChip` take a `tone` — `bar` (theme-aware, for the header) or `chrome`
+  (navy, for the menu blade) — so the dropdown follows the page theme.
+- **No more blank space while scrolling:** `Reveal` used to hold content
+  invisible until JavaScript loaded and an IntersectionObserver saw it, so
+  long lists (about 540 member cards) showed blank space on fast scrolls. It is
+  now a CSS lift with no opacity gate, so content is visible from server render,
+  including immediate deep scrolls and restored positions. Stagger is capped at 300 ms
+  everywhere (the members list was uncapped at 20 ms per card). Reduced-motion
+  users get everything immediately. Portraits keep a tinted circle while they
+  download.
+- Tests: `tests/bill-progress.test.mjs` (abridged real logs and synthetic regression cases:
+  enacted, vetoed with failed and passed overrides, pocket veto, failed in the
+  first chamber, resolutions, a constitutional amendment, differences, ended,
+  no history, status-only law, signature-only enactment, concurrence, unresolved
+  resolutions, reconsidered passage and ordinals) joins the CI node test list. Nothing
+  was run in this static checkout. Still to confirm on dev: the header in both
+  themes, the logo swap, search size and dropdown, the blade search, scrolling
+  the members list, and the stepper on an enacted law, a vetoed bill, a
+  resolution, a bill in committee and a 118th-Congress bill.
+
+**2026-11-12 — Visual foundation: Light/Dark themes, dashboard kit, federal overview at `/` (CI passed; deployed to dev)**
+First design-system slice of the dashboard plan (Group 1). `/` becomes a
+three-branch Federal overview built only from data GovMap already loads; the
+map moves to its own route. No new upstream sources, npm packages or LLM text.
+
+- Map **Reset** keeps its animated zoom-out to the default view.
+- **Themes:** System (default), Light or Dark from a header sun/moon toggle or
+  the menu. Every themeable color is an `r g b` CSS variable
+  (`tailwind.config.ts`), so existing classes follow the theme and semantic
+  tokens (`canvas`, `panel`, `sunken`, `line`, `ink`, `series-*`) serve new
+  surfaces. An inline script from `lib/theme.mjs` sets `data-theme` before first
+  paint, so there is no flash and the CSP is unchanged. The choice is kept in
+  localStorage (now listed on the Privacy page) and syncs across tabs. Surfaces
+  marked `.chrome` (header, menu, banners, footer, map status bar) stay
+  navy-and-white in both themes.
+- **`GET /api/overview`** (`app/routers/overview.py`, read-only, no upstream
+  calls): chamber balance (shared `chamber_balance` with `/api/summary`), roll
+  calls per chamber per week, current-Congress measures introduced per week,
+  measures on file, laws enacted, the next six committee meetings (a meeting
+  stored under a committee and its subcommittee is listed once), and each
+  registered source's title, publisher and last success. Run status and error
+  detail stay on the authenticated `/internal` endpoints. `weeks` is 4–52
+  (default 12); anything else is a 422. A week that ended before a chamber's
+  first stored roll call is `null` ("not collected"), never zero.
+- **Dashboard kit** (`frontend/components/dashboard/`): `Panel`, `Metric`,
+  `PanelLink`; `DataState` for none recorded / not collected / partial / stale /
+  source unavailable / not yet integrated, plus `FreshnessBadge` and
+  `LoadingBlock`; `ChartFigure`, which gives every chart a period, a one-line
+  reading, legend, source, coverage and its numbers as a table; `WeeklyBars`
+  (CSS bars, dashed stub for uncollected weeks); and `Hemicycle`. Pure helpers
+  `lib/chart-scales.mjs`, `lib/freshness.mjs` (refresh cadences mirror
+  `app/scheduler.py`; update both together) and `lib/hemicycle.mjs` (the seat
+  geometry the map's status bar and cartogram already used). The plan's d3
+  packages are deferred until a chart needs more than CSS/SVG.
+- **Overview page** (`app/page.tsx`): a Capitol-banner header with the motto, a
+  Federal/State/Local switcher (State and Local are Planned) and jump links to
+  the three branches. Congress: members in office, laws enacted, measures on
+  file and recent roll calls (each links to its list), House and Senate party
+  balance, weekly roll-call and measures-introduced charts, and upcoming
+  committee meetings. Executive and Judicial are explicit "Not yet integrated"
+  panels naming the official sources planned for them. A pipeline panel shows
+  each source's publisher and whether it is current against its schedule.
+  **Coverage caveat:** measures and laws count the bills GovMap holds (those
+  sponsored by current members plus recently updated ones), so the page says
+  "on file" and never presents them as official totals.
+- **Routing:** the map is now `/map` (`/congress` redirects there; Back links on
+  member and committee pages return to it, and the saved map view belongs to
+  `/map` history entries). The section registry adds "Federal overview" at `/`,
+  an empty search offers six shortcuts, and choosing a ZIP on the overview opens
+  the map and flies to the area.
+- Tests: backend `test_overview.py` (week boundaries; balance, activity,
+  meeting de-duplication and freshness; uncollected weeks) and `weeks` 422s in
+  `test_asgi_stack.py`. Frontend `theme`, `hemicycle`, `chart-scales` and
+  `freshness` node tests join CI, and `sections.test.mjs` covers the new routes.
+  Nothing was run in this static checkout. Still to confirm on dev: no theme
+  flash in any mode, toggle/menu/tab sync, dark-mode contrast, Reset animation,
+  map restore on Back, ZIP from the overview, and the overview at phone, tablet
+  and desktop widths.
+
+**2026-11-12 — Persistent header, centered command search, enacted-laws view (CI passed; deployed to dev)**
+Second navigation slice: make every live part of the app reachable from one
+centered search box, and give "what recently became law" a truthful view.
+Nothing planned is presented as available.
+
+- One section registry (`frontend/lib/sections.ts`) drives both the menu and the
+  search box's section shortcuts, so a destination can't be live in one and
+  missing in the other. Live: map, members, bills, recently enacted laws, votes,
+  and the About/Security/Privacy/Support pages. Elections, Campaign money,
+  Accountability, Executive and Judicial are badged **Planned** and link to the
+  About coverage list. Shortcut ranking always puts live destinations first.
+- `SiteHeader` is mounted once by the root layout instead of by 13 pages and
+  components, so it persists across navigation (the error screen now has it
+  too). On desktop it is a three-column grid with equal side tracks, keeping the
+  search on the viewport's true center whatever the logo, ZIP chip or menu
+  button widths. The menu lists live sections, an "In development" group and the
+  project pages, and highlights the most specific active section
+  (`/bills?status=became-law` highlights the laws view, not Bills).
+- `UniversalSearch` is now an ARIA combobox command bar. A 5-digit ZIP sets your
+  area; otherwise section shortcuts come before member/bill/vote/committee
+  results. ↑/↓ move through every suggestion, Enter (or the mobile Go key, via
+  form submit) opens the highlighted one, Escape closes the suggestions without
+  also closing the menu, and `/` or Ctrl/⌘+K focuses the desktop bar. Record
+  search is debounced and aborted when superseded; while a newer query loads,
+  the previous results stay visible but inert, so Enter can't open a result for
+  a query you've already changed. Real failures say search is unavailable
+  instead of "no results".
+- `GET /api/bills` accepts `status=became_law` (any other value is a 422): bills
+  whose Congress.gov record lists an enacted law, newest latest action first,
+  undated last. `/bills` gains "Recently active" / "Became law" tabs
+  (`/bills?status=became-law`); the laws view shows latest-action dates and a
+  coverage note. **Coverage caveat:** `status` is only set when a bill is loaded
+  in full (`to_bill_row`, from `bill.laws`); sponsored-legislation index stubs
+  carry no status until enriched, so this is not yet every enacted law. No schema
+  change: `status` is unindexed, and a scan of the ~19k-row table is cheap.
+- About's coverage section is the `#coverage` anchor target and adds a "Deeper
+  into Congress" group (Elections, Campaign money, Accountability; all Planned).
+- Tests: `frontend/tests/sections.test.mjs` (registry consistency, ranking,
+  live-before-planned) joins frontend CI. It imports `lib/sections.ts` directly
+  through Node 24 type stripping, which is why that file stays import-free,
+  erasable-only TypeScript. Backend: `test_asgi_stack.py` 422 cases plus the
+  filter's SQL, and Postgres-backed `test_bill_list_filters.py` for filtering,
+  ordering and paging. Nothing was run in this static checkout. Still to confirm
+  on dev: search centered within a pixel with and without the ZIP chip,
+  keyboard/shortcut behavior, the mobile menu search, and the laws tab.
+
+**2026-11-12 — Workspace navigation first slice (deployed to dev; map → member → Back confirmed)**
+Start the approved dashboard overhaul with the map-return defect, not visual
+decoration or new data sources. This is a staged foundation, not completion of
+the wider three-branch/dashboard plan.
+
+- Map chamber, viewport and selected seat now live in a root-level provider.
+  Versioned localStorage saves the last view across restarts; per-history-entry
+  snapshots preserve distinct Back/Forward positions. Invalid/incompatible
+  snapshots and unavailable storage produce visible notices. Reset restores the
+  national House view without clearing the separately stored home ZIP.
+- Restoring a map suppresses the initial home-ZIP fly-to; deliberately choosing a
+  ZIP still moves the map. JavaScript fly-to animation respects reduced motion.
+- Member profile, contributions and expanded presentation have separate
+  query-addressed history steps. Expansion stays in the panel instead of leaving
+  the map; Back takes one step and Close exits the owned panel journey. Direct
+  links do not blindly call browser Back. Native Next history metadata is retained.
+- A native dialog provides focus containment and background inertness. Header and
+  detail share a reference-counted body-scroll lock; closed menu controls are inert.
+  Member-detail requests are aborted when superseded/unmounted.
+- Profile/contribution scroll positions are attached to history entries. The
+  contributions ledger stays mounted while switching views within the same
+  member panel, retaining its filters. Standalone member routes remain available.
+- Added pure state/URL/history regression cases to frontend CI; no tests/builds
+  were run in this static checkout. CI/type-check and deployed browser validation
+  are still required, especially map -> member -> contributions -> expand ->
+  Back/Forward/Close, refresh/restart, blocked storage and mobile/reduced motion.
+- Follow-on slices still include the persistent route-group shell, contextual
+  bill/vote/committee panels, broader filter/scroll restoration, centered section
+  search, themes, dashboard data and the Executive/Judicial integrations.
+
+**2026-11-12 — UX pass 1: app at the root, About/Support/Security pages**
+First UX increment after the foundation closeout. Frontend only; no schema,
+API or data change.
+
+- `govmap.us` now opens the map directly: the `/congress` page moved to
+  `app/page.tsx` and `/congress` is a permanent redirect to `/` (query string
+  carried through, so `?member=` deep links still work). The marketing landing
+  page, `ThemedSection` and `GovmapWord` were removed; `SiteHeader` lost its
+  unreachable marketing variant and the `variant` prop.
+- The footer's Capitol-photo/navy-scrim look is now a shared component
+  (`components/PageBanner.tsx`: `CapitolBackdrop`, `PageBanner`, `BannerCard`)
+  used by the footer, `/about`, `/support`, `/privacy` and `/security`. Other
+  app pages adopt it in later passes.
+- New `/about` (mission, ambition, coverage clearly badged Live vs Planned —
+  only Congress is live — principles, the sources actually in use) and
+  `/support` (Ko-fi, Buy Me a Coffee, Liberapay). Patreon, Open Collective,
+  thanks.dev and the fiscal-sponsor note were removed.
+- `/security` rewritten as "Security & Transparency": open source (GPLv3, CI
+  gates, pinned dependencies), transparency (sourced records, no AI content,
+  donation-funded), public data only, plain-English protections, and the
+  disclosure policy. Its scope no longer lists the nonexistent
+  `api.govmap.us`.
+- The official `@govmapus` Mastodon/Bluesky/Instagram accounts and
+  `support@govmap.us` are confirmed by the operator and linked
+  (`siteConfig.contactEmail` is set).
+- The side menu ends with About and Support links; "Congress" is now "Map".
+- Bill pages label the summary "(official CRS summary)"; the empty state
+  explains CRS hasn't published one, instead of implying a plain-English
+  rewrite.
+- Follow-up candidate: `services/bill_enrich.enrich_bill` returns early once
+  `enriched_at` is set, so a bill first enriched on view before CRS published
+  its summary may never pick it up (the scheduled `congress_gov_bills` pull
+  does refresh the bills it covers). Address in the data-groundwork phase.
+
 **2026-11-11 — Final foundation closeout (closed 2026-11-12: Go with named follow-ups)**
 The operator approved a finite backup/security/reliability closeout before
 incremental UX, data and features. It started from baseline `c76974b`
@@ -1272,19 +1765,19 @@ govmap.us/
 │   │   └── main.py
 │   ├── migrations/     # Alembic
 │   └── data/staging/   # raw pipeline output, gitignored
-├── frontend/           # Next.js app -- two zones, one deployment
+├── frontend/           # Next.js app, one host, relative routes
 │   ├── Dockerfile      # multi-stage, Next standalone output, non-root
-│   ├── middleware.ts   # hostname routing: govmap.us vs app.govmap.us
-│   ├── lib/
-│   │   └── site-config.ts  # cross-zone URLs, GitHub, social/support links
-│   ├── public/         # logo-dark.png, logo-light.png
+│   ├── lib/            # API types, site-config, section registry, theme,
+│   │                   # map workspace state, pure .mjs helpers (unit-tested)
+│   ├── components/     # shared UI; dashboard/ holds panels, data states, charts
+│   ├── tests/          # node --test suites for the lib/ helpers
+│   ├── public/         # logo-dark.png, logo-light.png, capitol-hero.jpg
 │   └── app/
-│       ├── page.tsx    # marketing site (govmap.us root)
-│       ├── icon.png    # favicon (cropped Capitol mark)
-│       └── app/        # the platform (app.govmap.us root, via rewrite)
-│           ├── layout.tsx
-│           ├── page.tsx
-│           └── members/page.tsx
+│       ├── page.tsx    # Federal overview (/)
+│       ├── map/        # the Congress map (/map)
+│       ├── members/ bills/ votes/ committees/   # record lists and detail pages
+│       ├── about/ security/ privacy/ support/   # project pages
+│       └── icon.png    # favicon (cropped Capitol mark)
 ├── docker-compose.yml  # full stack: postgres + backend + frontend, loopback-bound
 └── .github/workflows/  # CI (lint now, deploy once the runner exists)
 ```
@@ -1317,8 +1810,8 @@ Adapted from the original end-to-end plan, reordered to prove the pipeline contr
 - **PACER costs money per page**, not a flat quarterly fee — the pipeline needs to scope queries tightly and track spend, not just cap at "$30/qtr" and assume it holds.
 - **OPM PLUM and White House scrapers are fragile by nature** (HTML scrapes with no API). They need to fail loudly on structural change, not silently return stale data — flagged in the original plan and still true.
 - **Pipeline status is persisted in Postgres** (the `pipeline_status` table / `PipelineStatusRow`), written by `record_run()` and read by `/internal/pipeline-status`, so it survives restarts and redeploys. This supersedes the old ephemeral `pipeline_status.json` (promoted to a table in schema 0002) — no volume/permission concern remains. A fresh DB simply shows no rows until each source's first run.
-- **2027 rollover: the tracked Congress/session/cycle are time-coupled and must be bumped together in January 2027.** All three are env-overridable (change the deploy `.env` + `docker-compose.yml` defaults, not code): `CONGRESS_NUMBER` 119 → 120, `CONGRESS_SESSION` 2 → 1 (120th's first session = 2027), and `FEC_CYCLE` 2026 → 2028. Defaults live in `backend/app/config.py`; the runtime values are wired in the backend and worker `environment:` blocks of `docker-compose.PaaS.yml` (backend only in the legacy `docker-compose.yml`). Roll all three at once — a mismatch (e.g. new Congress but old cycle) silently pulls the wrong session's bills/votes or the wrong finance cycle. The per-run coverage caps (`CONGRESS_GOV_BILL_LIMIT`, `VOTES_LIMIT`) don't need touching; only these three values. The first members refresh of the new Congress will be withheld by the departure guard (more than 3 members leave); confirm it with `python -m app.pipelines.refresh members --allow-roster-turnover`.
-- **Marketing site has no real social handles or support/donation link.** `frontend/lib/site-config.ts` ships with `socialLinks: []` and `supportUrl: null` on purpose rather than placeholder/fake links — fill them in as real accounts and a donation link exist.
+- **2027 rollover: the tracked Congress/session/cycle are time-coupled and must be bumped together in January 2027.** All three are env-overridable (change the deploy `.env` + `docker-compose.yml` defaults, not code): `CONGRESS_NUMBER` 119 → 120, `CONGRESS_SESSION` 2 → 1 (120th's first session = 2027), and `FEC_CYCLE` 2026 → 2028. Defaults live in `backend/app/config.py`; the runtime values are wired in the backend and worker `environment:` blocks of `docker-compose.PaaS.yml` (backend only in the legacy `docker-compose.yml`). Roll all three at once — a mismatch (e.g. new Congress but old cycle) silently pulls the wrong session's bills/votes or the wrong finance cycle. `CONGRESS_NUMBER` also drives the bill page's "Ended" state (via `current_congress`): until it moves to 120, unfinished 119th-Congress bills keep reading "In progress". The per-run coverage caps (`CONGRESS_GOV_BILL_LIMIT`, `VOTES_LIMIT`) don't need touching; only these three values. The first members refresh of the new Congress will be withheld by the departure guard (more than 3 members leave); confirm it with `python -m app.pipelines.refresh members --allow-roster-turnover`.
+- **Social handles and support links are live.** `frontend/lib/site-config.ts` lists the operator-confirmed `@govmapus` accounts, `support@govmap.us` and three donation platforms. Only real, owned accounts belong there.
 - **Favicon is a stopgap crop**, not a designed icon mark — see README → *Sites & branding*. Fine for now, worth revisiting once there's a proper icon-only asset.
 - **DNS not yet configured** for the `app.` subdomain split. `frontend/middleware.ts` assumes `app.govmap.us` resolves to the same deployment as `govmap.us` — that DNS record (and matching `cloudflared` routing) needs to exist before the split works in production.
 - **The `/congress` map is a computed seat-chart, not geographic.** `CongressCartogram` draws one dot per member (a hemicycle) because congressional-district geometry can't be generated or downloaded on the static build box. The geographic upgrade — real district polygons — is deferred; when built it must stay self-contained (serve simplified geometry from our own API or a committed asset, **never** per-visitor third-party map tiles/tracking).

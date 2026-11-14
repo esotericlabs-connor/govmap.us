@@ -19,9 +19,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import get_db
 from app.models.bill import Bill
 from app.models.committee import Committee
+from app.models.crosswalk import IdCrosswalk
 from app.models.member import Member
 from app.models.vote import Vote
-from app.services.search import LIKE_ESCAPE, escape_like, substring_pattern
+from app.services.search import LIKE_ESCAPE, escape_like, match_words, substring_pattern
 
 router = APIRouter(prefix="/api/search", tags=["search"])
 
@@ -43,9 +44,8 @@ async def search(
     if len(term) < MIN_CHARS:
         return empty
 
-    pat = substring_pattern(term)
     # "hr 1234" -> matches bill_id "hr1234-119"
-    bill_pat = substring_pattern(term.replace(" ", ""))
+    bill_pat = substring_pattern("".join(term.split()))
 
     members = (
         await db.execute(
@@ -60,10 +60,18 @@ async def search(
             )
             .where(
                 or_(
-                    Member.official_full_name.ilike(pat, escape=LIKE_ESCAPE),
-                    Member.last_name.ilike(pat, escape=LIKE_ESCAPE),
+                    match_words(
+                        term, Member.official_full_name, Member.first_name, Member.last_name
+                    ),
                     # Case-insensitive exact state code; "%%" must not match every state.
                     Member.state.ilike(escape_like(term), escape=LIKE_ESCAPE),
+                    Member.bioguide_id.ilike(escape_like(term), escape=LIKE_ESCAPE),
+                    select(IdCrosswalk.bioguide_id)
+                    .where(
+                        IdCrosswalk.bioguide_id == Member.bioguide_id,
+                        IdCrosswalk.fec_ids.any(term.upper()),
+                    )
+                    .exists(),
                 )
             )
             # Former members stay searchable, after the current ones.
@@ -77,7 +85,7 @@ async def search(
             select(Bill.bill_id, Bill.bill_type, Bill.number, Bill.title, Bill.latest_action)
             .where(
                 or_(
-                    Bill.title.ilike(pat, escape=LIKE_ESCAPE),
+                    match_words(term, Bill.title, Bill.bill_id),
                     Bill.bill_id.ilike(bill_pat, escape=LIKE_ESCAPE),
                 )
             )
@@ -89,7 +97,7 @@ async def search(
     votes = (
         await db.execute(
             select(Vote.vote_id, Vote.chamber, Vote.date, Vote.question, Vote.result)
-            .where(Vote.question.ilike(pat, escape=LIKE_ESCAPE))
+            .where(match_words(term, Vote.question, Vote.vote_id))
             .order_by(nullslast(Vote.date.desc()))
             .limit(PER_GROUP)
         )
@@ -98,7 +106,7 @@ async def search(
     committees = (
         await db.execute(
             select(Committee.committee_id, Committee.name, Committee.chamber)
-            .where(Committee.name.ilike(pat, escape=LIKE_ESCAPE))
+            .where(match_words(term, Committee.name, Committee.committee_id))
             .order_by(Committee.name)
             .limit(PER_GROUP)
         )

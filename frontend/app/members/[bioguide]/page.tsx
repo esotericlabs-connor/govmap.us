@@ -5,7 +5,6 @@ import { BackLink } from "@/components/DetailKit";
 import { MemberProfileBody } from "@/components/MemberProfileBody";
 import { PageSkeleton } from "@/components/PageSkeleton";
 import { Reveal } from "@/components/Reveal";
-import { SiteHeader } from "@/components/SiteHeader";
 import { apiGet, HttpError, type MemberDetail } from "@/lib/api";
 
 // Never prerendered — the backend isn't reachable during the image build.
@@ -41,10 +40,9 @@ export default async function MemberDetailPage({ params }: { params: Promise<{ b
   const { bioguide } = await params;
   return (
     <>
-      <SiteHeader variant="app" />
       <main className="bg-slate-warm-50 pb-20 pt-28">
         <div className="mx-auto max-w-6xl px-6">
-          <BackLink href="/congress">Back to map</BackLink>
+          <BackLink href="/map">Back to map</BackLink>
           <Suspense fallback={<PageSkeleton />}>
             <MemberDetailContent bioguide={bioguide} />
           </Suspense>

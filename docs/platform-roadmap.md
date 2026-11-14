@@ -7,6 +7,10 @@ The product direction below reflects operator decisions. Numerical service
 targets, source-specific designs, paid access and later product phases need
 validation and approval at their respective gates.
 
+The [source and coverage register](source-coverage-register.md) is the current
+endpoint inventory for the dashboard expansion. It records checked-in coverage
+and remaining gates separately from this roadmap's historical planning baseline.
+
 ## 1. Mission and approved direction
 
 Build a source-grounded, near-real-time view of the US government: institutions,

@@ -40,13 +40,17 @@ export function ChamberTabs() {
       {TABS.map((tab, i) => {
         const active =
           (tab.chamber === null && !currentChamber) || tab.chamber === currentChamber;
+        const query = new URLSearchParams(searchParams.toString());
+        if (tab.chamber) query.set("chamber", tab.chamber);
+        else query.delete("chamber");
         return (
           <Link
             key={tab.label}
             ref={(el) => {
               tabsRef.current[i] = el;
             }}
-            href={tab.chamber ? `${pathname}?chamber=${tab.chamber}` : pathname}
+            href={`${pathname}${query.size ? `?${query}` : ""}`}
+            scroll={false}
             className={`relative z-10 rounded-full px-5 py-1.5 text-sm font-semibold capitalize transition-colors duration-300 ${
               active ? "text-white" : "text-slate-warm-600 hover:text-govnavy"
             }`}

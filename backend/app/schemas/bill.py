@@ -123,7 +123,7 @@ class BillActionRaw(BaseModel):
 class CosponsorRaw(BaseModel):
     """GET /bill/{congress}/{type}/{number}/cosponsors — one cosponsor."""
 
-    bioguideId: str | None = None
+    bioguideId: str = Field(min_length=7, max_length=7, pattern=r"^[A-Z][0-9]{6}$")
     sponsorshipDate: FlexDate = None
     isOriginalCosponsor: bool | None = None
 

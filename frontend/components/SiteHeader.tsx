@@ -2,31 +2,18 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { usePathname, useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-import { BugReport } from "@/components/BugReport";
-import { GovmapWord } from "@/components/GovmapWord";
+import { AppSettings } from "@/components/AppSettings";
 import { HomeZipChip } from "@/components/HomeZipChip";
 import { UniversalSearch } from "@/components/UniversalSearch";
+import { activeSectionId, NAVIGATION_GROUPS, SECTIONS, type Section } from "@/lib/sections";
 import { siteConfig } from "@/lib/site-config";
+import { useScrollLock } from "@/lib/use-scroll-lock";
 
-type NavItem = { label: string; href: string; external?: boolean };
-
-const MARKETING_NAV: NavItem[] = [
-  { label: "About", href: "/#about" },
-  { label: "GitHub", href: siteConfig.githubUrl, external: true },
-  { label: "Privacy Policy", href: "/privacy" },
-  { label: "Support", href: "/#support" },
-];
-
-const APP_NAV: NavItem[] = [
-  { label: "Congress", href: "/congress" },
-  { label: "Members", href: "/members" },
-  { label: "Bills", href: "/bills" },
-  { label: "Votes", href: "/votes" },
-];
+const PLANNED_NAV = SECTIONS.filter((s) => s.group === "workspace" && s.availability === "planned");
 
 function MenuIcon() {
   return (
@@ -52,172 +39,177 @@ function CloseIcon() {
 function NavLink({
   item,
   active,
-  isMobile,
   onClick,
 }: {
-  item: NavItem;
+  item: Section;
   active: boolean;
-  isMobile?: boolean;
-  onClick?: () => void;
+  onClick: () => void;
 }) {
   return (
     <Link
       href={item.href}
-      {...(item.external ? { target: "_blank", rel: "noreferrer" } : {})}
       onClick={onClick}
-      className={`relative transition-colors ${
-        isMobile
-          ? "rounded-md px-3 py-2 text-base font-medium"
-          : "text-sm font-medium"
-      } ${
-        active
-          ? "text-white"
-          : "text-white/70 hover:text-white"
+      aria-current={active ? "page" : undefined}
+      className={`block rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
+        active ? "bg-white/10 text-white" : "text-white/70 hover:bg-white/5 hover:text-white"
       }`}
     >
       {item.label}
-      {active && !isMobile && (
-        <span className="absolute -bottom-2 left-1/2 h-0.5 w-4 -translate-x-1/2 rounded-full bg-govblue" />
-      )}
     </Link>
   );
 }
 
-export function SiteHeader({
-  variant = "marketing",
+function SectionLinks({
+  sections,
+  activeId,
+  onNavigate,
 }: {
-  variant?: "marketing" | "app";
+  sections: readonly Section[];
+  activeId: string | null;
+  onNavigate: () => void;
 }) {
-  const navItems = variant === "marketing" ? MARKETING_NAV : APP_NAV;
+  return (
+    <>
+      {sections.map((item) => (
+        <NavLink key={item.id} item={item} active={item.id === activeId} onClick={onNavigate} />
+      ))}
+    </>
+  );
+}
+
+// Reads the query string, so it sits behind a Suspense boundary.
+function ActiveSectionLinks({
+  sections,
+  onNavigate,
+}: {
+  sections: readonly Section[];
+  onNavigate: () => void;
+}) {
   const pathname = usePathname();
-  const [scrolled, setScrolled] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
+  const searchParams = useSearchParams();
+  return (
+    <SectionLinks
+      sections={sections}
+      activeId={activeSectionId(pathname, searchParams)}
+      onNavigate={onNavigate}
+    />
+  );
+}
 
-  useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 10);
-    onScroll();
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
-  }, []);
+function MenuSections({ sections, onNavigate }: { sections: readonly Section[]; onNavigate: () => void }) {
+  return (
+    <Suspense fallback={<SectionLinks sections={sections} activeId={null} onNavigate={onNavigate} />}>
+      <ActiveSectionLinks sections={sections} onNavigate={onNavigate} />
+    </Suspense>
+  );
+}
 
-  useEffect(() => {
-    if (menuOpen) document.body.style.overflow = "hidden";
-    else document.body.style.overflow = "";
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setMenuOpen(false);
-    window.addEventListener("keydown", onKey);
-    return () => {
-      document.body.style.overflow = "";
-      window.removeEventListener("keydown", onKey);
-    };
+/**
+ * The persistent app header, mounted once by the root layout so it survives
+ * navigation. Equal side tracks keep the search on the viewport's true center
+ * whatever the logo, ZIP chip or menu button widths are.
+ */
+export function SiteHeader() {
+  const pathname = usePathname();
+  // The menu belongs to the page it was opened on, so Back/Forward closes it.
+  const [openOn, setOpenOn] = useState<{ pathname: string; panel: "navigation" | "settings" } | null>(null);
+  const menuOpen = openOn?.pathname === pathname && openOn.panel === "navigation";
+  const settingsOpen = openOn?.pathname === pathname && openOn.panel === "settings";
+  const close = useCallback(() => setOpenOn(null), []);
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  useScrollLock(menuOpen);
+
+  useLayoutEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    if (menuOpen && !dialog.open) dialog.showModal();
+    else if (!menuOpen && dialog.open) dialog.close();
   }, [menuOpen]);
 
-  // App pages have no hero, so the bar is glassy from the top; the marketing
-  // header floats transparent over the hero until you scroll.
-  const isGlassy = variant === "app" || scrolled || menuOpen;
+  useEffect(() => {
+    window.addEventListener("popstate", close);
+    return () => window.removeEventListener("popstate", close);
+  }, [close]);
 
   return (
-    <header
-      className={`fixed inset-x-0 top-0 z-50 transition-all duration-300 ${
-        isGlassy
-          ? "border-b border-white/10 bg-govnavy/80 backdrop-blur-lg"
-          : "border-b border-transparent bg-transparent"
-      }`}
-    >
-      <div className="relative flex w-full items-center justify-between gap-4 px-6 py-3.5">
+    <header className="fixed inset-x-0 top-0 z-50 border-b border-slate-warm-200 bg-white">
+      <div className="flex w-full items-center justify-between gap-4 px-6 py-3.5 md:grid md:grid-cols-[minmax(12rem,1fr)_minmax(0,32rem)_minmax(12rem,1fr)]">
         <Link
-          href={variant === "app" ? siteConfig.appUrl : "/"}
-          className="shrink-0"
-          aria-label={variant === "app" ? "GovMap" : "GovMap.us home"}
-          onClick={() => setMenuOpen(false)}
+          href={siteConfig.appUrl}
+          className="relative block h-[41px] w-32 shrink-0 justify-self-start sm:h-[51px] sm:w-40"
+          aria-label="GovMap.us home"
+          onClick={close}
         >
+          <Image
+            src="/logo-light.png"
+            alt="GovMap.us"
+            fill
+            sizes="160px"
+            className="object-contain object-left dark:hidden"
+          />
           <Image
             src="/logo-dark-transparent.png"
             alt="GovMap.us"
-            width={160}
-            height={50}
-            priority
-            className="h-auto w-32 sm:w-40"
+            fill
+            sizes="160px"
+            className="hidden object-contain object-left dark:block"
           />
         </Link>
 
-        {/* Universal search — prominent and centered on app pages. */}
-        {variant === "app" && (
-          <div className="hidden flex-1 justify-center px-4 md:flex">
-            <UniversalSearch className="w-full max-w-xl" />
-          </div>
-        )}
+        <div className="hidden md:block">
+          <UniversalSearch className="w-full" shortcut />
+        </div>
 
-        {/* Desktop nav — marketing only. On app pages every destination lives
-            behind the menu button (right), keeping the bar to logo + search. */}
-        {variant === "marketing" && (
-          <nav
-            className="absolute left-1/2 top-1/2 hidden -translate-x-1/2 -translate-y-1/2 items-center gap-6 md:flex"
-            aria-label="Primary"
-          >
-            {navItems.map((item) => (
-              <NavLink key={item.href} item={item} active={pathname.startsWith(item.href)} />
-            ))}
-          </nav>
-        )}
-
-        {variant === "marketing" && (
-          <div className="hidden shrink-0 items-center gap-4 md:flex">
-            <Link
-              href={siteConfig.appUrl}
-              className="transform rounded-full bg-white px-5 py-2 text-sm font-semibold text-govnavy shadow-md transition-transform duration-200 hover:-translate-y-0.5 active:translate-y-0"
-            >
-              Enter <GovmapWord />
-            </Link>
-          </div>
-        )}
-
-        {variant === "app" && (
-          <div className="hidden shrink-0 sm:block">
+        <div className="flex shrink-0 items-center justify-end gap-3 justify-self-end">
+          <div className="hidden sm:block">
             <HomeZipChip />
           </div>
-        )}
-
-        {/* Menu button — always shown on app pages (holds the nav), mobile-only
-            on marketing (which keeps its inline nav on desktop). */}
-        <button
-          type="button"
-          className={`shrink-0 text-white ${variant === "app" ? "" : "md:hidden"}`}
-          aria-label={menuOpen ? "Close menu" : "Open menu"}
-          aria-expanded={menuOpen}
-          onClick={() => setMenuOpen((v) => !v)}
-        >
-          {menuOpen ? <CloseIcon /> : <MenuIcon />}
-        </button>
+          <AppSettings
+            open={settingsOpen}
+            onToggle={() => setOpenOn(settingsOpen ? null : { pathname, panel: "settings" })}
+            onClose={close}
+          />
+          <button
+            type="button"
+            className="shrink-0 text-govnavy"
+            aria-label={menuOpen ? "Close menu" : "Open menu"}
+            aria-expanded={menuOpen}
+            aria-controls="app-navigation"
+            aria-haspopup="dialog"
+            onClick={() => setOpenOn(menuOpen ? null : { pathname, panel: "navigation" })}
+          >
+            {menuOpen ? <CloseIcon /> : <MenuIcon />}
+          </button>
+        </div>
       </div>
 
       {typeof document !== "undefined" &&
         createPortal(
-          <>
-            {/* Backdrop — always mounted so it fades; pointer-events off when
-                closed so it never blocks the page underneath. */}
-            <div
-              className={`fixed inset-0 z-[55] bg-govnavy/70 backdrop-blur-sm transition-opacity duration-300 ${
-                menuOpen ? "opacity-100" : "pointer-events-none opacity-0"
-              } ${variant === "app" ? "" : "md:hidden"}`}
-              onClick={() => setMenuOpen(false)}
-              aria-hidden={true}
-            />
-            {/* Right-side blade. Portaled to <body> so the header's backdrop-blur
-                (a containing block for `fixed`) can't clip it; always mounted so
-                the slide transition actually animates. */}
-            <div
-              className={`fixed inset-y-0 right-0 z-[60] flex w-full max-w-[340px] transform flex-col border-l border-white/10 bg-govnavy/95 shadow-2xl transition-transform duration-300 ease-out ${
-                menuOpen ? "translate-x-0" : "translate-x-full"
-              } ${variant === "app" ? "" : "md:hidden"}`}
-              aria-hidden={!menuOpen}
+            <dialog
+              ref={dialogRef}
+              id="app-navigation"
+              aria-labelledby="app-navigation-title"
+              aria-modal="true"
+              onCancel={(event) => {
+                event.preventDefault();
+                close();
+              }}
+              onClick={(event) => {
+                if (event.target !== event.currentTarget) return;
+                const bounds = event.currentTarget.getBoundingClientRect();
+                if (event.clientX < bounds.left || event.clientX > bounds.right) close();
+              }}
+              className="navigation-dialog chrome fixed inset-y-0 left-auto right-0 m-0 h-dvh max-h-none w-full max-w-2xl overflow-hidden border-l border-white/10 bg-govnavy p-0 text-white shadow-2xl backdrop:bg-govnavy/70 backdrop:backdrop-blur-sm"
             >
-              <div className="flex items-center justify-between px-6 py-3.5">
-                <span className="text-sm font-semibold uppercase tracking-wider text-white/50">
-                  Menu
-                </span>
+            <div className="flex h-full flex-col">
+              <div className="flex items-center justify-between border-b border-white/10 px-6 py-5">
+                <div>
+                  <h2 id="app-navigation-title" className="font-display text-xl font-bold">Explore GovMap</h2>
+                  <p className="mt-1 text-xs text-white/50">Your government, organized.</p>
+                </div>
                 <button
                   type="button"
-                  onClick={() => setMenuOpen(false)}
+                  onClick={close}
                   aria-label="Close menu"
                   className="text-white transition-colors hover:text-white/70"
                 >
@@ -225,59 +217,54 @@ export function SiteHeader({
                 </button>
               </div>
               <nav
-                className="flex flex-1 flex-col gap-1 overflow-y-auto px-6 pb-6"
-                aria-label={variant === "app" ? "Primary" : "Mobile"}
+                className="flex-1 overflow-y-auto overscroll-contain px-5 py-5"
+                aria-label="Primary"
               >
                 {/* Search here only where the centered bar is hidden (mobile). */}
-                {variant === "app" && (
-                  <div className="mb-3 md:hidden">
-                    <UniversalSearch onNavigate={() => setMenuOpen(false)} />
-                  </div>
-                )}
-                {navItems.map((item) => (
-                  <NavLink
-                    key={item.href}
-                    item={item}
-                    active={pathname.startsWith(item.href)}
-                    isMobile
-                    onClick={() => setMenuOpen(false)}
-                  />
-                ))}
-                <div className="mt-4 border-t border-white/10 pt-4">
-                  {variant === "marketing" ? (
-                    <Link
-                      href={siteConfig.appUrl}
-                      onClick={() => setMenuOpen(false)}
-                      className="block w-full rounded-full bg-white px-5 py-3 text-center text-base font-semibold text-govnavy shadow-lg"
-                    >
-                      Enter <GovmapWord />
-                    </Link>
-                  ) : (
-                    <div className="space-y-1">
-                      <Link
-                        href="/account"
-                        onClick={() => setMenuOpen(false)}
-                        className="block rounded-md px-3 py-2 text-base font-medium text-white/80 transition-colors hover:bg-white/5"
-                      >
-                        Sign In
-                      </Link>
-                      <BugReport
-                        triggerClassName="block w-full rounded-md px-3 py-2 text-left text-base font-medium text-white/80 transition-colors hover:bg-white/5"
-                        triggerLabel="Report a problem"
-                      />
-                    </div>
-                  )}
+                <div className="mb-3 md:hidden">
+                  <UniversalSearch tone="chrome" onNavigate={close} />
                 </div>
-                {/* Home-area chip lives outside the menu on desktop; surface it
-                    here for mobile, where it's part of the app experience. */}
-                {variant === "app" && (
-                  <div className="mt-4 border-t border-white/10 pt-4 sm:hidden">
-                    <HomeZipChip />
+                <div className="grid gap-6 sm:grid-cols-2">
+                  {NAVIGATION_GROUPS.map((group) => (
+                    <section key={group.id} aria-labelledby={`navigation-${group.id}`}>
+                      <h3 id={`navigation-${group.id}`} className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-wider text-govblue-400">
+                        {group.label}
+                      </h3>
+                      <MenuSections
+                        sections={SECTIONS.filter((section) => section.navigationGroup === group.id && section.availability === "live")}
+                        onNavigate={close}
+                      />
+                    </section>
+                  ))}
+                </div>
+
+                <details className="mt-6 border-t border-white/10 pt-4">
+                  <summary className="cursor-pointer rounded-lg px-3 py-2 text-xs font-semibold uppercase tracking-wider text-white/50 hover:text-white">
+                    Coming next
+                  </summary>
+                  <div className="mt-2 grid gap-1 sm:grid-cols-2">
+                  {PLANNED_NAV.map((s) => (
+                    <Link
+                      key={s.id}
+                      href={s.href}
+                      onClick={close}
+                      className="flex items-center justify-between gap-3 rounded-md px-3 py-1.5 text-sm text-white/55 transition-colors hover:bg-white/5 hover:text-white/80"
+                    >
+                      <span>{s.label}</span>
+                      <span className="shrink-0 rounded-full border border-white/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white/45">
+                        Planned
+                      </span>
+                    </Link>
+                  ))}
                   </div>
-                )}
+                </details>
               </nav>
+              <div className="border-t border-white/10 px-8 py-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+                <p className="text-xs text-white/50">{siteConfig.tagline}</p>
+                <p className="mt-1 text-[11px] text-white/40">Theme, home area and feedback are in Settings in the header.</p>
+              </div>
             </div>
-          </>,
+            </dialog>,
           document.body,
         )}
     </header>

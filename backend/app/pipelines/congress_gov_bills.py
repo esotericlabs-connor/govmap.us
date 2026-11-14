@@ -65,6 +65,10 @@ _BODY_DEADLINE_SECONDS = 60
 _session = requests.Session()
 
 
+class IncompleteBillDetailError(RuntimeError):
+    """A bill's required child data was capped or failed schema validation."""
+
+
 def _get(path: str, **params: Any) -> dict:
     """GET one Congress.gov JSON page with backoff on 429/5xx. Errors are raised
     with the path only — never the URL/params — so the API key (sent as a
@@ -120,28 +124,50 @@ def _get(path: str, **params: Any) -> dict:
 
 
 def _paginate(path: str, key: str, cap: int = 10**9) -> list[dict]:
-    """Follow pagination.next, collecting items under `key`, up to `cap`."""
+    """Follow pagination.next, rejecting any result cap that truncates a bundle."""
     out: list[dict] = []
     offset = 0
     for _ in range(_SUBRESOURCE_MAX_PAGES):
         data = _get(path, limit=_PAGE, offset=offset)
-        items = data.get(key, []) or []
+        if not isinstance(data, dict):
+            raise IncompleteBillDetailError(f"{path}: child page was not an object")
+        items = data.get(key, [])
+        pagination = data.get("pagination", {})
+        if items is None:
+            items = []
+        if pagination is None:
+            pagination = {}
+        if not isinstance(items, list) or not isinstance(pagination, dict):
+            raise IncompleteBillDetailError(f"{path}: child page has an invalid shape")
         out.extend(items)
-        if len(out) >= cap or len(items) < _PAGE or not data.get("pagination", {}).get("next"):
+        next_page = pagination.get("next")
+        if next_page is not None and not isinstance(next_page, str):
+            raise IncompleteBillDetailError(f"{path}: child pagination link has an invalid shape")
+        has_next = bool(next_page)
+        if len(out) > cap or (len(out) >= cap and has_next):
+            raise IncompleteBillDetailError(
+                f"{path}: child result cap reached before pagination completed"
+            )
+        if not has_next:
             break
         offset += _PAGE
+    else:
+        raise IncompleteBillDetailError(
+            f"{path}: child pagination exceeded {_SUBRESOURCE_MAX_PAGES} pages"
+        )
     return out[:cap]
 
 
 def _validate_each(records: list, model: type[BaseModel], label: str) -> list[dict]:
-    """Validate each record; skip and log bad ones individually (a sub-resource
-    quirk shouldn't drop a whole bill)."""
+    """Validate every child row; a rejected row makes the bill bundle incomplete."""
     valid: list[dict] = []
     for record in records:
         try:
             valid.append(model.model_validate(record).model_dump(mode="json"))
         except ValidationError as exc:
-            logger.warning("skipping invalid %s: %s", label, exc)
+            raise IncompleteBillDetailError(
+                f"invalid {label} payload; refusing an incomplete bill bundle"
+            ) from exc
     return valid
 
 
@@ -219,6 +245,7 @@ def run() -> BatchResult:
     listing = _bill_list(congress, cap)
     staged: list[dict] = []
     failed = 0
+    incomplete = 0
     stopped: str | None = None
     for item in listing:
         if time.monotonic() >= deadline:
@@ -230,6 +257,8 @@ def run() -> BatchResult:
             raise
         except Exception as exc:
             failed += 1
+            if isinstance(exc, IncompleteBillDetailError):
+                incomplete += 1
             logger.warning("skipping bill %s%s: %s", item.type, item.number, exc)
             if breaker.failure(exc):
                 stopped = breaker.reason
@@ -239,7 +268,13 @@ def run() -> BatchResult:
         if bundle:
             staged.append(bundle)
 
-    result = BatchResult(total=len(listing), succeeded=len(staged), failed=failed, stopped=stopped)
+    result = BatchResult(
+        total=len(listing),
+        succeeded=len(staged),
+        failed=failed,
+        stopped=stopped,
+        incomplete=incomplete > 0,
+    )
     if not staged:
         if stopped is not None:
             raise UpstreamUnavailableError("congress", f"no bills fetched; {result.describe('bills')}")

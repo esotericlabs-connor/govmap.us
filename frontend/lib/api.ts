@@ -52,6 +52,15 @@ export interface MemberSummary {
   in_office?: boolean;
 }
 
+export type CandidateMemberMatch = {
+  status: "matched" | "unmatched" | "ambiguous";
+  profile: {
+    bioguide_id: string;
+    official_full_name: string;
+    in_office: boolean;
+  } | null;
+};
+
 export interface CommitteeSeat {
   committee_id: string;
   name: string;
@@ -206,6 +215,8 @@ export interface BillDetail {
   } | null;
   actions: BillAction[];
   cosponsors: BillCosponsor[];
+  /** The Congress GovMap tracks now, so an older unfinished bill reads as ended. */
+  current_congress?: number | null;
 }
 
 /** Full legislative text (plain, indentation preserved) from /api/bills/{id}/text.
@@ -342,6 +353,64 @@ export interface ChamberSummary {
   senate: ChamberBalance;
 }
 
+// --- Federal overview (/api/overview, the dashboard at /) ---
+
+/** One upcoming committee meeting. `chamber` is as published ("House"). */
+export interface OverviewMeeting {
+  event_id: string;
+  committee_id: string;
+  committee_name: string;
+  chamber: string | null;
+  title: string | null;
+  meeting_type: string | null;
+  /** Scheduled, Canceled, Postponed or Rescheduled, as published. */
+  status: string | null;
+  starts_at: string;
+}
+
+export interface SourceFreshness {
+  name: string;
+  title: string;
+  publisher: string;
+  /** ISO timestamp of the last successful refresh; null = never succeeded. */
+  last_success: string | null;
+}
+
+export interface OverviewActivity {
+  /** ISO date (Monday) per week, oldest first; the last is week-to-date. */
+  weeks: string[];
+  /** Roll calls per week; null = the week predates the stored records. */
+  votes: { house: (number | null)[]; senate: (number | null)[] };
+  /** ISO date of each chamber's earliest stored roll call (null = none). */
+  votes_covered_from: { house: string | null; senate: string | null };
+  /** Current-Congress bills GovMap holds, by introduced week. */
+  bills_introduced: number[];
+}
+
+export interface Overview {
+  congress: number;
+  generated_at: string;
+  chambers: ChamberSummary;
+  activity: OverviewActivity;
+  bills_in_congress: number;
+  laws_enacted: number;
+  upcoming_meetings: OverviewMeeting[];
+  sources: SourceFreshness[];
+}
+
+/** One registered source from /api/sources. Run outcomes and error detail are
+ *  deliberately not public. */
+export interface SourceStatus extends SourceFreshness {
+  /** Whether the publisher requires an access key (never the key itself). */
+  requires_key: boolean;
+  endpoints: { url: string; official: boolean }[];
+}
+
+export interface SourcesStatus {
+  generated_at: string;
+  sources: SourceStatus[];
+}
+
 /** Party/link index from /api/map. House keyed `STATE-DISTRICT` (district 0 =
  *  at-large); Senate keyed by state (its two seats). */
 export interface MapEntry {
@@ -403,9 +472,9 @@ export async function fetchMemberCard(
 /** Client-side fetch of the full member profile, for the slide-in blade. Same
  *  shape the SSR profile page uses; fail-soft (null) so the blade can show a
  *  graceful error with a link out to the full page. */
-export async function fetchMemberDetail(bioguide: string): Promise<MemberDetail | null> {
+export async function fetchMemberDetail(bioguide: string, signal?: AbortSignal): Promise<MemberDetail | null> {
   try {
-    const res = await fetch(`${publicApiBase}/api/members/${encodeURIComponent(bioguide)}`);
+    const res = await fetch(`${publicApiBase}/api/members/${encodeURIComponent(bioguide)}`, { signal });
     if (!res.ok) return null;
     return (await res.json()) as MemberDetail;
   } catch {
@@ -416,10 +485,11 @@ export async function fetchMemberDetail(bioguide: string): Promise<MemberDetail 
 /** Client-side fetch of the election cycles a member's itemized donations can be
  *  browsed for (newest first), for the ledger's cycle picker. Fail-soft: [] on
  *  ordinary errors, which hides the picker; capacity errors remain explicit. */
-export async function fetchDonationCycles(bioguide: string): Promise<number[]> {
+export async function fetchDonationCycles(bioguide: string, signal?: AbortSignal): Promise<number[]> {
   try {
     const res = await fetch(
       `${publicApiBase}/api/members/${encodeURIComponent(bioguide)}/donations/cycles`,
+      { signal },
     );
     if (res.status === 503) throw new HttpError(res.status);
     if (!res.ok) return [];

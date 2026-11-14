@@ -18,6 +18,14 @@ import { MemberCardBlock } from "@/components/MemberCardBlock";
 import type { CongressMap, LookupResult } from "@/lib/api";
 import { formatDateLocal } from "@/lib/format";
 import { getPartyKey, PARTY_COLORS, type PartyKey } from "@/lib/party";
+import { useMapWorkspace } from "@/lib/map-workspace";
+import {
+  defaultMapView,
+  MAP_WIDTH as WIDTH,
+  MAP_HEIGHT as HEIGHT,
+  MAP_MIN_ZOOM as MIN_K,
+  MAP_MAX_ZOOM as MAX_K,
+} from "@/lib/workspace-state";
 import { externalHref } from "@/lib/safe-url.mjs";
 import { useHomeZip } from "@/lib/zip-context";
 
@@ -32,11 +40,6 @@ import { useHomeZip } from "@/lib/zip-context";
  * the geometry isn't present yet, it falls back to the
  * self-contained seat chart, so the page always renders something useful.
  */
-
-const WIDTH = 960;
-const HEIGHT = 600;
-const MIN_K = 1;
-const MAX_K = 22;
 
 // 2-digit state/territory FIPS -> USPS (mirrors the backend crosswalk map).
 const FIPS_TO_USPS: Record<string, string> = {
@@ -139,13 +142,22 @@ function UsShapeIcon() {
 }
 
 export function UsMap({ map, result = null }: { map: CongressMap; result?: LookupResult | null }) {
-  const { result: homeResult } = useHomeZip();
+  const { result: homeResult, selectionVersion } = useHomeZip();
+  const { view, setView, ready, restored, revision, claimHomeSelection, reset } = useMapWorkspace();
   const svgRef = useRef<SVGSVGElement>(null);
-  const [chamber, setChamber] = useState<"house" | "senate">("house");
+  const { chamber, zoom } = view;
+  const setZoom = useCallback((next: typeof zoom | ((previous: typeof zoom) => typeof zoom)) => {
+    setView((previous) => ({
+      ...previous,
+      zoom: typeof next === "function" ? next(previous.zoom) : next,
+    }));
+  }, [setView]);
+  const setPopover = useCallback((shape: Shape | null) => {
+    setView((previous) => ({ ...previous, selectedKey: shape?.key ?? null }));
+  }, [setView]);
   // GeoJSON features from topojson are loosely typed and d3-geo's path types don't match them, hence any.
   const [geo, setGeo] = useState<{ districts: any[]; states: any[] } | null>(null);
   const [failed, setFailed] = useState(false);
-  const [zoom, setZoom] = useState({ k: 1, x: 0, y: 0 });
   const zoomRef = useRef(zoom);
   // Latest committed zoom, for rAF tweens to read as their start. Synced after
   // commit (refs can't be written during render) and before passive effects,
@@ -155,15 +167,8 @@ export function UsMap({ map, result = null }: { map: CongressMap; result?: Looku
   }, [zoom]);
   const rafRef = useRef<number | null>(null); // in-flight fly-to animation frame
   const [hover, setHover] = useState<{ shape: Shape; x: number; y: number } | null>(null);
-  const [popover, setPopover] = useState<Shape | null>(null);
   const drag = useRef<{ x: number; y: number; moved: boolean } | null>(null);
   const flownHome = useRef<LookupResult | null>(null); // fly to a home area at most once per value
-
-  // Curated context for the open popover's seat (special-election date/source),
-  // plus when the roster was last refreshed — both surfaced in the vacant popover.
-  const popoverVacancy = popover ? map.vacancies?.[popover.key] : undefined;
-  const vacancySourceHref = externalHref(popoverVacancy?.source_url);
-  const rosterUpdatedLabel = formatDateLocal(map.roster_updated);
 
   // Programmatic fly-to eases the SVG viewBox with a rAF tween rather than a CSS
   // transform transition: driving zoom through the viewBox (see the <svg> below)
@@ -180,6 +185,10 @@ export function UsMap({ map, result = null }: { map: CongressMap; result?: Looku
   const animateZoomTo = useCallback(
     (target: { k: number; x: number; y: number }, duration = 500) => {
       cancelAnim();
+      if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        setZoom(target);
+        return;
+      }
       const start = zoomRef.current;
       const t0 = performance.now();
       const easeOutCubic = (t: number) => 1 - (1 - t) ** 3;
@@ -195,11 +204,15 @@ export function UsMap({ map, result = null }: { map: CongressMap; result?: Looku
       };
       rafRef.current = requestAnimationFrame(step);
     },
-    [cancelAnim],
+    [cancelAnim, setZoom],
   );
 
   // Stop any in-flight fly-to if the component unmounts mid-animation.
   useEffect(() => cancelAnim, [cancelAnim]);
+  useLayoutEffect(() => {
+    cancelAnim();
+    setHover(null);
+  }, [revision, cancelAnim]);
 
   // Load bundled geometry once. Fall back to the seat chart if it isn't there.
   useEffect(() => {
@@ -339,11 +352,16 @@ export function UsMap({ map, result = null }: { map: CongressMap; result?: Looku
     return m;
   }, [shapes]);
 
+  const popover = view.selectedKey ? shapeByKey.get(view.selectedKey) ?? null : null;
+  const popoverVacancy = popover ? map.vacancies?.[popover.key] : undefined;
+  const vacancySourceHref = externalHref(popoverVacancy?.source_url);
+  const rosterUpdatedLabel = formatDateLocal(map.roster_updated);
+
   // Wheel zoom toward the cursor (native, non-passive so we can preventDefault).
   // Depends on `geo` so it (re)attaches once the <svg> actually mounts.
   useEffect(() => {
     const el = svgRef.current;
-    if (!geo || !el) return;
+    if (!geo || !ready || !el) return;
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       cancelAnim(); // direct manipulation should track the cursor, not ease
@@ -360,7 +378,7 @@ export function UsMap({ map, result = null }: { map: CongressMap; result?: Looku
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
-  }, [geo, cancelAnim]);
+  }, [geo, ready, cancelAnim, setPopover, setZoom]);
 
   // Ease the {k,x,y} view to *fit* a shape to the viewport, scaling by its
   // bounding box so tiny districts zoom in far and big ones don't — every
@@ -386,20 +404,29 @@ export function UsMap({ map, result = null }: { map: CongressMap; result?: Looku
     const px = (cx - z.x) / z.k;
     const py = (cy - z.y) / z.k;
     animateZoomTo(clampXY({ k, x: cx - px * k, y: cy - py * k }));
-  }, [animateZoomTo]);
+  }, [animateZoomTo, setPopover]);
 
-  // Ease all the way back out to the whole country.
+  // Reset the saved workspace, without clearing the separately saved home ZIP,
+  // then ease back out to the whole country.
   const resetView = useCallback(() => {
-    setPopover(null);
+    cancelAnim();
+    setHover(null);
+    reset();
     flownHome.current = homeResult; // don't immediately re-fly home after a manual reset
-    animateZoomTo({ k: 1, x: 0, y: 0 });
-  }, [homeResult, animateZoomTo]);
+    claimHomeSelection(selectionVersion);
+    animateZoomTo(defaultMapView().zoom);
+  }, [homeResult, selectionVersion, cancelAnim, reset, claimHomeSelection, animateZoomTo]);
 
   // When a home area is set (or hydrated from storage), fly to that district/
   // state once and open its info card. The ref keys off the result value so
   // toggling chambers or re-panning doesn't yank the view back.
   useEffect(() => {
-    if (!homeResult || shapes.length === 0) return;
+    if (!ready || !homeResult || shapes.length === 0) return;
+    const explicitlyChanged = claimHomeSelection(selectionVersion);
+    if (restored && !explicitlyChanged) {
+      flownHome.current = homeResult;
+      return;
+    }
     if (flownHome.current === homeResult) return;
     const d0 = homeResult.districts[0];
     if (!d0) return;
@@ -409,7 +436,7 @@ export function UsMap({ map, result = null }: { map: CongressMap; result?: Looku
     flownHome.current = homeResult;
     setPopover(shape); // surface your rep's card as soon as we land on it
     fitTo(shape);
-  }, [homeResult, shapes, chamber, fitTo]);
+  }, [ready, restored, homeResult, shapes, chamber, fitTo, selectionVersion, setPopover, claimHomeSelection]);
 
   function onPointerDown(e: ReactPointerEvent<SVGSVGElement>) {
     drag.current = { x: e.clientX, y: e.clientY, moved: false };
@@ -478,7 +505,7 @@ export function UsMap({ map, result = null }: { map: CongressMap; result?: Looku
 
   return (
     <div className="relative h-full w-full overflow-hidden bg-slate-warm-50">
-      {!geo ? (
+      {!geo || !ready ? (
         <div className="flex h-full w-full animate-pulse items-center justify-center text-sm text-slate-warm-400">
           Loading map…
         </div>
@@ -563,8 +590,7 @@ export function UsMap({ map, result = null }: { map: CongressMap; result?: Looku
                 type="button"
                 onClick={() => {
                   setHover(null);
-                  setPopover(null);
-                  setChamber(c);
+                  setView((previous) => ({ ...previous, chamber: c, selectedKey: null }));
                 }}
                 className={`rounded-full px-4 py-1.5 text-sm font-semibold capitalize transition-colors ${
                   chamber === c ? "bg-govnavy text-white shadow" : "text-slate-warm-600 hover:text-govnavy"
@@ -608,8 +634,8 @@ export function UsMap({ map, result = null }: { map: CongressMap; result?: Looku
               <div className="absolute right-2 top-2 flex items-center gap-0.5">
                 <button
                   type="button"
-                  aria-label="Zoom out to the whole country"
-                  title="Show the whole country"
+                  aria-label="Reset saved map view"
+                  title="Reset chamber, position and selection; keep your home ZIP"
                   onClick={resetView}
                   className="flex h-6 w-8 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-slate-warm-100 hover:text-govnavy"
                 >
@@ -714,7 +740,8 @@ export function UsMap({ map, result = null }: { map: CongressMap; result?: Looku
             </button>
             <button
               type="button"
-              aria-label="Reset view"
+              aria-label="Reset saved map view"
+              title="Reset chamber, position and selection; keep your home ZIP"
               className="border-t border-slate-warm-200 px-2.5 py-1.5 text-xs font-semibold text-slate-warm-600 hover:bg-slate-warm-50"
               onClick={resetView}
             >

@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 
 import { publicApiBase } from "@/lib/api";
@@ -10,6 +10,7 @@ import {
   REPORT_CATEGORY_NAMES,
   defaultCategoryForPath,
 } from "@/lib/report-categories";
+import { useScrollLock } from "@/lib/use-scroll-lock";
 
 const MSG_MAX = 2000;
 // Optional Cloudflare Turnstile. When this public key is unset the widget +
@@ -45,6 +46,8 @@ export function BugReport({
   const [status, setStatus] = useState<"idle" | "sending" | "done" | "error">("idle");
   const [token, setToken] = useState<string | null>(null);
   const widgetRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  useScrollLock(open);
 
   const subcategories = REPORT_CATEGORIES[category] ?? ["Other"];
   const needsToken = Boolean(TURNSTILE_SITE_KEY) && !token;
@@ -67,15 +70,11 @@ export function BugReport({
     setSubcategory((REPORT_CATEGORIES[next] ?? ["Other"])[0]);
   }
 
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
-    document.body.style.overflow = "hidden";
-    window.addEventListener("keydown", onKey);
-    return () => {
-      document.body.style.overflow = "";
-      window.removeEventListener("keydown", onKey);
-    };
+  useLayoutEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    if (open && !dialog.open) dialog.showModal();
+    else if (!open && dialog.open) dialog.close();
   }, [open]);
 
   // Render the Cloudflare Turnstile widget when the modal opens (only if a site
@@ -151,17 +150,25 @@ export function BugReport({
         {triggerLabel}
       </button>
 
-      {open &&
-        typeof document !== "undefined" &&
+      {typeof document !== "undefined" &&
         createPortal(
-          <div
-            className="fixed inset-0 z-[100] flex items-center justify-center p-4"
-            role="dialog"
+          <dialog
+            ref={dialogRef}
+            className="fixed inset-0 m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg overflow-y-auto rounded-2xl bg-white p-0 text-slate-800 shadow-2xl backdrop:bg-black/50"
             aria-modal="true"
             aria-label="Report a problem"
+            onCancel={(event) => {
+              event.preventDefault();
+              setOpen(false);
+            }}
+            onClick={(event) => {
+              if (event.target !== event.currentTarget) return;
+              const bounds = event.currentTarget.getBoundingClientRect();
+              if (event.clientX < bounds.left || event.clientX > bounds.right ||
+                event.clientY < bounds.top || event.clientY > bounds.bottom) setOpen(false);
+            }}
           >
-          <div className="absolute inset-0 bg-black/50" onClick={() => setOpen(false)} aria-hidden="true" />
-          <div className="relative w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl">
+          {open && <div className="p-6">
             {status === "done" ? (
               <div className="py-4 text-center">
                 <h2 className="font-display text-xl font-bold text-govnavy">Thanks — report sent.</h2>
@@ -264,8 +271,8 @@ export function BugReport({
                 </div>
               </form>
             )}
-          </div>
-          </div>,
+          </div>}
+          </dialog>,
           document.body,
         )}
     </>

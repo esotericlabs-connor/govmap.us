@@ -26,6 +26,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -61,7 +62,7 @@ _RATE_LIMIT_RETRIES = 2   # short retries for a per-second burst blip, then bail
 _RATE_LIMIT_ABORT = 8     # consecutive rate-limited members -> abort the whole run
 
 
-class _RateLimited(Exception):
+class FecRateLimited(Exception):
     """OpenFEC returned 429 after the short burst retries — the hourly budget is
     (near) exhausted, so the caller should stop rather than keep hammering."""
 # How many 2-year cycles back to consider (newest with activity wins). Covers all
@@ -73,7 +74,7 @@ _CHAMBER_PREFIX = {"sen": "S", "rep": "H"}
 _session = requests.Session()
 
 
-def _fec_get(path: str, **params: Any) -> dict:
+def _fec_get(path: str, *, decimal_json: bool = False, **params: Any) -> dict:
     """GET one OpenFEC JSON page with backoff on 429/5xx. Errors carry the path
     only (no params) — and the key is a header — so nothing secret is logged.
     api.data.gov's default limit is ~1000 req/hr per key, so back off politely."""
@@ -105,7 +106,7 @@ def _fec_get(path: str, **params: Any) -> dict:
             if attempt <= _RATE_LIMIT_RETRIES:
                 time.sleep(attempt)
                 continue
-            raise _RateLimited(path)
+            raise FecRateLimited(path)
         if status >= 500:
             wait = min(2**attempt, 30)
             logger.warning(
@@ -119,7 +120,7 @@ def _fec_get(path: str, **params: Any) -> dict:
             # which parameter it rejected. No secret leaks: the key is a header,
             # and the body only echoes validation detail, not the key.
             raise RuntimeError(f"openfec {path} -> HTTP {status}: {text_excerpt(body, 300)}")
-        return json.loads(body)
+        return json.loads(body, parse_float=Decimal) if decimal_json else json.loads(body)
     raise RuntimeError(
         f"openfec {path} still failing after {_MAX_RETRIES} attempts (HTTP {last_status})"
     )
@@ -216,7 +217,7 @@ def run() -> int:
             raw = _candidate_total(candidate_id, cycles)
         except UpstreamCapacityError:
             raise
-        except _RateLimited:
+        except FecRateLimited:
             # Budget spent — abort once we've seen a run of consecutive 429s
             # rather than burning minutes on the remaining members. Whatever was
             # staged so far still loads; a re-run in a fresh hour continues.

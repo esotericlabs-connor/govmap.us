@@ -1,12 +1,11 @@
-"use client";
+import type { ReactNode } from "react";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+const MAX_DELAY_MS = 300;
 
 /**
- * Fades + lifts its children into view once they scroll near the viewport.
- * The content is always server-rendered in the DOM (only opacity/transform
- * animate), so it's SEO-safe and won't cause hydration mismatches. Motion is
- * disabled under `prefers-reduced-motion` (see globals.css .reveal rules).
+ * Visible from the server render, with a small entrance lift but no opacity
+ * gate or scroll observer. Capped delays never hide long lists or restored
+ * scroll positions. Reduced motion is handled in globals.css.
  */
 export function Reveal({
   children,
@@ -17,37 +16,10 @@ export function Reveal({
   className?: string;
   delay?: number;
 }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [visible, setVisible] = useState(false);
-
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          if (entry.isIntersecting) {
-            setVisible(true);
-            observer.disconnect();
-          }
-        }
-      },
-      // threshold 0 = reveal as soon as the top edge enters. A percentage
-      // threshold can NEVER be met by an element taller than the viewport
-      // (e.g. the full members roster or a House roll call), which would leave
-      // it stuck at opacity 0. The bottom rootMargin still delays short
-      // below-the-fold sections until they're meaningfully in view.
-      { threshold: 0, rootMargin: "0px 0px -10% 0px" },
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
-
   return (
     <div
-      ref={ref}
-      className={`reveal${visible ? " is-visible" : ""} ${className}`}
-      style={{ transitionDelay: `${delay}ms` }}
+      className={`animate-reveal ${className}`}
+      style={delay > 0 ? { animationDelay: `${Math.min(delay, MAX_DELAY_MS)}ms` } : undefined}
     >
       {children}
     </div>

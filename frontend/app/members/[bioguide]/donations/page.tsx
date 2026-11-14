@@ -11,7 +11,6 @@ import { DonationsLedger } from "@/components/DonationsLedger";
 import { MemberAvatar } from "@/components/MemberAvatar";
 import { PageSkeleton } from "@/components/PageSkeleton";
 import { Reveal } from "@/components/Reveal";
-import { SiteHeader } from "@/components/SiteHeader";
 import {
   apiGet,
   type DonationCyclesResponse,
@@ -123,7 +122,6 @@ export default async function DonationsPage({
 
   return (
     <>
-      <SiteHeader variant="app" />
       <main className="bg-slate-warm-50 pb-20 pt-28">
         <div className="mx-auto max-w-4xl px-6">
           <BackLink href={`/members/${bioguide}`}>Back to member</BackLink>

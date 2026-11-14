@@ -83,6 +83,27 @@ JOBS: list[tuple[str, Callable[[], Awaitable[None]], dict]] = [
         REFRESHERS["finance"],
         {"trigger": "cron", "hour": 9},
     ),
+    # Candidate registration and contest metadata is paginated but bounded;
+    # running after finance keeps both FEC jobs inside the shared daily budget.
+    (
+        "refresh_election_candidates",
+        REFRESHERS["election_candidates"],
+        {"trigger": "cron", "hour": 10},
+    ),
+    # FEC election dates can be revised as states publish schedules; refresh
+    # after candidate metadata while sharing the same daily API budget.
+    (
+        "refresh_election_calendar",
+        REFRESHERS["election_calendar"],
+        {"trigger": "cron", "hour": 11},
+    ),
+    # Two bounded FEC bulk files provide candidate summaries and linkages
+    # without a per-candidate request loop.
+    (
+        "refresh_campaign_money",
+        REFRESHERS["money_totals"],
+        {"trigger": "cron", "hour": 12},
+    ),
     # ZIP→district crosswalk only changes on redistricting — monthly (1st,
     # 06:00 UTC) is generous. The deploy-time refresh_all keeps it warm too.
     (

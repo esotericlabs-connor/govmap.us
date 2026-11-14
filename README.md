@@ -83,17 +83,80 @@ Self-hosting is the current low-cost deployment choice. Application containers a
 
 ## Sites & branding
 
-GovMap serves the marketing site and platform on one host:
+Data lists have their own compact search and sorting controls, independent of
+global search. Extra filters expand on demand; search updates automatically.
+Bills, votes and FEC candidate lists filter stored records before pagination,
+and paging preserves scroll instead of returning to the top. Detail lists that
+contain only recent or bounded records explicitly label that search scope.
+Local list criteria stay in the URL; filtering a chart's data table leaves the
+chart and its source coverage unchanged.
 
-- **govmap.us** — the marketing site (`frontend/app/page.tsx`): what GovMap is, why it exists, and a way in.
-- **govmap.us/congress** — the platform entry point, with members, bills and votes on the same host.
+GovMap serves the whole app on one host:
+
+- **govmap.us** — the app itself: the Federal overview at `/` (`frontend/app/page.tsx`), a three-branch dashboard of Congress today with the executive and judicial branches marked as planned; the Congress map at `/map` (`frontend/app/map/page.tsx`); and members, bills and votes alongside. Every data source, its publisher and its last successful refresh are listed on the public data pipeline status page at `/status` (`frontend/app/status/page.tsx`, backed by `GET /api/sources`). The old `/congress` path permanently redirects to `/map`.
+- **govmap.us/about**, **/support**, **/security**, **/privacy** — the project pages: mission and coverage, donations, security and transparency, and privacy.
 - **dev.govmap.us** — the separate test environment, protected by Cloudflare Access and seeded from a production snapshot.
+
+The `/elections` workspace shows FEC candidate registrations and a reported
+election-date calendar, not ballot certification or results. FEC all-day event
+ends are converted from exclusive to inclusive calendar dates; timed events use
+the publisher's local dates. Older unverified event end dates remain hidden
+until the updated calendar pipeline completes a successful refresh. `/money`
+provides a partial candidate-finance view from FEC bulk summaries: it compares reported
+gross receipts for the same office, finance cycle and report-through date.
+Authorized-committee transfers can double-count activity. Missing candidates
+are not assumed to have zero activity, and donor-area rankings, individual
+contributor analytics and independent expenditures are not yet integrated.
+The FEC candidate ID is a source identity, not a replacement for Bioguide.
+Candidates in both workspaces link to existing congressional profiles only
+when their exact FEC ID appears in the Bioguide crosswalk. All stored IDs are
+considered, including older IDs from a different office and former members;
+names are never used to guess an identity. Unknown or conflicting matches
+remain explicitly unlinked. Profile links open in place and preserve the
+workspace underneath; matching does not depend on the Elections catalog refresh.
+Candidate-finance details also show the crosswalk's unambiguous FEC IDs and
+which finance-cycle summaries are loaded for each. The crosswalk may be
+incomplete; missing summaries do not mean zero activity, and different IDs or
+cycles must not be added together without reconciliation.
+The candidate detail also offers an on-demand FEC Schedule A aggregate by
+reported contributor state. It covers itemized receipts only; record counts
+are not unique contributors, reported states do not establish residence or
+district, and unitemized amounts are excluded. This view makes one shared-budget
+FEC request when explicitly loaded and does not store or expose donor identities.
+
+The main search and candidate filters accept partial words in any order:
+`CROCKETT jas` and `jas crockett` both match `Jasmine Crockett`. Every entered
+word must match; commas and whitespace separate words, while `%` and `_` are
+literal characters, not wildcards. The main search also accepts exact Bioguide
+and crosswalk FEC IDs, and retains bill-ID and state-code lookup.
 
 Navigation uses relative paths defined in `frontend/lib/site-config.ts`. Separate `app.govmap.us` and `api.govmap.us` hosts are not part of the current deployment. Browser `/api/*` requests are forwarded by Next.js to the private backend.
 
+The visual signature — the Capitol photo under a navy scrim with white text — lives in `frontend/components/PageBanner.tsx` and is shared by the footer and page banners. Pages follow the system Light/Dark setting unless a theme is chosen from **Settings** in the header. The top bar is white in Light mode and a dark panel in Dark mode; navigation, banners, the footer and the workspace status bar keep the navy-and-white look. Dashboard panels, data states and charts live in `frontend/components/dashboard/`.
+
+The universal navigation groups destinations into Explore government,
+Congress & legislation, Elections & campaign money, and Sources & GovMap.
+Planned work stays in a separate **Coming next** disclosure. **Settings** is
+a separate dropdown for System/Light/Dark, the saved home area, sign-in
+availability, problem reports and privacy. Sign-in remains explicitly coming
+soon; no authentication is implemented.
+
+All data workspaces and their detail pages, including `/status`, share the
+Congress legend, House/Senate balance and local/Washington clocks along the
+bottom. Chamber data is requested on workspace navigation; loading and failed
+requests are explicit, with a retry instead of invented counts. Layout spacing
+and map geometry reserve the bar's height and the device safe area.
+About, Support, Security and Privacy retain the branded GovMap footer instead.
+
+The map remembers its chamber, position and selected seat in this browser.
+**Reset** zooms back out to the national House view without clearing the saved home ZIP.
+Member details expand in place; **Back** retraces a detail step and **Close**
+returns to the originating view. Direct member-page links still work independently.
+See the [Privacy page](https://govmap.us/privacy) for local-storage behavior.
+
 Brand assets live in `frontend/public/` (`logo-dark.png`, `logo-light.png` — full lockups with an opaque background baked in, meant for full-bleed placement, not floating over an arbitrary background color). The favicon (`frontend/app/icon.png`) is a square crop of just the Capitol mark from the dark logo, generated because no standalone icon-only asset existed yet — a proper source mark would give a cleaner result and is a fine thing to swap in later.
 
-**Open:** `siteConfig.socialLinks` and `contactEmail` are intentionally empty — nothing fake is linked until real accounts exist. `supportLinks` holds the six live donation platforms shown on the landing page; the landing page also carries a "seeking a fiscal sponsor" note.
+**Links:** `siteConfig.socialLinks` and `contactEmail` hold the official `@govmapus` accounts and `support@govmap.us`; `supportLinks` holds the three donation platforms (Ko-fi, Buy Me a Coffee, Liberapay) shown on `/support`. Only real, owned accounts are listed.
 
 ## Local development
 
@@ -250,7 +313,7 @@ request-triggered fetches or application writes.
 
 The worker never migrates. With scheduling enabled, it waits up to five
 minutes for the database to reach the Alembic revision built into its image
-(the backend applies it), then logs `scheduler started with 8 job(s)`. If the
+(the backend applies it), then logs its registered scheduler job count. If the
 revision does not arrive, it exits and the restart policy retries; it never
 writes to a schema it was not built for. Its health check reads a heartbeat
 file touched every 30 seconds, so a blocked event loop turns it unhealthy; a
@@ -272,6 +335,40 @@ Run manual refreshes in the worker:
 `docker compose exec worker python -m app.pipelines.refresh <source>` (or
 `all`). A per-source advisory lock records an overlapping run as `skipped`
 rather than loading the same source twice.
+
+For the development resource, a "not yet loaded" FEC candidate or election
+calendar card means that no successful refresh is recorded; it does not by
+itself prove a credential problem. Both sources use the development worker's
+`FEC_API_KEY` and the configured `FEC_CYCLE`. After the updated code and
+migrations are deployed, request both **inside the development worker
+terminal**, not on the static checkout:
+
+```sh
+python -m app.pipelines.refresh election_candidates election_calendar
+```
+
+Each source is attempted even if the other fails; the command exits nonzero if
+either did not succeed. When scheduling is enabled, the corresponding daily
+jobs run at 10:00 and 11:00 UTC. Check `/status` for an updated last-success
+time and the Elections page for the expected cycle and records. An older
+restored status does not establish that the current key works. If a run fails
+or is skipped, inspect the development worker's operator-only logs and run
+history, keep credentials private, and wait for an overlapping job or quota
+window rather than bypassing a lock or changing the request budget.
+
+After the candidate-money code is deployed and migrations `0018` and `0019`
+have completed, the new unkeyed bulk source can be loaded in the same worker
+with:
+
+```sh
+python -m app.pipelines.refresh money_totals
+```
+
+It still shares the application's FEC request budget. Its daily job runs at
+12:00 UTC when scheduling is enabled. Confirm a new successful
+`fec_candidate_totals` run, `/status`, and `/money`; an unavailable cycle is
+not a zero-dollar cycle. Do not infer the development scheduler's current
+setting from these documented defaults.
 
 PostgreSQL records each outbound attempt in a rolling 60-minute window, before
 HTTP starts. The API and worker keep separate shares: `API_*` and `WORKER_*`
@@ -624,6 +721,8 @@ Core project documents:
 - **[AGENTS.md](AGENTS.md)** — the rules coding agents (human or AI) follow when working in this repo.
 - **[Platform roadmap](docs/platform-roadmap.md)** — proposed engineering and
   source-coverage milestones; planning targets are not deployed capabilities.
+- **[Source and coverage register](docs/source-coverage-register.md)** — current
+  acquisition limits, endpoint-family decisions and gates for expanding existing access.
 
 ## License
 

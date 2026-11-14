@@ -1,14 +1,17 @@
 import logging
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import nullslast, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.db import get_db
 from app.models.bill import Bill, BillAction, Cosponsor
 from app.models.member import Member
 from app.schemas.bill import BillOut
 from app.services.bill_enrich import BillTextChangedError, enrich_bill, get_bill_text
+from app.services.search import match_words
 from app.services.upstream import UpstreamCapacityError
 from app.types import MAX_LIST_OFFSET, BillId
 
@@ -24,12 +27,29 @@ async def list_bills(
     bill_type: str | None = None,
     sponsor: str | None = Query(default=None, description="sponsor bioguide_id"),
     policy_area: str | None = None,
+    status: Literal["became_law"] | None = Query(
+        default=None,
+        description=(
+            "became_law: bills whose Congress.gov record lists an enacted law, newest "
+            "latest action first. Covers only bills GovMap holds in full detail; "
+            "sponsored-legislation index rows carry no status until enriched."
+        ),
+    ),
     limit: int = Query(default=50, ge=1, le=250),
     offset: int = Query(default=0, ge=0, le=MAX_LIST_OFFSET),
+    q: Annotated[str | None, Query(min_length=1, max_length=100)] = None,
+    sort: Literal["recent", "oldest", "title", "number"] = "recent",
 ) -> list[Bill]:
-    # Most-recently-updated first — matches how the pipeline prioritizes and how
-    # a "what's moving in Congress" view wants them.
-    stmt = select(Bill).order_by(nullslast(Bill.update_date.desc()), Bill.bill_id)
+    if status == "became_law":
+        stmt = (
+            select(Bill)
+            .where(Bill.status == "Became Law")
+            .order_by(nullslast(Bill.latest_action_date.desc()), Bill.bill_id)
+        )
+    else:
+        # Most-recently-updated first — matches how the pipeline prioritizes
+        # and how a "what's moving in Congress" view wants them.
+        stmt = select(Bill).order_by(nullslast(Bill.update_date.desc()), Bill.bill_id)
     if congress:
         stmt = stmt.where(Bill.congress == congress)
     if bill_type:
@@ -38,6 +58,15 @@ async def list_bills(
         stmt = stmt.where(Bill.sponsor_bioguide_id == sponsor)
     if policy_area:
         stmt = stmt.where(Bill.policy_area == policy_area)
+    if q is not None and q.strip():
+        stmt = stmt.where(match_words(q, Bill.title, Bill.bill_id, Bill.latest_action))
+    if sort != "recent":
+        ordering = {
+            "oldest": Bill.latest_action_date.asc().nulls_last(),
+            "title": Bill.title.asc().nulls_last(),
+            "number": Bill.number.asc(),
+        }
+        stmt = stmt.order_by(None).order_by(ordering[sort], Bill.bill_id)
     stmt = stmt.limit(limit).offset(offset)
 
     result = await db.execute(stmt)
@@ -150,6 +179,7 @@ async def bill_detail(bill_id: BillId, db: AsyncSession = Depends(get_db)) -> di
             }
             for r in cosponsor_rows
         ],
+        "current_congress": settings.congress_number,
     }
 
 

@@ -17,3 +17,8 @@ async_session_factory = async_sessionmaker(engine, expire_on_commit=False)
 async def get_db() -> AsyncIterator[AsyncSession]:
     async with async_session_factory() as session:
         yield session
+
+
+async def begin_consistent_read(session: AsyncSession) -> None:
+    """Keep all statements in a response on one PostgreSQL snapshot."""
+    await session.connection(execution_options={"isolation_level": "REPEATABLE READ"})
