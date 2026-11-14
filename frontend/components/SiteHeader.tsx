@@ -51,7 +51,9 @@ function NavLink({
       onClick={onClick}
       aria-current={active ? "page" : undefined}
       className={`block rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
-        active ? "bg-white/10 text-white" : "text-white/70 hover:bg-white/5 hover:text-white"
+        active
+          ? "bg-sunken text-ink dark:bg-ink/10"
+          : "text-ink-soft hover:bg-sunken hover:text-ink dark:text-ink/70 dark:hover:bg-ink/5 dark:hover:text-ink"
       }`}
     >
       {item.label}
@@ -199,10 +201,10 @@ export function SiteHeader() {
                 const bounds = event.currentTarget.getBoundingClientRect();
                 if (event.clientX < bounds.left || event.clientX > bounds.right) close();
               }}
-              className="navigation-dialog chrome fixed inset-y-0 left-auto right-0 m-0 h-dvh max-h-none w-full max-w-2xl overflow-hidden border-l border-white/10 bg-govnavy p-0 text-white shadow-2xl backdrop:bg-govnavy/70 backdrop:backdrop-blur-sm"
+              className="navigation-dialog fixed inset-y-0 left-auto right-0 m-0 h-dvh max-h-none w-full max-w-2xl overflow-hidden border-l border-line bg-panel p-0 text-ink shadow-2xl backdrop:bg-govnavy/70 backdrop:backdrop-blur-sm dark:border-ink/10 dark:bg-[#070b1a]"
             >
             <div className="flex h-full flex-col">
-              <div className="flex items-center justify-between border-b border-white/10 px-6 py-5">
+              <div className="flex items-center justify-between border-b border-line px-6 py-5 dark:border-ink/10">
                 <div>
                   <h2 id="app-navigation-title" className="font-display text-xl font-bold">Explore GovMap</h2>
                 </div>
@@ -210,7 +212,7 @@ export function SiteHeader() {
                   type="button"
                   onClick={close}
                   aria-label="Close menu"
-                  className="text-white transition-colors hover:text-white/70"
+                  className="text-ink-soft transition-colors hover:text-ink"
                 >
                   <CloseIcon />
                 </button>
@@ -221,12 +223,12 @@ export function SiteHeader() {
               >
                 {/* Search here only where the centered bar is hidden (mobile). */}
                 <div className="mb-3 md:hidden">
-                  <UniversalSearch tone="chrome" onNavigate={close} />
+                  <UniversalSearch onNavigate={close} />
                 </div>
                 <div className="grid gap-6 sm:grid-cols-2">
                   {NAVIGATION_GROUPS.map((group) => (
                     <section key={group.id} aria-labelledby={`navigation-${group.id}`}>
-                      <h3 id={`navigation-${group.id}`} className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-wider text-govblue-400">
+                      <h3 id={`navigation-${group.id}`} className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-wider text-ink-soft dark:text-govblue-600">
                         {group.label}
                       </h3>
                       <MenuSections
@@ -237,8 +239,8 @@ export function SiteHeader() {
                   ))}
                 </div>
 
-                <details className="mt-6 border-t border-white/10 pt-4">
-                  <summary className="cursor-pointer rounded-lg px-3 py-2 text-xs font-semibold uppercase tracking-wider text-white/50 hover:text-white">
+                <details className="mt-6 border-t border-line pt-4 dark:border-ink/10">
+                  <summary className="cursor-pointer rounded-lg px-3 py-2 text-xs font-semibold uppercase tracking-wider text-ink-muted hover:text-ink">
                     Coming next
                   </summary>
                   <div className="mt-2 grid gap-1 sm:grid-cols-2">
@@ -247,10 +249,10 @@ export function SiteHeader() {
                       key={s.id}
                       href={s.href}
                       onClick={close}
-                      className="flex items-center justify-between gap-3 rounded-md px-3 py-1.5 text-sm text-white/55 transition-colors hover:bg-white/5 hover:text-white/80"
+                      className="flex items-center justify-between gap-3 rounded-md px-3 py-1.5 text-sm text-ink-soft transition-colors hover:bg-sunken hover:text-ink dark:text-ink/70 dark:hover:bg-ink/5 dark:hover:text-ink"
                     >
                       <span>{s.label}</span>
-                      <span className="shrink-0 rounded-full border border-white/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white/45">
+                      <span className="shrink-0 rounded-full border border-line px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-ink-muted dark:border-ink/15">
                         Planned
                       </span>
                     </Link>
@@ -258,9 +260,9 @@ export function SiteHeader() {
                   </div>
                 </details>
               </nav>
-              <div className="border-t border-white/10 px-8 py-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
-                <p className="text-xs text-white/50">{siteConfig.tagline}</p>
-                <p className="mt-1 text-[11px] text-white/40">Theme, home area and feedback are in Settings in the header.</p>
+              <div className="border-t border-line px-8 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] dark:border-ink/10">
+                <p className="text-xs text-ink-muted">{siteConfig.tagline}</p>
+                <p className="mt-1 text-[11px] text-ink-muted">Theme, home area and feedback are in Settings in the header.</p>
               </div>
             </div>
             </dialog>,

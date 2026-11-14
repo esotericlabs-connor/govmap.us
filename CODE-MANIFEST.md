@@ -4,6 +4,14 @@ What's been built, in what order, and what's next. This is a living log — add 
 
 ## Build log
 
+**2026-11-13 — Theme-aware navigation blade (awaiting CI/dev validation)**
+- The navigation blade and its mobile search now follow the app's Light,
+  Dark or System setting instead of always using the fixed dark chrome palette.
+  Active links, planned items, borders and footer text adapt with the theme;
+  the dark blade retains its navy background.
+- Added a regression check for the theme-aware drawer and search wiring.
+  Local execution remains disabled; CI and visual checks on dev are pending.
+
 **Candidate receipt geography — on-demand FEC aggregate (awaiting CI/dev validation)**
 - Candidate finance detail can request FEC Schedule A aggregates grouped by
   contributor-reported state. The view labels itemized-only coverage, excludes

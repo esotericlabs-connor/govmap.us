@@ -54,7 +54,7 @@ type ToneClasses = Record<
   string
 >;
 
-/** "bar" sits on the themed header; "chrome" sits on the always-navy menu blade. */
+/** "bar" follows the page theme; "chrome" is for fixed-navy surfaces. */
 const TONES: Record<Tone, ToneClasses> = {
   bar: {
     icon: "text-slate-warm-500",
