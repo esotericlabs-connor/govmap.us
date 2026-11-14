@@ -22,9 +22,9 @@ export default function SupportPage() {
       <main className="bg-white">
         <PageBanner eyebrow="Support GovMap" title="Keep it free. Keep it independent.">
           <p>
-            GovMap takes no advertising and no political money. It runs on small
-            donations from people who believe everyone deserves a clear view of
-            their government.
+            GovMap takes no advertising and no political money. 
+            The core of our platform will always remain free to the public. 
+            We wouldn't be able to do this without your support.
           </p>
         </PageBanner>
 

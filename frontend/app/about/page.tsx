@@ -177,7 +177,7 @@ export default function AboutPage() {
         <section className="mx-auto max-w-6xl px-6 py-20 sm:py-24">
           <div className="grid gap-12 lg:grid-cols-5">
             <div className="lg:col-span-3">
-              <SectionHeading eyebrow="Why we built it" title="Everyone deserves a clear look into their government.">
+              <SectionHeading eyebrow="Why we built it" title="Everyone deserves to know their government.">
                 <p>
                   The information about who represents you, and what they do with
                   that power, is public — but it&apos;s scattered across dozens of
@@ -185,10 +185,10 @@ export default function AboutPage() {
                   ends. Most people never find it, so most people never care to look.
                 </p>
                 <p className="mt-4">
-                  GovMap pulls those official records together, connects them, and
-                  presents them so anyone can understand them in a minute on their
-                  phone. When the facts are easy to see, it&apos;s easier to take
-                  part.
+                  GovMap aggregates those official records together, connects them, and
+                  presents them in a way so that anyone can find what they are looking for 
+                  in a minute on their computer or phone. When facts are easy to see, 
+                  it&apos;s easier to take part.
                 </p>
               </SectionHeading>
             </div>
@@ -197,12 +197,13 @@ export default function AboutPage() {
                 The ambition
               </p>
               <p className="mt-3 font-display text-2xl font-bold leading-snug">
-                Everyone deserves a clear view of your government.
+                To make government data transparent, accountable and accessible to everyone.
               </p>
               <p className="mt-4 leading-relaxed text-white/80">
-                Every official who represents you, every vote they cast, and every
-                law as it moves from a proposal, through signature or veto, to any
-                challenge in court — connected, and tied to where you live. 
+                Every official who represents you, their campaign contributions,
+                their conduct, every vote they cast, and every law as it moves 
+                from a proposal, through signature or veto, to any challenge in
+                court — all from one place. 
               </p>
             </BannerCard>
           </div>
@@ -330,8 +331,8 @@ export default function AboutPage() {
             <BannerCard>
               <h3 className="font-display text-xl font-bold">Keep GovMap independent</h3>
               <p className="mt-2 leading-relaxed text-white/80">
-                No ads and no political money. GovMap runs on small donations from
-                people who think this should exist.
+                GovMap runs on donations and grants from people and organizations who think this should exist. 
+                No ads. No corporate or political funding. This should be obvious.
               </p>
               <Link
                 href="/support"

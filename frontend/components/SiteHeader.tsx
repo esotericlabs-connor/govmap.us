@@ -205,7 +205,6 @@ export function SiteHeader() {
               <div className="flex items-center justify-between border-b border-white/10 px-6 py-5">
                 <div>
                   <h2 id="app-navigation-title" className="font-display text-xl font-bold">Explore GovMap</h2>
-                  <p className="mt-1 text-xs text-white/50">Your government, organized.</p>
                 </div>
                 <button
                   type="button"
