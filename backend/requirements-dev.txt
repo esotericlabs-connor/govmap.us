@@ -2,4 +2,4 @@
 # requirements.txt (`pip install -r requirements.txt`, then
 # `pip install -r requirements-dev.txt`): requirements.txt is hash-locked, so a
 # combined install would make pip demand hashes for these pins too.
-pytest==9.0.3
+pytest==9.2.0
