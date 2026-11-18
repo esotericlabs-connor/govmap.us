@@ -1,13 +1,13 @@
 # All stages pin the same base digest so a rebuild is reproducible and a
 # re-pushed tag can't change what ships; Dependabot proposes digest bumps.
 # --- deps: install node_modules ---
-FROM node:24-slim@sha256:01d566e8d94d8c619591d78652babfccd3c6992a3dffa9ed5ab39e11cf6c70e9 AS deps
+FROM node:24-slim@sha256:dc26ae92c9fb15cf6b1d63e20f0944b2efe0f115b20e00be48fb23fceb061c54 AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 
 # --- builder: compile the Next.js standalone bundle ---
-FROM node:24-slim@sha256:01d566e8d94d8c619591d78652babfccd3c6992a3dffa9ed5ab39e11cf6c70e9 AS builder
+FROM node:24-slim@sha256:dc26ae92c9fb15cf6b1d63e20f0944b2efe0f115b20e00be48fb23fceb061c54 AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
@@ -26,7 +26,7 @@ ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL \
 RUN npm run build
 
 # --- runner: minimal runtime image ---
-FROM node:24-slim@sha256:01d566e8d94d8c619591d78652babfccd3c6992a3dffa9ed5ab39e11cf6c70e9 AS runner
+FROM node:24-slim@sha256:dc26ae92c9fb15cf6b1d63e20f0944b2efe0f115b20e00be48fb23fceb061c54 AS runner
 WORKDIR /app
 ARG SOURCE_COMMIT=unknown
 ENV NODE_ENV=production \
