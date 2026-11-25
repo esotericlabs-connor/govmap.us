@@ -1,6 +1,6 @@
 # Same PostgreSQL 16 base digest as docker-compose.yml and the CI service
 # containers.
-FROM postgres:16-alpine@sha256:aa6cb33cf4c19c765cefcf48d96176258800870a9a1e930ad126200f9d825139
+FROM postgres:16-alpine@sha256:f2f98726820d0342055351c6e9d36e705f5bfffb3dd53ff556325114b08afb6d
 
 # Alpine's pgbackrest package depends on the generic `postgresql` provider,
 # which apk would satisfy with a second, newer PostgreSQL server beside the
